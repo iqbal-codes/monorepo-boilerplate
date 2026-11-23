@@ -1,0 +1,24 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "base-lyra",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/styles/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "aliases": {
+    "components": "@monorepo-boilerplate/ui/components",
+    "utils": "@monorepo-boilerplate/ui/lib/utils",
+    "hooks": "@monorepo-boilerplate/ui/hooks",
+    "lib": "@monorepo-boilerplate/ui/lib",
+    "ui": "@monorepo-boilerplate/ui/components"
+  },
+  "menuColor": "default",
+  "menuAccent": "subtle",
+  "registries": {}
+}

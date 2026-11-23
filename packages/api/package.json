@@ -1,0 +1,22 @@
+{
+  "name": "@monorepo-boilerplate/api",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@monorepo-boilerplate/auth": "workspace:*",
+    "@monorepo-boilerplate/db": "workspace:*",
+    "@trpc/client": "catalog:",
+    "@trpc/server": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@monorepo-boilerplate/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
