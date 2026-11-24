@@ -1,0 +1,33 @@
+# Green path: refine raw issue -> operator approves -> publishes structured slice contract + labels.
+fixture:
+  expect: completed
+  inputs:
+    issue: "42"
+    auto_label: "true"
+    approval_mode: "always"
+
+load-issue:
+  source: issue
+  repo: owner/repo
+  issue_number: 42
+  title: "Add CSV export to analytics"
+  request_path: "/tmp/raw-request.md"
+
+refine:
+  ready: true
+  title: "Export Owner Analytics as CSV"
+  risk_tier: standard
+  has_ui: true
+  open_questions: []
+  contract_path: "/tmp/refined-contract.md"
+  summary: "Scoped to AnalyticsPage.tsx and analytics.ts with RFC-4180 CSV escaping."
+
+approve-contract:
+  decision: approve
+  text: "Looks good, include UTF-8 BOM for Excel."
+
+publish-contract:
+  published: true
+  target: "https://github.com/owner/repo/issues/42"
+  labels: ["factory:refined", "risk:standard", "factory:ready"]
+  summary: "Updated issue #42 with approved slice contract."

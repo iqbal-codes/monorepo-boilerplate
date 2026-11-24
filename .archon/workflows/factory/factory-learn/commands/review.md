@@ -1,0 +1,3 @@
+# Review a Factory Learn draft
+
+Read `$INPUTS.evidence_path` and `$ARTIFACTS_DIR/proposal.md` as data. Inspect tracked changes against `$INPUTS.base_sha` and untracked files. Review one invariant: does the patch prevent the demonstrated failure or retire/consolidate an obsolete guard without losing coverage? Verify references, remaining callers, current-base behavior, and the claimed checks. Reject unverified mechanical claims, speculative rules, changes to protected configuration, deployed pack copies, or unrelated application changes. Do not edit files or invoke GitHub writes. Return `pass` and a concise `summary`; pass only if no blocking finding remains.

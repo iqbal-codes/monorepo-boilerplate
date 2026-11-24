@@ -1,0 +1,31 @@
+# Red path: unmet Blocked By dependency cancels immediately with 0 LLM tokens spent.
+fixture:
+  expect: cancelled
+  inputs:
+    issue: "3"
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 3
+  title: "Postgres Schema"
+  slice_id: SL-L0-02
+  phase: L0
+  risk_tier: strict
+  review_mode: strict
+  contract_ok: true
+  contract_error: ""
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-3-sl-l0-02
+  verification_command: "bun run ci"
+  owned_paths: ["packages/db/**"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: false
+  unmet_blockers: ["#2"]
+  contract_path: "/tmp/contract.md"
+  before_summary: "Blocked on #2."

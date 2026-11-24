@@ -1,0 +1,100 @@
+# Green path: standard non-UI L2 slice -> Draft PR (stage:review) -> 2 independent QA axes (LGTM, stage:approved) -> Ready PR -> auto-merge.
+fixture:
+  expect: completed
+  inputs:
+    issue: "7"
+    merge_mode: checkpoint
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 7
+  title: "Tables & Menu Catalog Management"
+  slice_id: SL-L2-01
+  phase: L2
+  risk_tier: standard
+  review_mode: standard
+  contract_ok: true
+  contract_error: ""
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-7-sl-l2-01
+  verification_command: "bun run ci"
+  owned_paths: ["packages/db/src/repositories/catalog.repo.ts"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "Base main @ 1111111 (non-UI slice)."
+
+implement:
+  done: true
+  blocked: false
+  summary: "Implemented catalog repo and tests."
+
+publish-draft-pr:
+  pr_number: 21
+  pr_url: "https://github.com/owner/repo/pull/21"
+  head_sha: "1212121212121212121212121212121212121212"
+  diff_stat: "2 files changed, 120 insertions(+)"
+  is_draft: true
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Draft PR #21 opened; moved to stage:review."
+
+mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "2 files changed, 120 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+review-spec:
+  lgtm: true
+  blocking_count: 0
+  summary: "All acceptance criteria and tests verified."
+
+review-standards:
+  lgtm: true
+  blocking_count: 0
+  summary: "Matches L1 archetype and standards."
+
+verdict:
+  round: 1
+  done: true
+  ready: true
+  effective_has_ui: false
+  reason: ready
+  diff_stat: "2 files changed, 120 insertions(+)"
+  summary: "Round 1 passed: mechanical gate green, QA LGTM (Spec+Tests, Standards+Code)."
+
+finalize-pr:
+  pr_number: 21
+  pr_url: "https://github.com/owner/repo/pull/21"
+  head_sha: "2222222222222222222222222222222222222222"
+  diff_stat: "2 files changed, 120 insertions(+)"
+  is_draft: false
+  merge_action: auto
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "PR #21 ready (merge_action=auto)."
+
+ci-merge:
+  merged: true
+  ci_status: green
+  summary: "Squash-merged PR #21 pinned to 2222222."
+
+summary:
+  delivered: true
+  merged: true
+  pr_url: "https://github.com/owner/repo/pull/21"
+  status: merged
+  summary: "PR #21 merged."

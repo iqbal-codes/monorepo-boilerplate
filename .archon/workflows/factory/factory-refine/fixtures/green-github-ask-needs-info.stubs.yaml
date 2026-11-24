@@ -1,0 +1,29 @@
+# GitHub-native Q&A path: vague issue (`ready=false` + `approval_mode=github`) posts questions on GitHub + adds `factory:needs-info` without pausing the run.
+fixture:
+  expect: completed
+  inputs:
+    issue: "55"
+    auto_label: "true"
+    approval_mode: "github"
+
+load-issue:
+  source: issue
+  repo: owner/repo
+  issue_number: 55
+  title: "Improve reports page"
+  request_path: "/tmp/raw-request.md"
+
+refine:
+  ready: false
+  title: "Clarify reports page scope"
+  risk_tier: standard
+  has_ui: true
+  open_questions: ["Which export format is needed: CSV, PDF, or both?"]
+  contract_path: "/tmp/refined-contract.md"
+  summary: "Needs export format clarification."
+
+publish-contract:
+  published: false
+  target: "https://github.com/owner/repo/issues/55"
+  labels: ["factory:needs-info"]
+  summary: "Posted 1 clarification question(s) on issue #55 and applied factory:needs-info."

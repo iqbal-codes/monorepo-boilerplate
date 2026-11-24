@@ -1,0 +1,29 @@
+# Auto-admit green path: unambiguous bug/crash report (ready=true) skips approve-contract and queues straight for factory-slice.
+fixture:
+  expect: completed
+  inputs:
+    issue: "88"
+    auto_label: "true"
+    approval_mode: "if-ambiguous"
+
+load-issue:
+  source: issue
+  repo: owner/repo
+  issue_number: 88
+  title: "Crash: TypeError reading undefined currencyCode on /analytics"
+  request_path: "/tmp/raw-request.md"
+
+refine:
+  ready: true
+  title: "Fix crash when currencyCode is undefined in AnalyticsPage"
+  risk_tier: standard
+  has_ui: true
+  open_questions: []
+  contract_path: "/tmp/refined-contract.md"
+  summary: "Scoped to AnalyticsPage.tsx and KpiSummaryCards.tsx with regression test."
+
+publish-contract:
+  published: true
+  target: "https://github.com/owner/repo/issues/88"
+  labels: ["factory:refined", "risk:standard", "factory:ready"]
+  summary: "Auto-published ready bugfix contract for #88."

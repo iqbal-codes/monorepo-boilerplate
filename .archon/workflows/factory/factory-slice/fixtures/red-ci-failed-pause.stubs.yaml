@@ -1,0 +1,98 @@
+# Red path: PR published & auto-merge attempted, but CI fails -> pauses at ci-escalation attention gate.
+fixture:
+  expect: paused
+  inputs:
+    issue: "8"
+    merge_mode: auto
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 8
+  title: "Ingredients, Recipes & Stock Ledger"
+  slice_id: SL-L2-02
+  phase: L2
+  risk_tier: strict
+  review_mode: strict
+  contract_ok: true
+  contract_error: ""
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-8-sl-l2-02
+  verification_command: "bun run ci"
+  owned_paths: ["packages/db/src/repositories/inventory.repo.ts"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "Base main."
+
+implement:
+  done: true
+  blocked: false
+  summary: "Implemented inventory ledger."
+
+publish-draft-pr:
+  pr_number: 23
+  pr_url: "https://github.com/owner/repo/pull/23"
+  head_sha: "3434343434343434343434343434343434343434"
+  diff_stat: "3 files changed, 210 insertions(+)"
+  is_draft: true
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Draft PR #23 opened."
+
+mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "3 files changed, 210 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+review-spec:
+  lgtm: true
+  blocking_count: 0
+  summary: "Spec verified."
+
+review-standards:
+  lgtm: true
+  blocking_count: 0
+  summary: "Standards verified."
+
+review-seams-errors:
+  lgtm: true
+  blocking_count: 0
+  summary: "Ledger error handling verified."
+
+verdict:
+  round: 1
+  done: true
+  ready: true
+  effective_has_ui: false
+  reason: ready
+  diff_stat: "3 files changed, 210 insertions(+)"
+  summary: "Round 1 passed."
+
+finalize-pr:
+  pr_number: 23
+  pr_url: "https://github.com/owner/repo/pull/23"
+  head_sha: "4444444444444444444444444444444444444444"
+  diff_stat: "3 files changed, 210 insertions(+)"
+  is_draft: false
+  merge_action: auto
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "PR #23 ready."
+
+ci-merge:
+  merged: false
+  ci_status: failed
+  summary: "CI checks failed on PR #23 at 4444444."

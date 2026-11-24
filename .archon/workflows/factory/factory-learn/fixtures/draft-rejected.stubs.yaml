@@ -1,0 +1,16 @@
+fixture:
+  expect: completed
+  reached: [collect-evidence, learn, review]
+  inputs:
+    mode: draft
+    allowed_paths: '["tests/harness/"]'
+collect-evidence:
+  repo: owner/repo
+  base_sha: 0123456789abcdef0123456789abcdef01234567
+  evidence_path: /tmp/evidence.json
+learn:
+  decision: draft
+  title: Remove obsolete preview check
+review:
+  pass: false
+  summary: The check still covers an active compatibility path.

@@ -1,0 +1,100 @@
+# Checkpoint path: L1 strict UI slice -> Draft PR -> ux-verify + 3 independent QA axes -> Ready PR -> pauses at merge-approval attention gate.
+fixture:
+  expect: paused
+  inputs:
+    issue: "6"
+    merge_mode: checkpoint
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 6
+  title: "Tenants & Invites"
+  slice_id: SL-L1-01
+  phase: L1
+  risk_tier: strict
+  review_mode: strict
+  contract_ok: true
+  contract_error: ""
+  has_ui: true
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-6-sl-l1-01
+  verification_command: "bun run ci"
+  owned_paths: ["apps/backoffice/src/routes/LoginPage.tsx", ".archon/ui-preview.sh"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "New UI surface — did not exist on main."
+
+implement:
+  done: true
+  blocked: false
+  summary: "Implemented tenant invites."
+
+publish-draft-pr:
+  pr_number: 22
+  pr_url: "https://github.com/owner/repo/pull/22"
+  head_sha: "2323232323232323232323232323232323232323"
+  diff_stat: "8 files changed, 450 insertions(+)"
+  is_draft: true
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Draft PR #22 opened; moved to stage:review."
+
+mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: true
+  # The first UI slice added its preview hook after contract intake.
+  effective_run_ux: true
+  preview_cmd: "./.archon/ui-preview.sh"
+  diff_stat: "8 files changed, 450 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+ux-verify:
+  passed: true
+  screenshots: ["after-default.png", "after-error.png"]
+  findings: []
+  summary: "All 3 required UI states verified via agent-browser."
+
+review-spec:
+  lgtm: true
+  blocking_count: 0
+  summary: "Spec and tests clean."
+
+review-standards:
+  lgtm: true
+  blocking_count: 0
+  summary: "Standards clean."
+
+review-seams-errors:
+  lgtm: true
+  blocking_count: 0
+  summary: "Tenant boundaries and error handling verified."
+
+verdict:
+  round: 1
+  done: true
+  ready: true
+  effective_has_ui: true
+  reason: ready
+  diff_stat: "8 files changed, 450 insertions(+)"
+  summary: "Round 1 passed: mechanical gate green, UX verified, QA LGTM (3 axes)."
+
+finalize-pr:
+  pr_number: 22
+  pr_url: "https://github.com/owner/repo/pull/22"
+  head_sha: "3333333333333333333333333333333333333333"
+  diff_stat: "8 files changed, 450 insertions(+)"
+  is_draft: false
+  merge_action: ask
+  needs_human_merge_approval: true
+  approval_message: "Checkpoint review required before merging L1 PR #22."
+  summary: "PR #22 ready (merge_action=ask)."

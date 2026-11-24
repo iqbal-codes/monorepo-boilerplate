@@ -1,0 +1,14 @@
+fixture:
+  expect: completed
+  reached: [collect-evidence, learn, publish-proposal]
+collect-evidence:
+  repo: owner/repo
+  base_sha: '0123456789abcdef0123456789abcdef01234567'
+  evidence_path: /tmp/evidence.json
+learn:
+  decision: proposal-only
+  title: Retire a replaced harness script
+publish-proposal:
+  status: proposal-only
+  pr_url: ''
+  summary: Saved a proposal for the harness owner.

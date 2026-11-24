@@ -1,0 +1,117 @@
+name: factory-refine
+description: |
+  Intake and refinement workflow. Grounds a
+  raw/vague GitHub issue, bug/crash report, or free-form request against the live
+  repository in one agent pass, drafts an executable slice contract (Owned Paths,
+  Scope, Regression Test / UI States, Verification Command, Risk Tier), pauses for
+  operator approval only when ambiguous (`approval_mode: if-ambiguous`), preserves
+  the original report/stack trace in the issue body, and publishes `factory:refined` +
+  `factory:ready` labels for manual or dispatcher-driven delivery with `factory-slice`.
+
+inputs:
+  issue:
+    default: ""
+    description: Optional GitHub issue number to refine. When empty, saves a local contract from $ARGUMENTS.
+  repo:
+    default: ""
+    description: Optional GitHub owner/repo (auto-detected from git remote origin when empty).
+  auto_label:
+    default: "true"
+    description: '"true" applies factory:refined, risk:<tier>, and factory:ready labels on the GitHub issue upon publish.'
+  approval_mode:
+    default: "if-ambiguous"
+    description: '"if-ambiguous" pauses in Archon only when ready=false; "github" posts open questions on the GitHub issue instead of pausing; "always" always pauses; "never" skips pause.'
+
+worktree:
+  enabled: false
+mutates_checkout: false
+
+returns: publish-contract
+outcome_field: published
+
+nodes:
+  - id: load-issue
+    script: load-issue
+    runtime: bun
+    with:
+      issue: "$INPUTS.issue"
+      repo: "$INPUTS.repo"
+    output_format:
+      type: object
+      properties:
+        source: { type: string, enum: [issue, arguments] }
+        repo: { type: string }
+        issue_number: { type: integer }
+        title: { type: string }
+        request_path: { type: string }
+      required: [source, repo, issue_number, title, request_path]
+
+  - id: refine
+    command: refine
+    model: ['@triage', medium]
+    mutates_checkout: false
+    depends_on: [load-issue]
+    with:
+      request_path: "$load-issue.output.request_path"
+      title: "$load-issue.output.title"
+    output_format:
+      type: object
+      properties:
+        ready: { type: boolean }
+        title: { type: string }
+        risk_tier: { type: string, enum: [standard, strict] }
+        has_ui: { type: boolean }
+        open_questions: { type: array, items: { type: string } }
+        contract_path: { type: string }
+        summary: { type: string }
+      required: [ready, title, risk_tier, has_ui, open_questions, contract_path, summary]
+
+  - id: approve-contract
+    depends_on: [load-issue, refine]
+    when: "$INPUTS.approval_mode == 'always' || $INPUTS.approval_mode == 'if-ambiguous' && $refine.output.ready == false || $INPUTS.approval_mode == 'github' && $refine.output.ready == false && $load-issue.output.source != 'issue'"
+    wait:
+      attention: |
+        Slice contract drafted for: $refine.output.title
+        Risk tier: $refine.output.risk_tier | Has UI: $refine.output.has_ui | Ready: $refine.output.ready
+        Summary: $refine.output.summary
+        Open questions: $refine.output.open_questions
+        Full drafted contract: $refine.output.contract_path
+
+        Approve (with optional notes/answers in text) to publish the contract and queue it for `factory-slice`; Reject to cancel without updating the issue.
+      form: approval
+      labels:
+        factory: "refine"
+
+  - id: cancel-rejected
+    depends_on: [approve-contract]
+    when: "$approve-contract.output.decision == 'reject'"
+    cancel: "Refined contract rejected by operator: $approve-contract.output.text"
+
+  - id: publish-contract
+    script: publish-contract
+    runtime: bun
+    depends_on: [load-issue, refine, approve-contract]
+    trigger_rule: none_failed_min_one_success
+    when: "$INPUTS.approval_mode == 'never' || $INPUTS.approval_mode != 'always' && $refine.output.ready == true || $INPUTS.approval_mode == 'github' && $refine.output.ready == false && $load-issue.output.source == 'issue' || $approve-contract.output.decision == 'approve'"
+    with:
+      source: "$load-issue.output.source"
+      repo: "$load-issue.output.repo"
+      issue_number: "$load-issue.output.issue_number"
+      request_path: "$load-issue.output.request_path"
+      title: "$refine.output.title"
+      risk_tier: "$refine.output.risk_tier"
+      contract_path: "$refine.output.contract_path"
+      refine_ready: "$refine.output.ready"
+      approval_mode: "$INPUTS.approval_mode"
+      open_questions: { from: "$refine.output.open_questions" }
+      refine_summary: "$refine.output.summary"
+      operator_notes: { from: "$approve-contract.output.text", if_skipped: "" }
+      auto_label: "$INPUTS.auto_label"
+    output_format:
+      type: object
+      properties:
+        published: { type: boolean }
+        target: { type: string }
+        labels: { type: array, items: { type: string } }
+        summary: { type: string }
+      required: [published, target, labels, summary]

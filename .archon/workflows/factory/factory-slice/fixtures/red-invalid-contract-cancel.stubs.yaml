@@ -1,0 +1,31 @@
+# Red path: incomplete/vague issue marked factory:ready fails readiness gate before implement with 0 LLM tokens.
+fixture:
+  expect: cancelled
+  inputs:
+    issue: "99"
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 99
+  title: "Fix broken checkout button maybe?"
+  slice_id: ""
+  phase: ""
+  risk_tier: standard
+  review_mode: standard
+  contract_ok: false
+  contract_error: "Missing Owned / Allowed Paths (required for fail-closed boundary isolation)"
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-99-fix-broken-checkout-button-maybe
+  verification_command: ""
+  owned_paths: []
+  forbidden_paths: []
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "Base main @ 1111111 (incomplete contract)."

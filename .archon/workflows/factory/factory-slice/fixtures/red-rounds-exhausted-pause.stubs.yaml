@@ -1,0 +1,82 @@
+# Red path: Independent QA rejects Round 1 -> Round 2+ resumes implementer in fix + push-fix -> still open after 3 rounds -> pauses at escalate-rounds.
+fixture:
+  expect: paused
+  inputs:
+    issue: "9"
+    merge_mode: checkpoint
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 9
+  title: "Live Chef KDS Over SSE"
+  slice_id: SL-L2-03
+  phase: L2
+  risk_tier: strict
+  review_mode: strict
+  contract_ok: true
+  contract_error: ""
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-9-sl-l2-03
+  verification_command: "bun run ci"
+  owned_paths: ["apps/kds/**"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "Base main."
+
+implement:
+  done: true
+  blocked: false
+  summary: "Initial KDS implementation."
+
+publish-draft-pr:
+  pr_number: 24
+  pr_url: "https://github.com/owner/repo/pull/24"
+  head_sha: "5555555555555555555555555555555555555555"
+  diff_stat: "4 files changed, 190 insertions(+)"
+  is_draft: true
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Draft PR #24 opened; moved to stage:review."
+
+mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "4 files changed, 205 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+review-spec:
+  lgtm: true
+  blocking_count: 0
+  summary: "Spec verified."
+
+review-standards:
+  lgtm: true
+  blocking_count: 0
+  summary: "Standards verified."
+
+review-seams-errors:
+  lgtm: false
+  blocking_count: 1
+  summary: "SSE reconnect still drops unacked event sequence."
+
+verdict:
+  round: 1
+  done: false
+  ready: false
+  effective_has_ui: false
+  reason: review_findings
+  diff_stat: "4 files changed, 205 insertions(+)"
+  summary: "Round findings open in Seams+Errors; sent back to stage:changes-requested."

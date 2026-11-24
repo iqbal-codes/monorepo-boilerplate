@@ -1,0 +1,36 @@
+# Red path: implementer hits boundary blocker before opening PR -> pauses at escalate-blocked attention gate.
+fixture:
+  expect: paused
+  inputs:
+    issue: "4"
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 4
+  title: "Hono API Backbone"
+  slice_id: SL-L0-03
+  phase: L0
+  risk_tier: strict
+  review_mode: strict
+  contract_ok: true
+  contract_error: ""
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-4-sl-l0-03
+  verification_command: "bun run ci"
+  owned_paths: ["apps/api/**"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "Base main."
+
+implement:
+  done: true
+  blocked: true
+  summary: "Cannot add missing dependency without editing forbidden package.json."

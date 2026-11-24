@@ -1,0 +1,85 @@
+name: factory-learn
+description: Audit the repository harness and recent Factory runs. Save an evidence-backed proposal, or optionally open a draft PR in the same repository. Never merges.
+inputs:
+  mode:
+    default: proposal
+    description: 'proposal writes an artifact only; draft permits a checked draft PR.'
+  allowed_paths:
+    default: '[]'
+    description: JSON array of explicit repository-relative harness path patterns permitted for draft mode.
+  pr_snapshot:
+    default: ''
+    description: Operator-local snapshot supplied by the daily poller; leave empty for manual audits.
+worktree:
+  enabled: true
+returns: publish-proposal
+nodes:
+  - id: collect-evidence
+    script: collect-evidence
+    runtime: bun
+    mutates_checkout: false
+    with:
+      pr_snapshot: "$INPUTS.pr_snapshot"
+    output_format:
+      type: object
+      properties:
+        repo: { type: string }
+        base_sha: { type: string }
+        evidence_path: { type: string }
+      required: [repo, base_sha, evidence_path]
+
+  - id: learn
+    command: learn
+    model: ['@reviewer', medium]
+    depends_on: [collect-evidence]
+    with:
+      evidence_path: "$collect-evidence.output.evidence_path"
+      base_sha: "$collect-evidence.output.base_sha"
+      mode: "$INPUTS.mode"
+      allowed_paths: "$INPUTS.allowed_paths"
+    output_format:
+      type: object
+      properties:
+        decision: { type: string, enum: [no-change, proposal-only, draft] }
+        title: { type: string }
+      required: [decision, title]
+
+  - id: review
+    command: review
+    model: ['@reviewer', medium]
+    context: fresh
+    mutates_checkout: false
+    depends_on: [collect-evidence, learn]
+    when: "$learn.output.decision == 'draft'"
+    with:
+      base_sha: "$collect-evidence.output.base_sha"
+      evidence_path: "$collect-evidence.output.evidence_path"
+    output_format:
+      type: object
+      properties:
+        pass: { type: boolean }
+        summary: { type: string }
+      required: [pass, summary]
+
+  - id: publish-proposal
+    script: publish-proposal
+    runtime: bun
+    depends_on: [collect-evidence, learn, review]
+    trigger_rule: none_failed_min_one_success
+    when: "$learn.output.decision != 'draft' || $review.output.pass == true"
+    with:
+      repo: "$collect-evidence.output.repo"
+      base_sha: "$collect-evidence.output.base_sha"
+      evidence_path: "$collect-evidence.output.evidence_path"
+      decision: "$learn.output.decision"
+      mode: "$INPUTS.mode"
+      allowed_paths: "$INPUTS.allowed_paths"
+      title: "$learn.output.title"
+      pr_snapshot: "$INPUTS.pr_snapshot"
+    output_format:
+      type: object
+      properties:
+        status: { type: string }
+        pr_url: { type: string }
+        summary: { type: string }
+      required: [status, pr_url, summary]

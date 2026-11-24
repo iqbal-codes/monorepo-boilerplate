@@ -1,0 +1,20 @@
+fixture:
+  expect: completed
+  reached: [collect-evidence, learn, review, publish-proposal]
+  inputs:
+    mode: draft
+    allowed_paths: '["tests/harness/"]'
+collect-evidence:
+  repo: owner/repo
+  base_sha: 0123456789abcdef0123456789abcdef01234567
+  evidence_path: /tmp/evidence.json
+learn:
+  decision: draft
+  title: Consolidate duplicate preview checks
+review:
+  pass: true
+  summary: The retained check covers both prior failure paths.
+publish-proposal:
+  status: draft
+  pr_url: https://github.com/owner/repo/pull/42
+  summary: Opened a draft for human review.

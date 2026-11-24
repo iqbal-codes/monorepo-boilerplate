@@ -1,0 +1,13 @@
+fixture:
+  expect: completed
+collect-evidence:
+  repo: owner/repo
+  base_sha: 0123456789abcdef0123456789abcdef01234567
+  evidence_path: /tmp/evidence.json
+learn:
+  decision: no-change
+  title: No justified harness change
+publish-proposal:
+  status: no-change
+  pr_url: ''
+  summary: Existing checks cover the known incidents.

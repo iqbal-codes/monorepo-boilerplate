@@ -1,0 +1,25 @@
+# Red path: operator rejects refined contract -> workflow cancels cleanly without mutating the GitHub issue.
+fixture:
+  expect: cancelled
+  inputs:
+    issue: "42"
+
+load-issue:
+  source: issue
+  repo: owner/repo
+  issue_number: 42
+  title: "Vague feature request"
+  request_path: "/tmp/raw-request.md"
+
+refine:
+  ready: false
+  title: "Vague feature request"
+  risk_tier: strict
+  has_ui: false
+  open_questions: ["Should this export raw ledger rows or aggregated totals?"]
+  contract_path: "/tmp/refined-contract.md"
+  summary: "Ambiguous aggregation scope."
+
+approve-contract:
+  decision: reject
+  text: "Defer until next milestone."
