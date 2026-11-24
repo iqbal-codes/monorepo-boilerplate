@@ -97,7 +97,7 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   const form = useAppForm({
     defaultValues: EMPTY_VALUES,
     validators: {
-      onBlur: customerFormSchema,
+      onChange: customerFormSchema,
       onSubmit: customerFormSchema,
     },
     onSubmit: async ({ value }) => {

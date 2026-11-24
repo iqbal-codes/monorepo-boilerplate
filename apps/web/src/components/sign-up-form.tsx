@@ -28,7 +28,7 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
       password: "",
     },
     validators: {
-      onBlur: signUpSchema,
+      onChange: signUpSchema,
       onSubmit: signUpSchema,
     },
     onSubmit: async ({ value }) => {

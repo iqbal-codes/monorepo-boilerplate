@@ -134,7 +134,7 @@ const wizardSchema = z.object({
     .string()
     .trim()
     .min(1, "Phone number is required.")
-    .refine((v) => isValidPhoneNumber(v), "Enter a valid international phone number."),
+    .refine((v) => v === "" || isValidPhoneNumber(v), "Enter a valid international phone number."),
   plan: z.string().min(1, "Choose a plan."),
   kickoffAt: z.string().min(1, "Select a kickoff date and time."),
   notifyTeam: z.boolean(),
@@ -197,7 +197,7 @@ function AllFieldBlocksTab() {
   const form = useAppForm({
     defaultValues: ALL_FIELDS_DEFAULTS,
     validators: {
-      onBlur: allFieldsSchema,
+      onChange: allFieldsSchema,
       onSubmit: allFieldsSchema,
     },
     onSubmit: ({ value }) => {
@@ -569,7 +569,7 @@ function FormWizardTab() {
       acceptTerms: false,
     },
     validators: {
-      onBlur: wizardSchema,
+      onChange: wizardSchema,
       onSubmit: wizardSchema,
     },
     onSubmit: ({ value }) => {

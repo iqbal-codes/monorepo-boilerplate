@@ -74,7 +74,7 @@ function SettingsScreen() {
 
   const profileForm = useAppForm({
     defaultValues: { name: session?.user.name ?? "" },
-    validators: { onBlur: profileSchema, onSubmit: profileSchema },
+    validators: { onChange: profileSchema, onSubmit: profileSchema },
     onSubmit: async ({ value }) => {
       setProfileError(null);
       const res = await authClient.updateUser({ name: value.name });
@@ -90,7 +90,7 @@ function SettingsScreen() {
 
   const passwordForm = useAppForm({
     defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
-    validators: { onBlur: passwordSchema, onSubmit: passwordSchema },
+    validators: { onChange: passwordSchema, onSubmit: passwordSchema },
     onSubmit: async ({ value }) => {
       setPasswordError(null);
       const res = await authClient.changePassword({

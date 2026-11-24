@@ -257,7 +257,11 @@ export function ComboboxField({
               {(values: FieldOption[]) => (
                 <>
                   {values.map((opt) => (
-                    <ComboboxChip key={opt.value} showRemove={!disabled}>
+                    <ComboboxChip
+                      key={opt.value}
+                      showRemove={!disabled}
+                      removeLabel={`Remove ${optionLabelText(opt)}`}
+                    >
                       {opt.label}
                     </ComboboxChip>
                   ))}

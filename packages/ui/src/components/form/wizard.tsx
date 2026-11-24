@@ -52,6 +52,7 @@ type DynamicWizardFormApi = {
     name: string,
     updater: (prev: Record<string, unknown>) => Record<string, unknown>,
   ) => void;
+  validate: (cause: "submit" | "change" | "blur") => Promise<unknown>;
   validateField: (name: string, cause: "submit" | "change" | "blur") => Promise<unknown>;
   getFieldMeta: (name: string) => { errors?: ReadonlyArray<unknown> } | undefined;
 };
@@ -123,6 +124,14 @@ export function Wizard({
     try {
       let allValid = true;
 
+      if (stepFields.length > 0) {
+        // Re-run form-level validators across change/blur/submit so stale
+        // errors from an earlier cause (e.g. onBlur) clear once fixed.
+        await dynamicForm.validate("change");
+        await dynamicForm.validate("blur");
+        await dynamicForm.validate("submit");
+      }
+
       for (const fieldName of stepFields) {
         // Mark field touched so Field Blocks reveal errors immediately.
         dynamicForm.setFieldMeta(fieldName, (prev) => ({
@@ -130,6 +139,8 @@ export function Wizard({
           isTouched: true,
         }));
 
+        await dynamicForm.validateField(fieldName, "change");
+        await dynamicForm.validateField(fieldName, "blur");
         const validated = await dynamicForm.validateField(fieldName, "submit");
         const metaErrors = dynamicForm.getFieldMeta(fieldName)?.errors;
 
