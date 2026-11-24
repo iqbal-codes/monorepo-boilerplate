@@ -116,6 +116,17 @@ console.log(
     : `[rename] ${changed} file(s) updated for ${isScope ? `${target}/*` : projectName}`,
 );
 
-if (!isScope) {
-  console.log("[rename] run `bun install` to refresh bun.lock, then `bun run db:push` if the database name changed.");
+// bun create names the root after the destination folder. A rename to a
+// different name has to correct it here.
+if (projectName) {
+  const manifestPath = join(process.cwd(), "package.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { name?: string };
+
+  if (manifest.name !== projectName) {
+    manifest.name = projectName;
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`[rename] package.json name -> ${projectName}`);
+  }
+
+  console.log("[rename] run `bun install` to refresh bun.lock.");
 }

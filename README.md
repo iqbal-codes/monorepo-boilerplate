@@ -32,7 +32,7 @@ bun run dev
 
 `bun create` downloads a tarball, so there is no upstream history and no remote to reset. It runs `bun install`, which creates `apps/web/.env` and `apps/server/.env` from the committed `.env.example` files and generates a random `BETTER_AUTH_SECRET`. Nothing else is required to type-check.
 
-`bun run rename <name>` replaces the `@monorepo-boilerplate` package scope, page titles, PWA manifest, and Postgres database name. `bun run rename @acme` changes only the scope.
+`bun run rename <name>` replaces the `@monorepo-boilerplate` package scope, the root package name, page titles, and the PWA manifest. `bun run rename @acme` changes only the scope.
 
 ### Working in this repository
 
