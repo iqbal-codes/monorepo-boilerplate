@@ -54,10 +54,8 @@
     "rename": "bun scripts/rename.ts",
     "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/",
     "postinstall": "bun scripts/env-init.ts && varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/",
-    "auth:generate": "cd apps/server && bun run auth:generate"
-  },
-  "bun-create": {
-    "start": "bun run dev"
+    "auth:generate": "cd apps/server && bun run auth:generate",
+    "db:seed": "vp run --filter @monorepo-boilerplate/db db:seed"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",
@@ -69,7 +67,10 @@
     "vite-plus": "1.6.0"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0"
+    "vite": "$vite"
   },
-  "packageManager": "bun@1.4.5"
+  "packageManager": "bun@1.4.5",
+  "bun-create": {
+    "start": "bun run dev"
+  }
 }

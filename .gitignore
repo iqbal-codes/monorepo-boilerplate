@@ -15,6 +15,7 @@ apps/server/src/env.ts
 packages/db/src/env.ts
 apps/web/.tanstack/
 apps/web/dev-dist/
+apps/server/uploads/
 local.db
 local.db-*
 
