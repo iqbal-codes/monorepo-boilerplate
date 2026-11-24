@@ -16,11 +16,9 @@
     "@monorepo-boilerplate/api": "workspace:*",
     "@monorepo-boilerplate/auth": "workspace:*",
     "@monorepo-boilerplate/db": "workspace:*",
-    "@trpc/server": "catalog:",
     "better-auth": "catalog:",
     "hono": "^4.13.18",
-    "varlock": "catalog:",
-    "zod": "catalog:"
+    "varlock": "catalog:"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",

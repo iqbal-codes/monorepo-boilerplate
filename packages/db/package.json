@@ -15,8 +15,7 @@
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
-    "pg": "^8.23.1",
-    "zod": "catalog:"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",

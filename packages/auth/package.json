@@ -13,8 +13,7 @@
     "@better-auth/drizzle-adapter": "1.7.22",
     "@monorepo-boilerplate/db": "workspace:*",
     "better-auth": "catalog:",
-    "drizzle-orm": "catalog:",
-    "zod": "catalog:"
+    "drizzle-orm": "catalog:"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",

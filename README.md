@@ -1,6 +1,6 @@
 # monorepo-boilerplate
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Hono, TRPC, and more.
+TypeScript monorepo: React + TanStack Router web app, Hono + tRPC server, Drizzle on Postgres, Better Auth, shadcn/ui primitives in `packages/ui`.
 
 ## Features
 
@@ -69,6 +69,8 @@ Import shared components like this:
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 ```
 
+`Tooltip` needs `TooltipProvider` above the tree; the root route (`apps/web/src/routes/__root.tsx`) already provides it.
+
 ### Add app-specific blocks
 
 If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
@@ -95,8 +97,6 @@ Run standalone Node/Bun tools that use Varlock from the owning app directory so 
 - Stop: bun run docker:down
 
 Environment variables are read from each app's `.env` file (baked into web builds for public variables) and overridden in `docker-compose.yml` for container networking.
-
-For more details, see the guide on [Deploying with Docker Compose](https://www.better-t-stack.dev/docs/guides/docker).
 
 ## Git Hooks and Formatting
 
