@@ -6,6 +6,7 @@ import { logger } from "hono/logger";
 
 import { createContext } from "./context";
 import { ENV } from "./env.server";
+import { uploads } from "./routes/uploads";
 import { auth } from "./services";
 
 const app = new Hono();
@@ -22,6 +23,8 @@ app.use(
 );
 
 app.on(["POST", "GET"], "/api/auth/*", async (c) => auth.handler(c.req.raw));
+
+app.route("/uploads", uploads);
 
 app.use(
   "/trpc/*",

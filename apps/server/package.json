@@ -18,7 +18,8 @@
     "@monorepo-boilerplate/db": "workspace:*",
     "better-auth": "catalog:",
     "hono": "^4.13.18",
-    "varlock": "catalog:"
+    "varlock": "catalog:",
+    "@monorepo-boilerplate/storage": "workspace:*"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",

@@ -11,7 +11,8 @@
   "dependencies": {
     "@monorepo-boilerplate/auth": "workspace:*",
     "@monorepo-boilerplate/db": "workspace:*",
-    "@trpc/server": "catalog:"
+    "@trpc/server": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",
