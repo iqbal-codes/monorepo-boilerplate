@@ -1,13 +1,8 @@
 import { Button } from "@monorepo-boilerplate/ui/components/button";
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@monorepo-boilerplate/ui/components/field";
-import { Input } from "@monorepo-boilerplate/ui/components/input";
-import { useForm } from "@tanstack/react-form";
+import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
+import { Form, useAppForm } from "@monorepo-boilerplate/ui/components/form";
 import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -15,18 +10,27 @@ import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
 
-export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
-  const navigate = useNavigate({
-    from: "/",
-  });
-  const { isPending } = authClient.useSession();
+const signInSchema = z.object({
+  email: z.email("Enter a valid email address."),
+  password: z.string().min(8, "Password must be at least 8 characters."),
+});
 
-  const form = useForm({
+export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
+  const navigate = useNavigate({ from: "/" });
+  const { isPending } = authClient.useSession();
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const form = useAppForm({
     defaultValues: {
       email: "",
       password: "",
     },
+    validators: {
+      onBlur: signInSchema,
+      onSubmit: signInSchema,
+    },
     onSubmit: async ({ value }) => {
+      setServerError(null);
       await authClient.signIn.email(
         {
           email: value.email,
@@ -34,22 +38,16 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
         },
         {
           onSuccess: () => {
-            navigate({
-              to: "/dashboard",
-            });
+            navigate({ to: "/dashboard" });
             toast.success("Sign in successful");
           },
           onError: (error) => {
-            toast.error(error.error.message || error.error.statusText);
+            const message = error.error.message || error.error.statusText || "Sign in failed.";
+            setServerError(message);
+            toast.error(message);
           },
         },
       );
-    },
-    validators: {
-      onSubmit: z.object({
-        email: z.email("Invalid email address"),
-        password: z.string().min(8, "Password must be at least 8 characters"),
-      }),
     },
   });
 
@@ -59,73 +57,45 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
 
   return (
     <div className="mx-auto mt-10 w-full max-w-md p-6">
-      <h1 className="mb-6 text-center text-3xl font-bold">Welcome Back</h1>
+      <h1 id="sign-in-heading" className="mb-6 text-center text-3xl font-bold">
+        Welcome Back
+      </h1>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          form.handleSubmit();
-        }}
-        className="flex flex-col gap-6"
-      >
+      <Form form={form} aria-labelledby="sign-in-heading">
+        <form.FormError error={serverError} title="Sign in failed" />
+
         <FieldGroup className="gap-4">
-          <form.Field name="email">
-            {(field) => {
-              const invalid = field.state.meta.errors.length > 0;
-              return (
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={field.name}>Email</FieldLabel>
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type="email"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    aria-invalid={invalid}
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              );
-            }}
-          </form.Field>
+          <form.AppField name="email">
+            {(field) => (
+              <field.TextField
+                label="Email"
+                type="email"
+                autoComplete="username"
+                enterKeyHint="next"
+                required
+              />
+            )}
+          </form.AppField>
 
-          <form.Field name="password">
-            {(field) => {
-              const invalid = field.state.meta.errors.length > 0;
-              return (
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={field.name}>Password</FieldLabel>
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type="password"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    aria-invalid={invalid}
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              );
-            }}
-          </form.Field>
+          <form.AppField name="password">
+            {(field) => (
+              <field.PasswordField
+                label="Password"
+                autoComplete="current-password"
+                enterKeyHint="done"
+                required
+              />
+            )}
+          </form.AppField>
         </FieldGroup>
 
-        <form.Subscribe
-          selector={(state) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}
-        >
-          {({ canSubmit, isSubmitting }) => (
-            <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Sign In"}
-            </Button>
-          )}
-        </form.Subscribe>
-      </form>
+        <form.SubmitButton className="w-full" loadingLabel="Signing in…">
+          Sign In
+        </form.SubmitButton>
+      </Form>
 
       <div className="mt-4 text-center">
-        <Button variant="link" onClick={onSwitchToSignUp}>
+        <Button type="button" variant="link" onClick={onSwitchToSignUp}>
           Need an account? Sign Up
         </Button>
       </div>

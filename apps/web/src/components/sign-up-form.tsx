@@ -1,13 +1,8 @@
 import { Button } from "@monorepo-boilerplate/ui/components/button";
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@monorepo-boilerplate/ui/components/field";
-import { Input } from "@monorepo-boilerplate/ui/components/input";
-import { useForm } from "@tanstack/react-form";
+import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
+import { Form, useAppForm } from "@monorepo-boilerplate/ui/components/form";
 import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -15,19 +10,29 @@ import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
 
-export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
-  const navigate = useNavigate({
-    from: "/",
-  });
-  const { isPending } = authClient.useSession();
+const signUpSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters."),
+  email: z.email("Enter a valid email address."),
+  password: z.string().min(8, "Password must be at least 8 characters."),
+});
 
-  const form = useForm({
+export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
+  const navigate = useNavigate({ from: "/" });
+  const { isPending } = authClient.useSession();
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const form = useAppForm({
     defaultValues: {
+      name: "",
       email: "",
       password: "",
-      name: "",
+    },
+    validators: {
+      onBlur: signUpSchema,
+      onSubmit: signUpSchema,
     },
     onSubmit: async ({ value }) => {
+      setServerError(null);
       await authClient.signUp.email(
         {
           email: value.email,
@@ -36,23 +41,16 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
         },
         {
           onSuccess: () => {
-            navigate({
-              to: "/dashboard",
-            });
+            navigate({ to: "/dashboard" });
             toast.success("Sign up successful");
           },
           onError: (error) => {
-            toast.error(error.error.message || error.error.statusText);
+            const message = error.error.message || error.error.statusText || "Sign up failed.";
+            setServerError(message);
+            toast.error(message);
           },
         },
       );
-    },
-    validators: {
-      onSubmit: z.object({
-        name: z.string().min(2, "Name must be at least 2 characters"),
-        email: z.email("Invalid email address"),
-        password: z.string().min(8, "Password must be at least 8 characters"),
-      }),
     },
   });
 
@@ -62,93 +60,52 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
 
   return (
     <div className="mx-auto mt-10 w-full max-w-md p-6">
-      <h1 className="mb-6 text-center text-3xl font-bold">Create Account</h1>
+      <h1 id="sign-up-heading" className="mb-6 text-center text-3xl font-bold">
+        Create Account
+      </h1>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          form.handleSubmit();
-        }}
-        className="flex flex-col gap-6"
-      >
+      <Form form={form} aria-labelledby="sign-up-heading">
+        <form.FormError error={serverError} title="Could not create account" />
+
         <FieldGroup className="gap-4">
-          <form.Field name="name">
-            {(field) => {
-              const invalid = field.state.meta.errors.length > 0;
-              return (
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={field.name}>Name</FieldLabel>
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    aria-invalid={invalid}
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              );
-            }}
-          </form.Field>
+          <form.AppField name="name">
+            {(field) => (
+              <field.TextField label="Full name" autoComplete="name" enterKeyHint="next" required />
+            )}
+          </form.AppField>
 
-          <form.Field name="email">
-            {(field) => {
-              const invalid = field.state.meta.errors.length > 0;
-              return (
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={field.name}>Email</FieldLabel>
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type="email"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    aria-invalid={invalid}
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              );
-            }}
-          </form.Field>
+          <form.AppField name="email">
+            {(field) => (
+              <field.TextField
+                label="Email"
+                type="email"
+                autoComplete="username"
+                enterKeyHint="next"
+                required
+              />
+            )}
+          </form.AppField>
 
-          <form.Field name="password">
-            {(field) => {
-              const invalid = field.state.meta.errors.length > 0;
-              return (
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={field.name}>Password</FieldLabel>
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type="password"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    aria-invalid={invalid}
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              );
-            }}
-          </form.Field>
+          <form.AppField name="password">
+            {(field) => (
+              <field.PasswordField
+                label="Password"
+                description="Use at least 8 characters."
+                autoComplete="new-password"
+                enterKeyHint="done"
+                required
+              />
+            )}
+          </form.AppField>
         </FieldGroup>
 
-        <form.Subscribe
-          selector={(state) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}
-        >
-          {({ canSubmit, isSubmitting }) => (
-            <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Sign Up"}
-            </Button>
-          )}
-        </form.Subscribe>
-      </form>
+        <form.SubmitButton className="w-full" loadingLabel="Creating account…">
+          Create Account
+        </form.SubmitButton>
+      </Form>
 
       <div className="mt-4 text-center">
-        <Button variant="link" onClick={onSwitchToSignIn}>
+        <Button type="button" variant="link" onClick={onSwitchToSignIn}>
           Already have an account? Sign In
         </Button>
       </div>
