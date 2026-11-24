@@ -18,17 +18,17 @@ Use a named checkbox for each row and **Select all customers on this page** for 
 
 ## Required states
 
-| State | Expected behavior |
-| --- | --- |
-| Populated, no selection | Search, status, count, and unchecked controls; no Bulk Action Bar. |
-| Partial or full page selection | Header shows mixed or checked state. Action Bar shows the count. Other pages stay unselected. |
-| List query changes | Selection clears. Stale results cannot be selected while the replacement page loads. |
-| Confirmation | Exact selected count, consequences, cancel action, and archive action. Cancel changes no records. |
-| Archive pending | One request only; prevent repeat confirmation and show progress. |
-| Success | Clear selection, refresh affected views, and announce the result. If the current page disappears, move to a valid page. |
-| Missing record | Announce that nothing was archived, refresh the list, and require a new selection. |
-| Request failure | Show a recoverable error; do not claim success or optimistically move rows. |
-| Archived | Find archived records using the Archived filter. Restore one Customer at a time with an explicit Active or Inactive choice. |
-| Empty or list error | Preserve the Screen’s current empty, clear-filter, and retry affordances. |
+| State                          | Expected behavior                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Populated, no selection        | Search, status, count, and unchecked controls; no Bulk Action Bar.                                                          |
+| Partial or full page selection | Header shows mixed or checked state. Action Bar shows the count. Other pages stay unselected.                               |
+| List query changes             | Selection clears. Stale results cannot be selected while the replacement page loads.                                        |
+| Confirmation                   | Exact selected count, consequences, cancel action, and archive action. Cancel changes no records.                           |
+| Archive pending                | One request only; prevent repeat confirmation and show progress.                                                            |
+| Success                        | Clear selection, refresh affected views, and announce the result. If the current page disappears, move to a valid page.     |
+| Missing record                 | Announce that nothing was archived, refresh the list, and require a new selection.                                          |
+| Request failure                | Show a recoverable error; do not claim success or optimistically move rows.                                                 |
+| Archived                       | Find archived records using the Archived filter. Restore one Customer at a time with an explicit Active or Inactive choice. |
+| Empty or list error            | Preserve the Screen’s current empty, clear-filter, and retry affordances.                                                   |
 
 No mockups are needed; the existing Customers Screen is the visual reference. Verify desktop and narrow layouts in the browser with a signed-in test user and disposable records.

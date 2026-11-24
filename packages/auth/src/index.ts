@@ -8,7 +8,6 @@ export type AuthConfig = {
   BETTER_AUTH_URL: string;
   BETTER_AUTH_SECRET: string;
   CORS_ORIGIN: string;
-
 };
 
 export function createAuth(env: AuthConfig, database: Database) {
