@@ -25,3 +25,9 @@ TypeScript monorepo on Bun workspaces (`@monorepo-boilerplate`). Root scripts li
 
 - `.archon/workflows/factory/` is copied from `~/.archon/factory-pack/`; upsert from that pack rather than hand-editing.
 - Branch from `master`. State only checks you executed in PRs and summaries.
+
+## Agent skills
+
+### Domain docs
+
+Single-context layout (`GLOSSARY.md` and `docs/adr/` at the repo root). See `docs/agents/domain.md`.
