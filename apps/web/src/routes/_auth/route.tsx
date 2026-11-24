@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
 import { AppShell } from "@/components/app-shell";
+import { AssistantProvider } from "@/components/assistant/assistant-provider";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth")({
@@ -18,8 +19,10 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <AssistantProvider>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </AssistantProvider>
   );
 }

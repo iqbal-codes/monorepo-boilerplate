@@ -1,3 +1,4 @@
+import { aui } from "@assistant-ui/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { varlockVitePlugin } from "@varlock/vite-integration";
@@ -13,6 +14,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
+    aui({ backendless: true }),
     varlockVitePlugin({ ssrInjectMode: "auto-load" }),
     tailwindcss(),
     tanstackRouter({

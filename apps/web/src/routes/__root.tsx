@@ -55,13 +55,15 @@ function RootComponent() {
         </TooltipProvider>
       </ThemeProvider>
       {/* Devtools float at fixed positions, and the shell owns every corner:
-          top-right is the theme toggle, bottom-left the sidebar user menu.
-          Lift the router chip above the footer rather than covering it. */}
+          top-right is the theme toggle, bottom-left the sidebar user menu,
+          bottom-right the Assistant Modal trigger. Lift both chips clear. */}
       <TanStackRouterDevtools
         position="bottom-left"
         toggleButtonProps={{ style: { bottom: "5.5rem" } }}
       />
-      <ReactQueryDevtools position="bottom" buttonPosition="bottom-right" />
+      <div className="fixed end-18 bottom-4 z-30">
+        <ReactQueryDevtools position="bottom" buttonPosition="relative" />
+      </div>
     </>
   );
 }
