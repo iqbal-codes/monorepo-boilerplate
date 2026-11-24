@@ -1,5 +1,3 @@
-name: monorepo-boilerplate
-
 services:
   web:
     build:
@@ -42,7 +40,7 @@ services:
         required: false
     environment:
       CORS_ORIGIN: http://localhost:3001
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/monorepo-boilerplate
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-app}
     healthcheck:
       test:
         [
@@ -62,15 +60,14 @@ services:
 
   postgres:
     image: postgres:18
-    container_name: monorepo-boilerplate-postgres
     environment:
-      POSTGRES_DB: monorepo-boilerplate
+      POSTGRES_DB: ${POSTGRES_DB:-app}
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
       - "5432:5432"
     volumes:
-      - monorepo-boilerplate_postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -79,7 +76,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  monorepo-boilerplate_postgres_data:
+  postgres_data:
 
 # BuildKit makes these available only while install/build commands run.
 secrets:

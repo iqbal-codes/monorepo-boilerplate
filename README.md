@@ -19,7 +19,22 @@ TypeScript monorepo: React + TanStack Router web app, Hono + tRPC server, Drizzl
 
 ## Getting Started
 
-First, install the dependencies:
+### New project from this template
+
+```bash
+bun create iqbal-codes/monorepo-boilerplate my-app
+cd my-app
+bun run rename my-app   # optional: replace the template scope and name
+bun run db:start        # Postgres in Docker
+bun run db:push
+bun run dev
+```
+
+`bun create` downloads a tarball, so there is no upstream history and no remote to reset. It runs `bun install`, which creates `apps/web/.env` and `apps/server/.env` from the committed `.env.example` files and generates a random `BETTER_AUTH_SECRET`. Nothing else is required to type-check.
+
+`bun run rename <name>` replaces the `@monorepo-boilerplate` package scope, page titles, PWA manifest, and Postgres database name. `bun run rename @acme` changes only the scope.
+
+### Working in this repository
 
 ```bash
 bun install
@@ -29,10 +44,8 @@ bun install
 
 This project uses PostgreSQL with Drizzle ORM.
 
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
-
-3. Apply the schema to your database:
+1. Start the bundled Postgres: `bun run db:start` (or point `DATABASE_URL` in `apps/server/.env` at your own database).
+2. Apply the schema to your database:
 
 ```bash
 bun run db:push
@@ -125,6 +138,9 @@ monorepo-boilerplate/
 - `bun run dev:web`: Start only the web application
 - `bun run dev:server`: Start only the server
 - `bun run check-types`: Check TypeScript types across all apps
+- `bun run env:init`: Create missing `.env` files from `.env.example` and generate an auth secret
+- `bun run rename`: Replace the template scope and project name with your own
+- `bun run db:start`: Start Postgres in Docker (`db:stop`, `db:down` to stop)
 - `bun run db:push`: Push schema changes to database
 - `bun run db:generate`: Generate database client/types
 - `bun run db:migrate`: Run database migrations
