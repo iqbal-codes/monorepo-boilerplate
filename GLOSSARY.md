@@ -20,6 +20,18 @@ _Avoid_: page, view, container
 The persistent frame around every authenticated screen: navigation, top bar, and content area.
 _Avoid_: layout, chrome, frame
 
+**Assistant**:
+The domain-agnostic AI helper integrated into the App Shell.
+_Avoid_: chatbot, copilot, agent
+
+**Assistant Modal**:
+The floating popover trigger and panel hosting the Assistant inside the App Shell.
+_Avoid_: chat widget, chat bubble, support widget
+
+**Assistant Thread**:
+A persisted conversation sequence of messages and branches owned by an authenticated user.
+_Avoid_: chat session, conversation
+
 **Reference Flow**:
 One complete domain flow, from database through the API to table, form, and file upload, kept working as the canonical example of how the tiers compose.
 _Avoid_: demo, sample app, example module

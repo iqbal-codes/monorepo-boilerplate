@@ -8,14 +8,20 @@
     "./lib/*": "./src/lib/*.ts",
     "./components/form": "./src/components/form/index.ts",
     "./components/form/*": "./src/components/form/*.tsx",
+    "./components/assistant": "./src/components/assistant/index.ts",
+    "./components/assistant/*": "./src/components/assistant/*.tsx",
     "./components/*": "./src/components/*.tsx",
     "./hooks/*": "./src/hooks/*.ts",
     "./postcss.config": "./postcss.config.mjs"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "bun test ./tests"
   },
   "dependencies": {
+    "@assistant-ui/react": "catalog:",
+    "@assistant-ui/react-markdown": "^0.14.26",
+    "@assistant-ui/tap": "catalog:",
     "@base-ui/react": "^1.9.0",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/roboto": "^5.3.0",
@@ -36,6 +42,7 @@
     "react-dom": "catalog:",
     "react-resizable-panels": "^4.24.1",
     "recharts": "3.8.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.23.0",
     "shiki": "^4.6.0",
     "sonner": "catalog:",

@@ -23,7 +23,12 @@
       "@types/react": "^19.3.0",
       "@types/react-dom": "^19.3.0",
       "tailwindcss": "^4.3.5",
-      "drizzle-orm": "1.0.0-rc.5"
+      "drizzle-orm": "1.0.0-rc.5",
+      "@assistant-ui/react": "^0.15.38",
+      "@assistant-ui/ai-sdk": "^0.0.20",
+      "@assistant-ui/tap": "^0.9.27",
+      "assistant-stream": "^0.3.59",
+      "ai": "^7.0.181"
     }
   },
   "type": "module",
@@ -32,10 +37,12 @@
     "build": "vp run -r build",
     "check-types": "vp run -r check-types",
     "check": "vp check && vp run -r check-types",
+    "test": "bun test ./packages/ui/tests ./apps/server/tests ./.archon/workflows/factory/.shared ./.archon/workflows/factory/factory-slice/scripts",
     "lint": "vp lint",
     "format": "vp fmt",
     "staged": "vp staged",
-    "hooks:setup": "vp config",
+    "hooks:setup": "vp config --hooks --hooks-dir .vite-hooks --no-agent",
+    "prepare": "vp config --hooks --hooks-dir .vite-hooks --no-agent",
     "dev:web": "vp run --filter web dev",
     "dev:server": "vp run --filter server dev",
     "db:push": "vp run --filter @monorepo-boilerplate/db db:push",

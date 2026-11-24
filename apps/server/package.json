@@ -12,14 +12,21 @@
     "auth:generate": "varlock run -- bun x auth@latest generate --config src/services.ts --output ../../packages/db/src/schema/auth.ts --yes"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.125",
+    "@ai-sdk/google-vertex": "^5.0.145",
+    "@assistant-ui/ai-sdk": "catalog:",
+    "@assistant-ui/react": "catalog:",
     "@hono/trpc-server": "^0.4.2",
     "@monorepo-boilerplate/api": "workspace:*",
     "@monorepo-boilerplate/auth": "workspace:*",
     "@monorepo-boilerplate/db": "workspace:*",
+    "@monorepo-boilerplate/storage": "workspace:*",
+    "ai": "catalog:",
+    "assistant-stream": "catalog:",
     "better-auth": "catalog:",
     "hono": "^4.13.18",
     "varlock": "catalog:",
-    "@monorepo-boilerplate/storage": "workspace:*"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@monorepo-boilerplate/config": "workspace:*",
