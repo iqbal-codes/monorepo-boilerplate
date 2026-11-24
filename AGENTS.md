@@ -1,75 +1,88 @@
 # AGENTS.md
 
-Project conventions for humans and agents working in this repository.
+TypeScript monorepo on Bun workspaces. Package scope: `@monorepo-boilerplate`.
 
-## What This Is
+| Path               | Holds                                                    |
+| :----------------- | :------------------------------------------------------- |
+| `apps/web`         | React 19 + TanStack Router SPA, Vite+, PWA               |
+| `apps/server`      | Hono: Better Auth at `/api/auth/*`, tRPC at `/trpc/*`    |
+| `packages/ui`      | shadcn/ui primitives and Tailwind tokens                 |
+| `packages/api`     | tRPC procedures and context                              |
+| `packages/auth`    | Better Auth factory: `createAuth(env, db)`, admin plugin |
+| `packages/db`      | Drizzle schema, queries, seed, client factory            |
+| `packages/storage` | Upload `StorageAdapter` seam and local-disk adapter      |
+| `packages/config`  | Shared `tsconfig.base.json`                              |
 
-TypeScript monorepo built with Bun workspaces.
+Business logic lives in `packages/*`; `apps/server` only wires it. `bun run rename <name>` is the only supported way to change the scope and project name.
 
-| Path | Contents |
-| :--- | :--- |
-| `apps/web` | React 19 + TanStack Router SPA, Vite+, PWA |
-| `apps/server` | Hono API on Bun, tRPC router, Better Auth handler |
-| `packages/ui` | Shared shadcn/ui primitives and Tailwind tokens |
-| `packages/api` | tRPC procedures and context |
-| `packages/auth` | Better Auth configuration |
-| `packages/db` | Drizzle schema and client factory |
-| `packages/config` | Shared TypeScript config |
-
-Package names use the `@monorepo-boilerplate/*` scope. `bun run rename <name>` replaces it; do not hand-edit the scope across files.
-
-## Setup
+## Bootstrap
 
 ```bash
-bun install          # also runs varlock codegen and scripts/env-init.ts
-bun run db:start     # Postgres in Docker
-bun run db:push
-bun run dev          # web on :3001, server on :3000
+bun install      # postinstall writes apps/*/.env from .env.example, generates BETTER_AUTH_SECRET
+bun run db:start # Postgres 18 in Docker
+bun run db:push  # apply packages/db schema to it
+bun run db:seed  # 53 deterministic customers for the reference flow
+bun run dev      # web :3001, server :3000
 ```
 
-`bun install`'s `postinstall` creates `apps/web/.env` and `apps/server/.env` from the committed `.env.example` files and generates a random `BETTER_AUTH_SECRET`. `.env` is ignored; never commit it. `.env.schema` files are the source of truth for each app's variables and are committed.
+`postinstall` never overwrites an existing `.env`. `.env.schema` is the committed source of truth per app; regenerate the `src/env.ts` types with `bun run env:generate` after editing one. Compose publishes Postgres on a fixed 5432, so one checkout per host can run it.
+
+Varlock owns env loading (`bunfig.toml` sets `env = false`). Run standalone Bun/Node tools from the owning app directory so they load that app's schema.
 
 ## Verification
 
-Always run the narrowest command that exercises the change, then the repository gate:
+**Gate:** `bun run check-types` — `vp build` for `apps/web`, then `tsc --noEmit` in every workspace. Passing means the app compiles. A slice's Verification Command is `bun run check-types` unless the slice needs something narrower.
+
+`bun run check` is the gate plus `vp` format and lint over the whole tree; files outside your change are already unformatted there, so scope it to your paths: `bunx --bun vp check <paths>`.
+
+No workspace defines a `test` script. The only tests belong to the factory harness; run them with an explicit `./` path (Bun treats a bare path as a name filter):
 
 ```bash
-bun run check-types   # tsc across all workspaces, plus a web build
-bun run check         # vp format/lint checks and workspace type checks
+bun test ./.archon/workflows/factory/.shared ./.archon/workflows/factory/factory-slice/scripts
 ```
 
-`bun run check-types` is the repository-wide verification command. It runs `vp build` for `apps/web` before `tsc --noEmit`, so a passing run means the app compiles.
+13 tests cover contract parsing, PR formatting, and the mechanical gate — keep them green when touching those files.
 
-There is no test runner configured. Do not add one as a side effect of an unrelated change.
+## Interface tiers
+
+Three tiers, defined in `GLOSSARY.md` and enforced by imports:
+
+| Tier      | Lives in                                                                                                              | Knows about                         |
+| :-------- | :-------------------------------------------------------------------------------------------------------------------- | :---------------------------------- |
+| Primitive | `packages/ui/src/components/*` (shadcn atoms)                                                                         | its own accessibility semantics     |
+| Block     | `packages/ui/src/components/{data-table,page-header,kpi-card,chart-card,form,upload-dropzone}` | no domain, no router, no URL state  |
+| Screen    | `apps/web/src/routes`, `apps/web/src/components/<domain>`                                                             | domain, tRPC, nuqs, columns, fields |
+
+- The App Shell follows shadcn's official `sidebar-07` block, adapted in `apps/web/src/components/{app-sidebar,app-topbar}.tsx` + `components/sidebar/{nav-main,nav-shortcuts,nav-user}.tsx`. Deliberate adaptations: no `TeamSwitcher` (single-tenant, ADR 0003), real session instead of sample data, typed router links instead of `<a href="#">`. To re-sync with upstream: `npx shadcn@latest add sidebar-07` into a scratch app and diff.
+- Blocks are **controlled and router-free**. `DataTable` takes pagination/sorting props and never reads the URL; `apps/web/src/lib/use-data-table-search-params.ts` is the only bridge from nuqs to it (docs/adr/0002).
+- `packages/ui` does not import `nuqs`, TanStack Router, or tRPC. If a block needs navigation, it takes a `renderLink` callback.
+- Zustand holds UI preferences only (`apps/web/src/lib/ui-prefs-store.ts`). Server data belongs in TanStack Query, list parameters in the URL, form state in TanStack Form.
+- Uploaded files are stored as provider-relative paths and resolved by `apps/web/src/lib/asset-url.ts` at render time (docs/adr/0004).
+
+## Reference flow and demo routes
+
+The Customers flow (list → drawer form → detail → avatar upload) is permanent and must keep compiling and working. `_auth/demo/fields` and `_auth/demo/blocks` only exhibit blocks and may be deleted with `rm -rf apps/web/src/routes/_auth/demo`.
+
+`bun run db:seed` writes 53 idempotent customers; row counts feed the pagination-boundary screenshots.
 
 ## Conventions
 
-- TypeScript strict mode; no `any` in new code.
-- Imports use the workspace scope (`@monorepo-boilerplate/ui/components/button`), not relative paths into `packages/`.
-- `@/*` resolves to `apps/web/src/*` inside the web app.
-- UI primitives live in `packages/ui`; app-specific blocks stay in `apps/web`. Add primitives with `npx shadcn@latest add <name> -c packages/ui`.
-- Design tokens are in `packages/ui/src/styles/globals.css`.
-- Formatting and linting go through Vite+ (`vp`). Do not introduce a second formatter or linter.
-- Generated files are not committed: `apps/web/src/routeTree.gen.ts`, `apps/*/src/env.ts`, `packages/db/src/env.ts`.
-
-## Environment and Services
-
-- Bun 1.4.5 (`packageManager` in the root `package.json`).
-- Postgres 18 via `docker compose` (`bun run db:start`). Compose reads `POSTGRES_DB` (default `app`) and `POSTGRES_PASSWORD` (default `password`), so two projects on one host do not collide.
-- `DATABASE_URL` in `apps/server/.env` points at your database; the default matches the compose service.
-- Varlock owns environment loading: `bunfig.toml` disables Bun's automatic `.env` loading. Run standalone Bun/Node tools from the owning app directory so they load that app's schema.
+- No `any` in new code; narrow `unknown` instead.
+- Import across packages by workspace scope (`@monorepo-boilerplate/ui/components/button`); `@/*` is `apps/web/src/*`.
+- Shared primitives go in `packages/ui` (`npx shadcn@latest add <name> -c packages/ui`); app-specific blocks stay in `apps/web`. Tokens: `packages/ui/src/styles/globals.css`.
+- Web routes are file-based under `apps/web/src/routes/`; `routeTree.gen.ts` regenerates on dev and build.
+- `packages/db/src/schema/auth.ts` is generated by `bun run auth:generate` and committed — rerun it after changing auth plugins or schema options. The `admin` plugin is enabled (`role`, `banned`, `banExpires`, `session.impersonatedBy`); use `adminProcedure` from `packages/api/src/procedures.ts`.
+- `@tanstack/react-table` is pinned at **v9.3.1**: `useTable` + explicit `tableFeatures(...)`, not `useReactTable`. Read the header comment in `data-table.tsx` before copying v8 examples.
+- Money crosses every boundary as an integer number of currency minor units plus an ISO code; format with `packages/ui/src/lib/format.ts`, never `toLocaleString`.
+- `packages/db/src/migrations/` starts empty, so `db:push` is the schema path; `db:generate`/`db:migrate` apply once migration files exist.
 
 ## Archon Factory
 
-This repository is onboarded to the Archon Software Factory. `.archon/workflows/factory/` holds the `factory-slice` and `factory-refine` workflows; do not edit them in place — they are copied from `~/.archon/factory-pack/`.
+`.archon/workflows/factory/` holds `factory-slice`, `factory-refine`, and `factory-learn`, copied from `~/.archon/factory-pack/`; upsert from that pack to change one.
 
-- Maintainer allowlist: `.archon/sdlc/policy/maintainers.json`.
-- Upsert an existing workflow file from the canonical pack instead of editing it here.
-- Slice contracts declare `Owned / Allowed Paths` and a `Verification Command`; use `bun run check-types` unless the slice needs something narrower.
-- Web UI slices that need browser checks use `.archon/ui-preview.sh`, which prints `URL=` and `PID=`.
+- Slice contracts declare **Owned / Allowed Paths** and a **Verification Command**.
+- Web UI slices that need browser checks use `.archon/ui-preview.sh`: it serves a free port in 4100–4199 and prints `URL=` and `PID=`.
 
 ## Pull Requests
 
-- Branch from the default integration branch (`master`).
-- Keep a PR to one cohesive change; put unrelated cleanup in its own PR.
-- State the verification you actually ran. Do not claim checks you did not execute.
+Branch from `master`. State the verification you ran; do not claim checks you did not execute.

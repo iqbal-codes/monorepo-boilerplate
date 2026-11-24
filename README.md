@@ -17,6 +17,44 @@ TypeScript monorepo: React + TanStack Router web app, Hono + tRPC server, Drizzl
 - **PWA** - Progressive Web App support
 - **Vite+** - Unified Vite toolchain, workspace task runner, linting, and formatting
 
+## What ships for internal / admin tools
+
+The template is aimed at internal tools, so it ships a shell, reusable blocks, and one working reference flow rather than a pile of components:
+
+| Tier       | Where                        | Contents                                                                                               |
+| :--------- | :--------------------------- | :----------------------------------------------------------------------------------------------------- |
+| Primitives | `packages/ui/src/components` | 60+ shadcn/ui atoms (base-sera style)                                                                  |
+| Blocks     | `packages/ui/src/components` | `data-table`, `list-toolbar`, `bulk-action-bar`, `confirmation-dialog`, `page-header`, `kpi-card`, `chart-card`, `form-fields`, `upload-dropzone` |
+| Screens    | `apps/web/src/routes`        | Dashboard, Customers, Customer detail, Settings, login                                                 |
+
+The App Shell follows shadcn's official `sidebar-07` block (collapsible sidebar with sub-items, header breadcrumbs, user menu), adapted for a single-tenant app with real sessions and typed router links.
+
+Blocks are controlled and router-free: `DataTable` takes pagination and sorting props and never reads the URL, so `packages/ui` does not depend on nuqs, TanStack Router, or tRPC.
+
+**The stack per concern**, so nothing overlaps:
+
+| Concern                    | Library                                                              |
+| :------------------------- | :------------------------------------------------------------------- |
+| API calls and server cache | TanStack Query over tRPC (`createTRPCOptionsProxy`)                  |
+| List state in the URL      | `nuqs` (`use-data-table-search-params.ts` bridges it to `DataTable`) |
+| Form state and validation  | TanStack Form + zod                                                  |
+| Tables                     | TanStack Table **v9.3.1**, pinned exactly                            |
+| Cross-route UI preferences | `zustand` with `persist`                                             |
+
+**DataTable** supports server-driven mode (the Customers screen: the API sorts, filters, and pages) and client-driven mode (`_auth/demo/blocks`: the block sorts an in-memory array). Both use one component with `manualPagination` / `manualSorting`.
+
+**Bulk Actions:** Combine `ListToolbar`, optional page-scoped `DataTable` selection, `BulkActionBar`, and `ConfirmationDialog`. Customers owns search, filters, selection, and the mutation. Archive keeps customer records and attachments and hides them from the default list; use the Archived filter and choose Active or Inactive in the edit drawer to restore one customer.
+
+To run the Customers archive integration tests, apply the schema to a disposable Postgres database with `DATABASE_URL=<test-url> bun run db:push`, then run `CUSTOMERS_TEST_DATABASE_URL=<test-url> bun test ./packages/api/src/routers/customers.integration.test.ts`. Never point this suite at a persistent database.
+
+**Forms** ship as typed fields over TanStack Form: text (with counter), number with unit, currency (edits major units, stores integer minor units), textarea, plus an upload dropzone with preview, progress, and cancellation.
+
+**Money** is always an integer count of currency minor units plus an ISO code; `packages/ui/src/lib/format.ts` is the only formatter, with locale and currency injected.
+
+**Uploads** post to the server's `POST /uploads`, which writes through a `StorageAdapter` seam (`packages/storage`) and serves and stores provider-relative paths. Swap in S3 by implementing the interface; screens only pass an `upload` callback.
+
+**Auth** is Better Auth with the `admin` plugin enabled: `role`, `banned`, `banExpires`, and session impersonation are available, with `adminProcedure` in `packages/api/src/procedures.ts` for gated procedures.
+
 ## Getting Started
 
 ### New project from this template
@@ -27,6 +65,7 @@ cd my-app
 bun run rename my-app   # optional: replace the template scope and name
 bun run db:start        # Postgres in Docker
 bun run db:push
+bun run db:seed         # 53 deterministic customers for the reference flow
 bun run dev
 ```
 
@@ -69,6 +108,8 @@ React web apps in this stack share shadcn/ui primitives through `packages/ui`.
 - Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
 
 ### Add more shared components
+
+Extend a **block** when you need a new composition (a table variant, an upload transport, a dashboard widget) — do not reach for a new primitive unless the control itself is missing. See `GLOSSARY.md` for the Primitive / Block / Screen vocabulary and `docs/adr/` for the boundaries that are deliberate (why `DataTable` never reads the URL, why asset paths are relative).
 
 Run this from the project root to add more primitives to the shared UI package:
 
@@ -125,10 +166,12 @@ monorepo-boilerplate/
 │   ├── web/         # Frontend application (React + TanStack Router)
 │   └── server/      # Backend API (Hono, TRPC)
 ├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
+│   ├── ui/          # Primitives, blocks, formatting, and styles
+│   ├── api/         # tRPC procedures and context
+│   ├── auth/        # Better Auth configuration (admin plugin enabled)
+│   ├── db/          # Schema, queries, and the deterministic seed
+│   ├── storage/     # Upload StorageAdapter seam
+│   └── config/      # Shared TypeScript config
 ```
 
 ## Available Scripts
@@ -142,6 +185,7 @@ monorepo-boilerplate/
 - `bun run rename`: Replace the template scope and project name with your own
 - `bun run db:start`: Start Postgres in Docker (`db:stop`, `db:down` to stop)
 - `bun run db:push`: Push schema changes to database
+- `bun run db:seed`: Load the deterministic Customers reference data
 - `bun run db:generate`: Generate database client/types
 - `bun run db:migrate`: Run database migrations
 - `bun run db:studio`: Open database studio UI
