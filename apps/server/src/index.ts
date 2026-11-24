@@ -6,6 +6,7 @@ import { logger } from "hono/logger";
 
 import { createContext } from "./context";
 import { ENV } from "./env.server";
+import { assistant } from "./routes/assistant";
 import { uploads } from "./routes/uploads";
 import { auth } from "./services";
 
@@ -24,6 +25,8 @@ app.use(
 
 app.on(["POST", "GET"], "/api/auth/*", async (c) => auth.handler(c.req.raw));
 
+app.route("/api/chat", assistant);
+
 app.route("/uploads", uploads);
 
 app.use(
@@ -41,4 +44,7 @@ app.get("/", (c) => {
   return c.text("OK");
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  idleTimeout: 120,
+};
