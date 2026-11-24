@@ -4,6 +4,7 @@ import * as schema from "./schema";
 
 export const relations = {
   ...defineRelations(schema),
+  ...schema.assistantRelations,
   ...schema.authRelations,
   ...schema.customerRelations,
 };
