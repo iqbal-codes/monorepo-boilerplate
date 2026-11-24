@@ -4,8 +4,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 
-import Header from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import type { trpc } from "@/utils/trpc";
 
@@ -48,14 +48,19 @@ function RootComponent() {
         storageKey="vite-ui-theme"
       >
         <TooltipProvider>
-          <div className="grid grid-rows-[auto_1fr] h-svh">
-            <Header />
+          <NuqsAdapter>
             <Outlet />
-          </div>
+          </NuqsAdapter>
           <Toaster richColors />
         </TooltipProvider>
       </ThemeProvider>
-      <TanStackRouterDevtools position="bottom-left" />
+      {/* Devtools float at fixed positions, and the shell owns every corner:
+          top-right is the theme toggle, bottom-left the sidebar user menu.
+          Lift the router chip above the footer rather than covering it. */}
+      <TanStackRouterDevtools
+        position="bottom-left"
+        toggleButtonProps={{ style: { bottom: "5.5rem" } }}
+      />
       <ReactQueryDevtools position="bottom" buttonPosition="bottom-right" />
     </>
   );
