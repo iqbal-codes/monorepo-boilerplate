@@ -9,7 +9,15 @@ import {
 } from "@assistant-ui/react";
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { cn } from "cn";
-import { BotIcon, ChevronDownIcon, HistoryIcon, PlusIcon, XIcon } from "lucide-react";
+import {
+  BotIcon,
+  ChevronDownIcon,
+  HistoryIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PlusIcon,
+  XIcon,
+} from "lucide-react";
 
 import {
   Select,
@@ -42,6 +50,7 @@ export type AssistantModalProps = {
   emptyDescription?: string;
   openOnRunStart?: boolean;
   dismissOnInteractOutside?: boolean;
+  defaultExpanded?: boolean;
   sideOffset?: number;
   toolFallback?: ToolCallMessagePartComponent;
 };
@@ -100,11 +109,16 @@ function ModelSelector({
 
 type ModalTriggerButtonProps = ComponentPropsWithoutRef<"button"> & {
   open: boolean;
+  isRunning?: boolean;
 };
 
 const AssistantModalTriggerButton = forwardRef<HTMLButtonElement, ModalTriggerButtonProps>(
-  ({ open, className, ...props }, ref) => {
-    const label = open ? "Close assistant" : "Open assistant";
+  ({ open, isRunning = false, className, ...props }, ref) => {
+    const label = open
+      ? "Close assistant"
+      : isRunning
+        ? "Open assistant (generating reply)"
+        : "Open assistant";
 
     return (
       <Tooltip>
@@ -120,6 +134,12 @@ const AssistantModalTriggerButton = forwardRef<HTMLButtonElement, ModalTriggerBu
                 className,
               )}
             >
+              {isRunning && !open && (
+                <span aria-hidden="true" className="absolute -top-1 -end-1 flex size-2.5">
+                  <span className="absolute inline-flex size-full bg-blue-400 opacity-75 motion-safe:animate-ping" />
+                  <span className="relative inline-flex size-2.5 border border-background bg-blue-500 dark:bg-blue-400" />
+                </span>
+              )}
               <BotIcon
                 aria-hidden="true"
                 data-state={open ? "open" : "closed"}
@@ -154,10 +174,12 @@ export function AssistantModal({
   emptyDescription,
   openOnRunStart = true,
   dismissOnInteractOutside = false,
+  defaultExpanded = false,
   sideOffset = 16,
   toolFallback,
 }: AssistantModalProps) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [view, setView] = useState<"thread" | "list">("thread");
   const [selectedModelId, setSelectedModelId] = useState(
     () => defaultModelId ?? models[0]?.id ?? "",
@@ -165,6 +187,7 @@ export function AssistantModal({
   const headingId = useId();
   const aui = useAui();
   const activeThreadTitle = useAuiState((s) => s.threadListItem.title);
+  const isRunning = useAuiState((s) => s.thread.isRunning);
 
   useEffect(() => {
     if (!selectedModelId && (defaultModelId || models[0]?.id)) {
@@ -198,7 +221,9 @@ export function AssistantModal({
     >
       <div className="fixed end-4 bottom-4 z-40 size-11">
         <PopoverPrimitive.Trigger
-          render={(props, state) => <AssistantModalTriggerButton {...props} open={state.open} />}
+          render={(props, state) => (
+            <AssistantModalTriggerButton {...props} open={state.open} isRunning={isRunning} />
+          )}
         />
       </div>
 
@@ -213,18 +238,29 @@ export function AssistantModal({
           <PopoverPrimitive.Popup
             aria-labelledby={headingId}
             className={cn(
-              "z-50 flex h-[min(36rem,calc(100dvh-6rem))] max-h-(--available-height) w-[min(26rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] origin-(--transform-origin) flex-col overflow-hidden rounded-none border border-border bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
+              "z-50 flex max-h-(--available-height) max-w-[calc(100vw-2rem)] origin-(--transform-origin) flex-col overflow-hidden rounded-none border border-border bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 motion-safe:transition-[width,height] motion-safe:duration-200",
+              expanded
+                ? "h-[min(46rem,calc(100dvh-5rem))] w-[min(38rem,calc(100vw-2rem))]"
+                : "h-[min(36rem,calc(100dvh-6rem))] w-[min(26rem,calc(100vw-2rem))]",
               "data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-open:duration-200 data-closed:duration-150",
               "motion-safe:data-open:zoom-in-98 motion-safe:data-open:slide-in-from-bottom-2 motion-safe:data-closed:zoom-out-98 motion-safe:data-closed:slide-out-to-bottom-2",
             )}
           >
             <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-popover px-3.5 py-2.5">
-              <h2
-                id={headingId}
-                className="min-w-0 flex-1 truncate text-xs font-semibold tracking-wider uppercase"
-              >
-                {resolvedTitle}
-              </h2>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {isRunning && view === "thread" && (
+                  <span
+                    aria-hidden="true"
+                    className="size-1.5 shrink-0 rounded-full bg-blue-500 motion-safe:animate-pulse dark:bg-blue-400"
+                  />
+                )}
+                <h2
+                  id={headingId}
+                  className="min-w-0 flex-1 truncate text-xs font-semibold tracking-wider uppercase"
+                >
+                  {resolvedTitle}
+                </h2>
+              </div>
 
               <div className="flex shrink-0 items-center gap-1">
                 <TooltipIconButton
@@ -245,6 +281,19 @@ export function AssistantModal({
                   }}
                 >
                   <PlusIcon aria-hidden="true" className="size-3.5" />
+                </TooltipIconButton>
+
+                <TooltipIconButton
+                  tooltip={expanded ? "Restore compact size" : "Expand window"}
+                  aria-pressed={expanded}
+                  side="bottom"
+                  onClick={() => setExpanded((prev) => !prev)}
+                >
+                  {expanded ? (
+                    <Minimize2Icon aria-hidden="true" className="size-3.5" />
+                  ) : (
+                    <Maximize2Icon aria-hidden="true" className="size-3.5" />
+                  )}
                 </TooltipIconButton>
 
                 <TooltipIconButton

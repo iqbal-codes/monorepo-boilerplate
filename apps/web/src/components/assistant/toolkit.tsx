@@ -1,7 +1,7 @@
 "use generative";
 
 import { defineToolkit, externalTool } from "@assistant-ui/react";
-import { CheckIcon, CompassIcon, ServerIcon, TriangleAlertIcon } from "lucide-react";
+import { AssistantToolFallback } from "@monorepo-boilerplate/ui/components/assistant";
 import { z } from "zod";
 
 import { navigateFromAssistant } from "@/lib/assistant-navigation";
@@ -19,47 +19,7 @@ export default defineToolkit({
     description: "Return current server time, runtime environment, and authenticated user summary.",
     parameters: z.object({}),
     execute: externalTool(),
-    render: ({ result, isError, status }) => {
-      if (isError) {
-        return (
-          <div className="my-1 flex items-center gap-2 border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-            <TriangleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>Unable to load runtime info.</span>
-          </div>
-        );
-      }
-      if (status.type === "running" || !result) {
-        return (
-          <div className="my-1 flex items-center gap-2 border border-border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-            <ServerIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>Checking server runtime info…</span>
-          </div>
-        );
-      }
-      const data = result as {
-        serverTimeIso?: string;
-        environment?: string;
-        user?: { name?: string; email?: string; role?: string };
-      };
-      return (
-        <div className="my-1 space-y-1 border border-border bg-background/80 px-2.5 py-2 text-xs">
-          <div className="flex items-center gap-1.5 font-medium text-foreground">
-            <ServerIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-            <span>Runtime info ({data.environment ?? "unknown"})</span>
-          </div>
-          {data.user && (
-            <p className="text-muted-foreground">
-              {data.user.name ?? data.user.email} ({data.user.role ?? "user"})
-            </p>
-          )}
-          {data.serverTimeIso && (
-            <p className="font-mono text-[11px] text-muted-foreground tabular-nums">
-              {data.serverTimeIso}
-            </p>
-          )}
-        </div>
-      );
-    },
+    render: (props) => <AssistantToolFallback {...props} />,
   },
 
   get_current_screen: {
@@ -72,22 +32,7 @@ export default defineToolkit({
         title: document.title,
       };
     },
-    render: ({ result, status }) => {
-      if (status.type === "running" || !result) {
-        return (
-          <div className="my-1 flex items-center gap-2 border border-border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-            <CompassIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>Reading active screen…</span>
-          </div>
-        );
-      }
-      return (
-        <div className="my-1 flex items-center gap-2 border border-border bg-background/80 px-2.5 py-2 text-xs">
-          <CompassIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="font-mono text-foreground">{result.pathname}</span>
-        </div>
-      );
-    },
+    render: (props) => <AssistantToolFallback {...props} />,
   },
 
   navigate_screen: {
@@ -99,29 +44,6 @@ export default defineToolkit({
       "use client";
       return navigateFromAssistant(path);
     },
-    render: ({ args, result, isError, status }) => {
-      if (isError) {
-        return (
-          <div className="my-1 flex items-center gap-2 border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-            <TriangleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>Unable to navigate to {args.path}.</span>
-          </div>
-        );
-      }
-      if (status.type === "running" || !result) {
-        return (
-          <div className="my-1 flex items-center gap-2 border border-border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-            <CompassIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>Opening {args.path}…</span>
-          </div>
-        );
-      }
-      return (
-        <div className="my-1 flex items-center gap-2 border border-border bg-background/80 px-2.5 py-2 text-xs">
-          <CheckIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-          <span>Navigated to {result.navigatedTo}</span>
-        </div>
-      );
-    },
+    render: (props) => <AssistantToolFallback {...props} />,
   },
 });
