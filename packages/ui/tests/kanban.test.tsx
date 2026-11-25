@@ -359,5 +359,7 @@ describe("KanbanBoard", () => {
     expect(html).toContain('data-pending="true"');
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('aria-label="Move Second to another column"');
+    expect(html).toContain('aria-label="Reorder Second"');
+    expect(html).not.toContain('role="button"');
   });
 });

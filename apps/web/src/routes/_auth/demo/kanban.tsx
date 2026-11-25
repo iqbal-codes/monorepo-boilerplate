@@ -524,9 +524,10 @@ function KanbanDemo() {
         title="Kanban Board"
         description="Controlled Kanban Board block in CRM pipeline and task management modes. Deletable demo."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <ToggleGroup
               aria-label="Board state preview"
+              size="sm"
               value={[previewMode]}
               onValueChange={(next) => {
                 const mode = next[0] as PreviewMode | undefined;
@@ -541,7 +542,7 @@ function KanbanDemo() {
               <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
               Reset board
             </Button>
-          </div>
+          </>
         }
       />
 

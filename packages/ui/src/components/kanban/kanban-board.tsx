@@ -176,6 +176,18 @@ function KanbanSortableCard<TCard, TColumn extends KanbanColumnDef>({
           className="absolute inset-0 z-[1] cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         />
       )}
+      {!dragHandle && !draggableDisabled && (
+        <button
+          ref={handleRef}
+          type="button"
+          data-slot="kanban-keyboard-handle"
+          data-kanban-drag-handle="true"
+          aria-label={`Reorder ${cardLabel}`}
+          className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-2 focus-visible:end-10 focus-visible:z-20 focus-visible:border focus-visible:border-ring focus-visible:bg-popover focus-visible:px-2 focus-visible:py-1 focus-visible:text-xs focus-visible:font-medium focus-visible:text-foreground focus-visible:shadow-sm focus-visible:outline-none"
+        >
+          Reorder
+        </button>
+      )}
       {renderCard({
         card,
         column,
@@ -567,11 +579,12 @@ export function KanbanBoard<TCard, TColumn extends KanbanColumnDef = KanbanColum
     () => [
       PointerSensor.configure({
         activationConstraints: [new PointerActivationConstraints.Distance({ value: 6 })],
+        activatorElements: dragHandle ? undefined : (source) => [source.element ?? source.handle],
         preventActivation: (event) => isInteractiveDragExclusion(event.target),
       }),
       KeyboardSensor,
     ],
-    [],
+    [dragHandle],
   );
 
   if (isLoading) {
