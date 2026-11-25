@@ -85,8 +85,15 @@ if [ "$WITH_API" = "1" ]; then
     exit 1
   fi
 
-  printf 'URL=http://localhost:%s\nPID=%s\nWEB_LOG=%s\nAPI_URL=http://localhost:%s\nAPI_PID=%s\nAPI_LOG=%s\n' \
-    "$WEB_PORT" "$WEB_PID" "$WEB_LOG" "$API_PORT" "$API_PID" "$API_LOG"
+  E2E_EMAIL="${PREVIEW_E2E_EMAIL:-dev@example.com}"
+  E2E_PASSWORD="${PREVIEW_E2E_PASSWORD:-Password123!}"
+  curl -s -o /dev/null -X POST "http://127.0.0.1:$API_PORT/api/auth/sign-up/email" \
+    -H "Content-Type: application/json" \
+    -H "Origin: http://localhost:$WEB_PORT" \
+    -d "{\"name\":\"Dev User\",\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" || true
+
+  printf 'URL=http://localhost:%s\nPID=%s\nWEB_LOG=%s\nAPI_URL=http://localhost:%s\nAPI_PID=%s\nAPI_LOG=%s\nE2E_EMAIL=%s\nE2E_PASSWORD=%s\n' \
+    "$WEB_PORT" "$WEB_PID" "$WEB_LOG" "$API_PORT" "$API_PID" "$API_LOG" "$E2E_EMAIL" "$E2E_PASSWORD"
   exit 0
 fi
 

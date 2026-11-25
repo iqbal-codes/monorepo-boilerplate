@@ -14,20 +14,18 @@ TypeScript monorepo on Bun workspaces (`@monorepo-boilerplate`). Root scripts li
 ## Verification & Preview
 
 - **Gate:** `bun run check` (`vp fmt` + `vp lint` + `vp run -r check-types`) and `bun run test` (UI + Archon factory unit tests).
-- **Preview:** `.archon/ui-preview.sh` starts `apps/web` on a free port in `4100–4199` and prints `URL=` and `PID=`. Pass `--with-api` for full-stack E2E with `apps/server`.
+- **Preview:** `.archon/ui-preview.sh` starts `apps/web` on a free port in `4100–4199` and prints `URL=` and `PID=`. Pass `--with-api` for full-stack E2E with `apps/server` (also provisions/prints `E2E_EMAIL` and `E2E_PASSWORD` for `/_auth` routes).
 
 ## Reference Flow & Demo Routes
 
 - Keep the Customers Reference Flow (list → drawer form → detail → avatar upload) compiling and working.
-- `apps/web/src/routes/_auth/demo/{fields,blocks}` only exhibit blocks and may be deleted with `rm -rf apps/web/src/routes/_auth/demo`.
+- `apps/web/src/routes/_auth/demo/` only exhibits blocks and may be deleted with `rm -rf apps/web/src/routes/_auth/demo`.
 
 ## Archon Factory & PRs
 
 - `.archon/workflows/factory/` is copied from `~/.archon/factory-pack/`; upsert from that pack rather than hand-editing.
 - Branch from `master`. State only checks you executed in PRs and summaries.
 
-## Agent skills
-
-### Domain docs
+## Domain docs
 
 Single-context layout (`GLOSSARY.md` and `docs/adr/` at the repo root). See `docs/agents/domain.md`.
