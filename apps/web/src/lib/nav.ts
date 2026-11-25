@@ -6,6 +6,7 @@ import {
   WrenchIcon,
   BoxesIcon,
   InboxIcon,
+  KanbanIcon,
 } from "lucide-react";
 
 /**
@@ -17,7 +18,13 @@ import {
  * express order, grouping, icons, or permissions (docs/adr/0005). `to` stays a
  * literal union so a removed route fails the type check.
  */
-export type NavRoute = "/dashboard" | "/customers" | "/settings" | "/demo/fields" | "/demo/blocks";
+export type NavRoute =
+  | "/dashboard"
+  | "/customers"
+  | "/settings"
+  | "/demo/fields"
+  | "/demo/blocks"
+  | "/demo/kanban";
 
 export type NavSubItem = {
   title: string;
@@ -60,6 +67,7 @@ export const navMain: NavMainItem[] = [
 export const navShortcuts: NavShortcut[] = [
   { name: "Fields", to: "/demo/fields", icon: WrenchIcon },
   { name: "Blocks", to: "/demo/blocks", icon: BoxesIcon },
+  { name: "Kanban", to: "/demo/kanban", icon: KanbanIcon },
 ];
 
 export const REFERENCE_SECTION = { title: "Reference", to: "/demo/blocks" as NavRoute };

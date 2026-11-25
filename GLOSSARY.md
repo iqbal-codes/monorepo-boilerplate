@@ -52,6 +52,22 @@ _Avoid_: remote table, backend pagination
 A DataTable mode where the block sorts, filters, and pages an in-memory array.
 _Avoid_: local table, frontend pagination
 
+**Kanban Board**:
+A controlled board block that organizes cards into horizontal columns and reports move intents; it never fetches.
+_Avoid_: board view, pipeline view
+
+**Kanban Column**:
+A vertical bucket in a Kanban Board that groups cards sharing a workflow state.
+_Avoid_: lane, stage, bucket, list
+
+**Kanban Card**:
+A draggable record surface inside a Kanban Column.
+_Avoid_: item, task, deal, ticket
+
+**WIP Limit**:
+A soft visual capacity threshold on a Kanban Column that warns when exceeded; it never silently blocks moves unless the Screen adds a transition guard.
+_Avoid_: column cap, max items, hard limit
+
 **Field Block**:
 A form-bound block that presents one typed input with its label, description, and validation feedback without knowing any domain rules.
 _Avoid_: form control, input wrapper, form component

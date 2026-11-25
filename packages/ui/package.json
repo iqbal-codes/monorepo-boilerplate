@@ -10,6 +10,8 @@
     "./components/form/*": "./src/components/form/*.tsx",
     "./components/assistant": "./src/components/assistant/index.ts",
     "./components/assistant/*": "./src/components/assistant/*.tsx",
+    "./components/kanban": "./src/components/kanban/index.ts",
+    "./components/kanban/*": "./src/components/kanban/*.tsx",
     "./components/*": "./src/components/*.tsx",
     "./hooks/*": "./src/hooks/*.ts",
     "./postcss.config": "./postcss.config.mjs"
@@ -23,6 +25,8 @@
     "@assistant-ui/react-markdown": "^0.14.26",
     "@assistant-ui/tap": "catalog:",
     "@base-ui/react": "^1.9.0",
+    "@dnd-kit/dom": "^0.5.3",
+    "@dnd-kit/react": "^0.5.3",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/roboto": "^5.3.0",
     "@shadcn/react": "^0.3.1",
