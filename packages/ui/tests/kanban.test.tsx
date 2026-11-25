@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { Window } from "happy-dom";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   KanbanBoard,
@@ -361,5 +364,111 @@ describe("KanbanBoard", () => {
     expect(html).toContain('aria-label="Move Second to another column"');
     expect(html).toContain('aria-label="Reorder Second"');
     expect(html).not.toContain('role="button"');
+  });
+
+  test("mounted DOM keeps card list items free of role=button after dnd-kit effects and toggles column collapse", async () => {
+    const win = new Window({ url: "http://localhost/" });
+    const domKeys = [
+      "window",
+      "document",
+      "Document",
+      "ShadowRoot",
+      "HTMLElement",
+      "Element",
+      "Node",
+      "Event",
+      "MouseEvent",
+      "PointerEvent",
+      "KeyboardEvent",
+      "MutationObserver",
+      "navigator",
+      "getComputedStyle",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "IS_REACT_ACT_ENVIRONMENT",
+    ] as const;
+
+    const prevGlobals = Object.fromEntries(
+      domKeys.map((key) => [key, (globalThis as Record<string, unknown>)[key]]),
+    );
+
+    Object.assign(globalThis, {
+      window: win,
+      document: win.document,
+      Document: win.Document,
+      ShadowRoot: win.ShadowRoot,
+      HTMLElement: win.HTMLElement,
+      Element: win.Element,
+      Node: win.Node,
+      Event: win.Event,
+      MouseEvent: win.MouseEvent,
+      PointerEvent: win.PointerEvent,
+      KeyboardEvent: win.KeyboardEvent,
+      MutationObserver: win.MutationObserver,
+      navigator: win.navigator,
+      getComputedStyle: win.getComputedStyle.bind(win),
+      requestAnimationFrame: win.requestAnimationFrame.bind(win),
+      cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
+      IS_REACT_ACT_ENVIRONMENT: true,
+    });
+
+    const container = win.document.createElement("div");
+    win.document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <KanbanBoard
+            columns={COLUMNS}
+            cards={CARDS}
+            getCardId={(card) => card.id}
+            getCardColumnId={(card) => card.columnId}
+            getCardLabel={(card) => card.title}
+            onCardClick={() => {}}
+            renderCard={({ card, availableTargetColumns, moveToColumn }) => (
+              <KanbanCardSurface>
+                <KanbanCardTitle>{card.title}</KanbanCardTitle>
+                <KanbanCardMoveMenu
+                  cardLabel={card.title}
+                  columns={availableTargetColumns}
+                  onSelectColumn={moveToColumn}
+                />
+              </KanbanCardSurface>
+            )}
+          />,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+
+      const cardItem = container.querySelector('[data-slot="kanban-card-item"][data-card-id="c1"]');
+      const keyboardHandle = cardItem?.querySelector('[data-slot="kanban-keyboard-handle"]');
+      expect(cardItem?.getAttribute("role")).toBeNull();
+      expect(cardItem?.getAttribute("tabindex")).toBeNull();
+      expect(keyboardHandle?.getAttribute("aria-roledescription")).toBe("draggable");
+
+      const collapseTodo = container.querySelector(
+        '[data-column-id="todo"] [data-slot="kanban-column-collapse"]',
+      ) as HTMLButtonElement | null;
+      expect(collapseTodo).not.toBeNull();
+
+      await act(async () => {
+        collapseTodo?.click();
+      });
+
+      const collapsedTodo = container.querySelector('[data-column-id="todo"]');
+      expect(collapsedTodo?.getAttribute("data-collapsed")).toBe("true");
+      expect(
+        collapsedTodo
+          ?.querySelector('[data-slot="kanban-column-expand"]')
+          ?.getAttribute("aria-label"),
+      ).toBe("Expand Todo column");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      await win.close();
+      Object.assign(globalThis, prevGlobals);
+    }
   });
 });

@@ -16,6 +16,7 @@ const IGNORE_PATTERNS = [
 export default defineConfig({
   lint: {
     ignorePatterns: IGNORE_PATTERNS,
+    plugins: ["jsx-a11y"],
     options: {
       typeAware: false,
       typeCheck: false,
@@ -23,6 +24,32 @@ export default defineConfig({
     rules: {
       "typescript/no-explicit-any": "error",
       "no-unused-vars": "error",
+      "jsx-a11y/alt-text": "error",
+      "jsx-a11y/aria-activedescendant-has-tabindex": "error",
+      "jsx-a11y/aria-props": "error",
+      "jsx-a11y/aria-proptypes": "error",
+      "jsx-a11y/aria-role": "error",
+      "jsx-a11y/aria-unsupported-elements": "error",
+      "jsx-a11y/iframe-has-title": "error",
+      "jsx-a11y/interactive-supports-focus": "error",
+      "jsx-a11y/mouse-events-have-key-events": "error",
+      "jsx-a11y/no-access-key": "error",
+      "jsx-a11y/no-aria-hidden-on-focusable": "error",
+      "jsx-a11y/no-distracting-elements": "error",
+      "jsx-a11y/no-redundant-roles": "off",
+      "jsx-a11y/prefer-tag-over-role": "off",
+      "jsx-a11y/heading-has-content": "off",
+      "jsx-a11y/anchor-has-content": "off",
+      "jsx-a11y/label-has-associated-control": "off",
+      "jsx-a11y/no-noninteractive-tabindex": "off",
+      "jsx-a11y/click-events-have-key-events": "off",
+      "jsx-a11y/no-noninteractive-element-interactions": "off",
+      "jsx-a11y/no-static-element-interactions": "off",
+      "jsx-a11y/no-autofocus": "off",
+      "jsx-a11y/role-has-required-aria-props": "error",
+      "jsx-a11y/role-supports-aria-props": "error",
+      "jsx-a11y/scope": "error",
+      "jsx-a11y/tabindex-no-positive": "error",
     },
     overrides: [
       {
