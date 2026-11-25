@@ -4,6 +4,12 @@
 
 **Scope:** (1) making the Assistant usable by people using keyboards, screen readers, zoom, and reduced motion; (2) helping a browser or tool-using agent operate the app through semantic UI or explicit tool contracts, without bypassing authorization or confirmation.
 
+## Clarification: `ui-sdk.dev` is a different SDK
+
+The original note evaluated [AI SDK UI](https://ai-sdk.dev/docs/ai-sdk-ui/overview), the chat state and streaming layer. [Vercel Labs UI SDK](https://ui-sdk.dev/docs) is a separate, beta library of headless UI behaviors and primitives (`@ui-sdk/core`, `@ui-sdk/react`), with a bridge for agents to inspect component state and call component actions ([source and beta status](https://github.com/vercel-labs/ui#install), [bridge docs](https://ui-sdk.dev/docs/agents/connect-an-agent)). Installing it does not automatically give existing Base UI/shadcn components a UI SDK state-and-action contract; that contract is documented for UI SDK components and custom `definePrimitive` components. The bridge can be wired to this app's Assistant tools or registered with a [WebMCP-capable browser](https://ui-sdk.dev/docs/agents/connect-an-agent/webmcp). Neither path replaces the existing chat runtime.
+
+**Recommendation for this repo:** no dependency or migration now. For keyboard/screen-reader access or browser agents that already operate semantic HTML, improve and test the existing controls. For a small number of known app actions, use the existing [Assistant toolkit](../../apps/web/src/components/assistant/toolkit.tsx). If the product needs agents to inspect and manipulate the visible state of rich controls directly, pilot UI SDK on one new, non-sensitive Block (for example a multi-select filter); compare task success against the existing approach before replacing shared components. Keep [bridge permissions](https://ui-sdk.dev/docs/agents/connect-an-agent/permissions) and server-side authorization separate.
+
 **Evidence labels used below**
 
 - **Verified (source):** read directly in this worktree or in the installed package source. This is not browser or assistive-technology (AT) verification.
