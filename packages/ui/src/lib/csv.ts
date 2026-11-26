@@ -45,7 +45,8 @@ export type CsvParseError =
   | { kind: "missing-headers"; headers: string[] }
   | { kind: "unknown-headers"; headers: string[] }
   | { kind: "repeated-headers"; headers: string[] }
-  | { kind: "too-many-rows"; total: number; limit: number };
+  | { kind: "too-many-rows"; total: number; limit: number }
+  | { kind: "too-many-cells"; lineNumber: number; cells: number; headers: number };
 
 export type CsvParseOutcome = { ok: true; table: CsvTable } | { ok: false; error: CsvParseError };
 
@@ -174,6 +175,22 @@ export function parseCsvTable(
     return {
       ok: false,
       error: { kind: "too-many-rows", total: dataRecords.length, limit: MAX_IMPORT_ROWS },
+    };
+  }
+
+  // A record with more cells than headers is rejected rather than truncated: an
+  // unquoted comma in the last cell would otherwise silently drop the rest of a
+  // stored field. Fewer cells is fine and pads with empty strings.
+  const overWide = dataRecords.find((record) => record.fields.length > headers.length);
+  if (overWide) {
+    return {
+      ok: false,
+      error: {
+        kind: "too-many-cells",
+        lineNumber: overWide.lineNumber,
+        cells: overWide.fields.length,
+        headers: headers.length,
+      },
     };
   }
 

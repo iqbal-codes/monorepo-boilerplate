@@ -2,7 +2,6 @@ import { TRPCError } from "@trpc/server";
 import {
   CUSTOMER_EXPORT_LIMIT,
   customerQueries,
-  isUniqueViolation,
   type CustomerListQuery,
 } from "@monorepo-boilerplate/db/queries/customer";
 import { customerStatus } from "@monorepo-boilerplate/db/schema/customer";
@@ -370,23 +369,35 @@ export const customersRouter = router({
    */
   importConfirm: protectedProcedure.input(customerImportInput).mutation(async ({ ctx, input }) => {
     const { drafts, issues, existingEmails } = await validateImport(ctx.db, input.rows);
-    const conflictingLines = new Set(issues.map((issue) => issue.lineNumber));
-    const databaseConflicts = drafts
-      .filter((draft) => existingEmails.has(draft.email))
-      .map((draft) => draft.lineNumber);
 
-    if (issues.length === 0) {
-      try {
-        const { created } = await customerQueries(ctx.db).importMany(drafts.map(toCustomerInsert));
-        if (created.length === drafts.length) return { ok: true as const, created: created.length };
-      } catch (error) {
-        if (!isUniqueViolation(error)) throw error;
-        // The unique index is the final race check: another writer stored one
-        // of these emails between the lookup and the insert.
-      }
+    // Every issue already carries a line, so a row that failed validation is a
+    // conflict line too. `existingEmails` is the pre-check view used for the
+    // preview; it can be stale by the time the write runs.
+    const conflictingLines = new Set(issues.map((issue) => issue.lineNumber));
+    for (const draft of drafts) {
+      if (existingEmails.has(draft.email)) conflictingLines.add(draft.lineNumber);
     }
 
-    for (const lineNumber of databaseConflicts) conflictingLines.add(lineNumber);
+    const linesFor = (emails: Iterable<string>) => {
+      const wanted = new Set(emails);
+      for (const draft of drafts) {
+        if (wanted.has(draft.email)) conflictingLines.add(draft.lineNumber);
+      }
+      return [...conflictingLines].sort((a, b) => a - b);
+    };
+
+    if (issues.length === 0) {
+      const { created, conflictEmails } = await customerQueries(ctx.db).importMany(
+        drafts.map(toCustomerInsert),
+      );
+      if (conflictEmails.length === 0 && created.length === drafts.length) {
+        return { ok: true as const, created: created.length };
+      }
+      // Either the transaction's re-read or the unique index saw a conflict the
+      // pre-check could not, and the batch rolled back in full.
+      return { ok: false as const, conflictLineNumbers: linesFor(conflictEmails) };
+    }
+
     return {
       ok: false as const,
       conflictLineNumbers: [...conflictingLines].sort((a, b) => a - b),

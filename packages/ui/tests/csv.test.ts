@@ -227,6 +227,30 @@ line two"`,
     expect(table.rows[0]?.values).toMatchObject({ name: "Ada", email: "", notes: "" });
   });
 
+  test("rejects a record with more cells than headers instead of truncating a field", () => {
+    // An unquoted comma in the last cell looks like a ninth field. Silently
+    // dropping it would store `notes = "Called"` and lose the rest of the note.
+    const csv = [HEADER, "Ada,ada@example.test,,,,,,Called, will follow up"].join("\n");
+
+    expect(errorOf(csv)).toEqual({ kind: "too-many-cells", lineNumber: 2, cells: 9, headers: 8 });
+  });
+
+  test("accepts a record whose comma lives inside a quoted cell", () => {
+    const table = tableOf(`${HEADER}\nAda,ada@example.test,,,,,,"Called, will follow up"`);
+    expect(table.rows[0]?.values.notes).toBe("Called, will follow up");
+  });
+
+  test("reports the first over-wide record's own line, not a line after it", () => {
+    const csv = [
+      HEADER,
+      "Ada,ada@example.test,,,,,,",
+      '"Grace\nHopper",grace@example.test,,,,,,one,extra',
+      "Katherine,katherine@example.test,,,,,,",
+    ].join("\n");
+
+    expect(errorOf(csv)).toEqual({ kind: "too-many-cells", lineNumber: 3, cells: 9, headers: 8 });
+  });
+
   test("rejects more nonblank rows than the limit", () => {
     const rows = Array.from(
       { length: MAX_IMPORT_ROWS + 1 },

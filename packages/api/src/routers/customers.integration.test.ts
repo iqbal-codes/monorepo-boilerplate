@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createDb } from "@monorepo-boilerplate/db";
+import { customerQueries } from "@monorepo-boilerplate/db/queries/customer";
 import { customersRouter } from "./customers";
 
 const databaseUrl = process.env.CUSTOMERS_TEST_DATABASE_URL;
@@ -289,6 +290,154 @@ describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () =
           rowCount: 0,
         });
       }
+    });
+
+    test("a conflict only the transaction can see inserts nothing and names the line", async () => {
+      // Reproduces the documented race deterministically. `existingEmails` reads
+      // through `db`, while `importMany` re-reads inside `db.transaction` through
+      // `tx`, so blinding only the top-level read is exactly "a competing writer
+      // committed between the pre-check and the batch".
+      const rows = [row(2), row(3), row(4)];
+      const racedEmail = rows[1]!.values.email;
+
+      const raced = await staff.create({
+        name: "Raced in after the pre-check",
+        email: racedEmail,
+        balanceMinor: 0,
+      });
+      fixtureIds.push(raced.id);
+
+      const blindDb: typeof db = new Proxy(db, {
+        get(target, property, receiver) {
+          if (property === "select") {
+            return () => ({ from: () => ({ where: async () => [] }) });
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+
+      const racing = customersRouter.createCaller({ db: blindDb, session });
+      const confirm = await racing.importConfirm({ rows });
+
+      expect(confirm).toEqual({ ok: false, conflictLineNumbers: [3] });
+
+      // "Nothing was saved" must be literally true for the whole batch.
+      for (const attempt of [rows[0]!, rows[2]!]) {
+        expect(await staff.list({ search: attempt.values.email, status: "all" })).toMatchObject({
+          rowCount: 0,
+        });
+      }
+      expect(await staff.list({ search: racedEmail, status: "all" })).toMatchObject({
+        rowCount: 1,
+      });
+    });
+
+    test("importMany is all-or-nothing when one email is already stored", async () => {
+      const queries = customerQueries(db);
+      const stored = await create();
+      const survivors = [unique(), unique()];
+
+      const result = await queries.importMany([
+        { id: crypto.randomUUID(), name: "Survivor A", email: survivors[0]!, balanceMinor: 0 },
+        { id: crypto.randomUUID(), name: "Survivor B", email: survivors[1]!, balanceMinor: 0 },
+        { id: crypto.randomUUID(), name: "Conflicting", email: stored.email, balanceMinor: 0 },
+      ]);
+
+      expect(result.created).toEqual([]);
+      expect(result.conflictEmails).toEqual([stored.email]);
+      // Neither survivor may exist: the whole batch must be a no-op.
+      for (const email of survivors) {
+        expect(await staff.list({ search: email, status: "all" })).toMatchObject({ rowCount: 0 });
+      }
+    });
+
+    test("importMany stores every row when nothing conflicts", async () => {
+      const queries = customerQueries(db);
+      const emails = [unique(), unique()];
+
+      const result = await queries.importMany(
+        emails.map((email, index) => ({
+          id: crypto.randomUUID(),
+          name: `Batch ${index}`,
+          email,
+          balanceMinor: 0,
+        })),
+      );
+
+      expect(result.conflictEmails).toEqual([]);
+      expect(result.created.map((created) => created.email).sort()).toEqual([...emails].sort());
+      fixtureIds.push(...result.created.map((created) => created.id));
+    });
+
+    test("a unique violation at the index still reports the conflicting email", async () => {
+      // The final race check. The re-read is blinded so the INSERT is what hits
+      // `customer_email_unique`, exactly as when a competing writer commits
+      // between the re-read and the batch insert. The batch must roll back and
+      // still name what conflicted.
+      const queries = customerQueries(db);
+      const racedEmail = unique();
+      const survivor = unique();
+      const raced = await staff.create({
+        name: "Raced in at the index",
+        email: racedEmail,
+        balanceMinor: 0,
+      });
+      fixtureIds.push(raced.id);
+
+      const blindTx = (tx: object) =>
+        new Proxy(tx, {
+          get(inner, property, receiver) {
+            if (property === "select") {
+              return () => ({
+                from: () => ({ where: () => ({ orderBy: () => ({ for: async () => [] }) }) }),
+              });
+            }
+            return Reflect.get(inner, property, receiver);
+          },
+        });
+
+      const racingQueries = customerQueries(
+        new Proxy(db, {
+          get(target, property, receiver) {
+            if (property === "transaction") {
+              return (run: (tx: object) => Promise<unknown>) =>
+                (target.transaction as (fn: (tx: object) => Promise<unknown>) => Promise<unknown>)(
+                  (tx) => run(blindTx(tx)),
+                );
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        }) as typeof db,
+      );
+
+      const result = await racingQueries.importMany([
+        { id: crypto.randomUUID(), name: "Survivor", email: survivor, balanceMinor: 0 },
+        { id: crypto.randomUUID(), name: "Conflicting", email: racedEmail, balanceMinor: 0 },
+      ]);
+
+      expect(result.created).toEqual([]);
+      expect(result.conflictEmails).toEqual([racedEmail]);
+      // Nothing from the failed batch may survive.
+      expect(await queries.existingEmails([survivor])).toEqual(new Set());
+    });
+
+    test("importMany reports a batch that repeats an email as a conflict", async () => {
+      // Within-file duplicates are caught by validation before this seam, but the
+      // helper is public: a repeated email must still abort with a named conflict
+      // instead of returning ok with an empty conflict list.
+      const queries = customerQueries(db);
+      const repeated = unique();
+      const survivor = unique();
+
+      const result = await queries.importMany([
+        { id: crypto.randomUUID(), name: "First", email: repeated, balanceMinor: 0 },
+        { id: crypto.randomUUID(), name: "Other", email: survivor, balanceMinor: 0 },
+        { id: crypto.randomUUID(), name: "Repeat", email: repeated, balanceMinor: 0 },
+      ]);
+
+      expect(result.created).toEqual([]);
+      expect(result.conflictEmails).toEqual([repeated]);
+      expect(await queries.existingEmails([survivor, repeated])).toEqual(new Set());
     });
 
     test("accepts at most the documented row count", async () => {

@@ -120,6 +120,8 @@ function describeParseError(error: CsvParseError): string {
       return `This file repeats columns: ${error.headers.join(", ")}. Keep each column once.`;
     case "too-many-rows":
       return `This file has ${formatNumber(error.total)} records. An import is limited to ${formatNumber(error.limit)} nonblank rows.`;
+    case "too-many-cells":
+      return `Line ${error.lineNumber} has ${formatNumber(error.cells)} cells but the file has ${formatNumber(error.headers)} columns. Quote any value that contains a comma, then try again.`;
   }
 }
 
@@ -142,6 +144,14 @@ const INITIAL_STATE: ImportState = {
   error: null,
   conflictLineNumbers: null,
 };
+
+/**
+ * A confirmation that reports failure without naming a line leaves the user with
+ * nothing to act on, so it is surfaced as a recoverable error instead of a silent
+ * re-enabled preview.
+ */
+const UNREPORTED_CONFLICT =
+  "The import could not be completed and no rows were saved, but the conflicting records could not be identified. Choose the file again to re-check every row.";
 
 export function ImportBlock({
   contract,
@@ -250,6 +260,18 @@ export function ImportBlock({
         return;
       }
 
+      if (outcome.table.rows.length === 0) {
+        // A headers-only file is valid CSV but nothing to import, so it is treated
+        // as a recoverable rejection rather than a preview that offers "Import 0".
+        setState((previous) => ({
+          ...previous,
+          phase: "choose",
+          error:
+            "This file has the right columns but no records. Add at least one row below the header.",
+        }));
+        return;
+      }
+
       const records = outcome.table.rows.map((row) => ({
         lineNumber: row.lineNumber,
         values: applyDefaults(row.values, defaults),
@@ -317,6 +339,17 @@ export function ImportBlock({
     if (result.ok) {
       reset();
       setOpen(false);
+      return;
+    }
+
+    if (result.conflictLineNumbers.length === 0) {
+      setState((previous) => ({
+        ...previous,
+        phase: "choose",
+        records: [],
+        issues: [],
+        error: UNREPORTED_CONFLICT,
+      }));
       return;
     }
 
@@ -479,9 +512,7 @@ export function ImportBlock({
                     {formatNumber(state.issues.length)}{" "}
                     {plural(state.issues.length, "issue", "issues")} to fix
                   </p>
-                  <Badge variant="destructive">
-                    {state.issues.length > 0 ? "Blocked" : "Ready"}
-                  </Badge>
+                  <Badge variant="destructive">Blocked</Badge>
                 </div>
                 <ScrollArea className="max-h-56 rounded-none border">
                   <ul className="flex flex-col divide-y">
@@ -502,7 +533,7 @@ export function ImportBlock({
               </div>
             )}
 
-            {hasPreview && state.issues.length === 0 && (
+            {hasPreview && state.issues.length === 0 && !state.conflictLineNumbers && (
               <p className="text-sm text-muted-foreground">
                 Every row passes validation. Nothing has been saved yet.
               </p>

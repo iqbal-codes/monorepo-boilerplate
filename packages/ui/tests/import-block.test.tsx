@@ -550,7 +550,78 @@ describe("ImportBlock", () => {
       expect(text).toContain("Line 3");
       expect(text).toContain("Nothing was saved");
       expect(text).toContain("2 records");
+      // The clean-preview reassurance contradicts a conflict and must not show.
+      expect(text).not.toContain("Every row passes validation");
       expect(confirmButton()?.disabled).toBe(false);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test("never re-enables confirm when a failure names no conflicting line", async () => {
+    // A verdict of `ok: false` with no lines would otherwise drop the user back
+    // into a clean preview that claims nothing was saved, with no explanation.
+    const harness = await mount({
+      validate: () => [],
+      confirm: () => ({ ok: false, conflictLineNumbers: [] }),
+    });
+
+    try {
+      await openDialog();
+      await chooseFile(csvFile(CLEAN_CSV));
+      await settle();
+      await click(confirmButton());
+      await settle();
+
+      const text = dialogText();
+      expect(text).toContain("no rows were saved");
+      expect(text).toContain("could not be identified");
+      expect(text).not.toContain("Every row passes validation");
+      expect(confirmButton()?.disabled).toBe(true);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test("rejects a headers-only file instead of offering an empty import", async () => {
+    const harness = await mount({
+      validate: () => [],
+      confirm: () => {
+        throw new Error("confirm must stay unreachable for an empty file");
+      },
+    });
+
+    try {
+      await openDialog();
+      await chooseFile(csvFile(`${HEADER}\n`));
+      await settle();
+
+      expect(dialogText()).toContain("no records");
+      expect(confirmButton()?.disabled).toBe(true);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test("rejects a record with more cells than headers instead of importing a truncated field", async () => {
+    const harness = await mount({
+      validate: () => [],
+      confirm: () => {
+        throw new Error("confirm must stay unreachable for a rejected file");
+      },
+    });
+
+    try {
+      await openDialog();
+      await chooseFile(
+        csvFile([HEADER, "Ada,ada@example.test,,,,,,Called, will follow up"].join("\n")),
+      );
+      await settle();
+
+      const text = dialogText();
+      expect(text).toContain("Line 2 has 9 cells");
+      expect(text).toContain("Quote any value that contains a comma");
+      expect(confirmButton()?.disabled).toBe(true);
     } finally {
       await harness.cleanup();
     }

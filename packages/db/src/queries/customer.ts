@@ -36,10 +36,13 @@ export type CustomerListQuery = CustomerScopeQuery & {
 export const CUSTOMER_EXPORT_LIMIT = 10_000;
 
 export interface ImportManyResult {
-  /** Inserted Customers, in input order. Empty when nothing was new. */
+  /** Inserted Customers, in input order. Empty whenever `conflictEmails` is non-empty. */
   created: Customer[];
-  /** Emails already stored (any status), byte-exact. */
-  existingEmails: string[];
+  /**
+   * Emails that were already stored (any status) when the transaction re-read
+   * them, byte-exact. When this is non-empty the batch was a no-op.
+   */
+  conflictEmails: string[];
 }
 
 export interface CustomerQueries {
@@ -62,8 +65,10 @@ export interface CustomerQueries {
    */
   existingEmails(emails: readonly string[]): Promise<Set<string>>;
   /**
-   * Revalidates and inserts inside one transaction. Only emails that are not
-   * already stored become rows, so an existing Customer is never updated.
+   * Revalidates and inserts inside one transaction. All-or-nothing: if any input
+   * email is already stored the transaction inserts nothing and names every
+   * conflicting email, so an existing Customer is never updated and a partial
+   * batch can never be committed.
    */
   importMany(rows: readonly NewCustomer[]): Promise<ImportManyResult>;
 }
@@ -71,13 +76,19 @@ export interface CustomerQueries {
 /** Postgres unique-violation, raised by the `customer_email_unique` index. */
 export const UNIQUE_VIOLATION = "23505";
 
+/**
+ * True for a Postgres unique violation. Drizzle wraps driver errors in a
+ * `DrizzleQueryError`, so the SQLSTATE lives on `cause` (and can be nested more
+ * than one level), not on the error the caller catches.
+ */
 export function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === UNIQUE_VIOLATION
-  );
+  for (let current = error, depth = 0; current && depth < 5; depth += 1) {
+    if (typeof current === "object" && "code" in current) {
+      if ((current as { code?: unknown }).code === UNIQUE_VIOLATION) return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 export type CustomerExportRow = {
@@ -247,26 +258,50 @@ export function customerQueries(db: Database): CustomerQueries {
     },
 
     async importMany(rows) {
-      if (rows.length === 0) return { created: [], existingEmails: [] };
+      if (rows.length === 0) return { created: [], conflictEmails: [] };
 
-      // One transaction: revalidate against stored emails, then insert every
-      // still-unknown row in a single multi-row INSERT. Either all new Customers
-      // are stored or the statement fails, and no existing Customer is touched.
-      return db.transaction(async (tx) => {
-        const stored = await tx
+      const emails = [...new Set(rows.map((row) => row.email))];
+      const duplicatedInBatch = new Set(
+        rows.map((row) => row.email).filter((email, index, all) => all.indexOf(email) !== index),
+      );
+
+      try {
+        // One transaction: re-read the stored emails for this batch, then insert
+        // all of it. Any conflict aborts before the INSERT runs, so the batch is
+        // all-or-nothing and no existing Customer is touched.
+        return await db.transaction(async (tx) => {
+          const stored = await tx
+            .select({ email: customer.email })
+            .from(customer)
+            .where(inArray(customer.email, emails))
+            .orderBy(asc(customer.email))
+            .for("update");
+          if (stored.length > 0) {
+            return { created: [], conflictEmails: stored.map((row) => row.email) };
+          }
+
+          const created = await tx
+            .insert(customer)
+            .values([...rows])
+            .returning();
+          return { created, conflictEmails: [] };
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        // The unique index is the final race check: a competing writer committed
+        // between the re-read and the INSERT, or the batch itself repeats an
+        // email. The transaction rolled back, so report what is now stored plus
+        // any email this batch repeated.
+        const nowStored = await db
           .select({ email: customer.email })
           .from(customer)
-          .where(inArray(customer.email, [...new Set(rows.map((row) => row.email))]))
-          .orderBy(asc(customer.email))
-          .for("update");
-        const existingEmails = stored.map((row) => row.email);
-        const conflicts = new Set(existingEmails);
-        const fresh = rows.filter((row) => !conflicts.has(row.email));
-
-        if (fresh.length === 0) return { created: [], existingEmails };
-        const created = await tx.insert(customer).values(fresh).returning();
-        return { created, existingEmails };
-      });
+          .where(inArray(customer.email, emails));
+        const conflictEmails = new Set([
+          ...duplicatedInBatch,
+          ...nowStored.map((row) => row.email),
+        ]);
+        return { created: [], conflictEmails: [...conflictEmails] };
+      }
     },
   };
 }
