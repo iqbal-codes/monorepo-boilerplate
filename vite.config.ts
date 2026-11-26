@@ -16,7 +16,7 @@ const IGNORE_PATTERNS = [
 export default defineConfig({
   lint: {
     ignorePatterns: IGNORE_PATTERNS,
-    plugins: ["jsx-a11y"],
+    plugins: ["jsx-a11y", "react"],
     options: {
       typeAware: false,
       typeCheck: false,
@@ -24,6 +24,12 @@ export default defineConfig({
     rules: {
       "typescript/no-explicit-any": "error",
       "no-unused-vars": "error",
+      "react/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "error",
+      "react/jsx-key": "error",
+      "react/refs": "off",
+      "react/set-state-in-effect": "off",
+      "react/purity": "off",
       "jsx-a11y/alt-text": "error",
       "jsx-a11y/aria-activedescendant-has-tabindex": "error",
       "jsx-a11y/aria-props": "error",

@@ -37,6 +37,8 @@ type WizardContextValue = {
   stepContainerRef: React.RefObject<HTMLDivElement | null>;
 };
 
+const FALLBACK_STEP: WizardStepConfig = { id: "step-0", title: "Step 1" };
+
 const WizardContext = React.createContext<WizardContextValue | null>(null);
 
 export function useWizard(): WizardContextValue {
@@ -94,7 +96,7 @@ export function Wizard({
   const maxIndex = Math.max(0, steps.length - 1);
   const rawStep = controlledStep ?? internalStep;
   const stepIndex = Math.min(maxIndex, Math.max(0, rawStep));
-  const currentStep = steps[stepIndex] ?? { id: "step-0", title: "Step 1" };
+  const currentStep = steps[stepIndex] ?? FALLBACK_STEP;
 
   const setStepIndex = React.useCallback(
     (nextIndex: number) => {
