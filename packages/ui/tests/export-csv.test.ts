@@ -231,15 +231,28 @@ describe("export worker message seam", () => {
   function fakeScope() {
     const listeners: Array<(event: { data: unknown }) => void> = [];
     const posted: unknown[] = [];
+    const waiters: Array<{ count: number; resolve: () => void }> = [];
     return {
       posted,
       addEventListener: (_type: string, listener: (event: { data: unknown }) => void) => {
         listeners.push(listener);
       },
-      postMessage: (message: unknown) => posted.push(message),
+      postMessage: (message: unknown) => {
+        posted.push(message);
+        for (let i = waiters.length - 1; i >= 0; i--) {
+          if (posted.length >= (waiters[i]?.count ?? 0)) {
+            waiters[i]?.resolve();
+            waiters.splice(i, 1);
+          }
+        }
+      },
       emit: (data: unknown) => {
         for (const listener of listeners) listener({ data });
       },
+      waitForCount: (count: number) =>
+        posted.length >= count
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => waiters.push({ count, resolve })),
       listenerCount: () => listeners.length,
     };
   }
@@ -313,7 +326,7 @@ describe("export worker message seam", () => {
       filename: "customers.csv",
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await scope.waitForCount(3);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.init?.credentials).toBe("include");
@@ -344,7 +357,7 @@ describe("export worker message seam", () => {
       filename: "customers.csv",
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await scope.waitForCount(2);
 
     expect(scope.posted).toEqual([
       { type: "stage", stage: "fetching" },
@@ -374,7 +387,7 @@ describe("export worker message seam", () => {
     });
     scope.emit({ type: "abort" });
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await scope.waitForCount(2);
 
     expect(seenSignal?.aborted).toBe(true);
     expect(scope.posted).toEqual([{ type: "stage", stage: "fetching" }, { type: "aborted" }]);

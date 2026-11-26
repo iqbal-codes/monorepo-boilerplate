@@ -345,21 +345,35 @@ describe("ExportButton activation", () => {
   });
 
   test("revokes the object URL on the next task after it has served the click", async () => {
-    await withHarness({ fetchExport: async () => payload() }, async (harness) => {
-      await harness.click();
-      await act(async () => {
-        harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+    await withDom(async (win) => {
+      let revokedSynchronously: string[] = [];
+      let holder: Harness | undefined;
+      const harness = await mountExportButton(win, {
+        fetchExport: async () => payload(),
+        onExported: () => {
+          // `downloadFile` has already clicked the anchor synchronously;
+          // revocation must stay deferred to a later task.
+          revokedSynchronously = [...(holder?.revokedUrls ?? [])];
+        },
       });
+      holder = harness;
 
-      // Not revoked synchronously: the browser still needs the URL to start
-      // the download.
-      expect(harness.revokedUrls).toEqual([]);
+      try {
+        await harness.click();
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+        });
 
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      });
+        expect(revokedSynchronously).toEqual([]);
 
-      expect(harness.revokedUrls).toEqual(["blob:fake/1"]);
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+
+        expect(harness.revokedUrls).toEqual(["blob:fake/1"]);
+      } finally {
+        await harness.unmount();
+      }
     });
   });
 
