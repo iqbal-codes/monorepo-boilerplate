@@ -46,7 +46,7 @@ nodes:
 
   - id: review
     command: review
-    model: medium
+    model: large
     context: fresh
     mutates_checkout: false
     depends_on: [collect-evidence, learn]
