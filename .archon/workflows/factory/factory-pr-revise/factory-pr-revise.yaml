@@ -309,21 +309,54 @@ nodes:
             fix_blocked: { from: "$fix.output.blocked", if_skipped: false }
             fix_summary: { from: "$fix.output.summary", if_skipped: "" }
 
-  - id: escalate-rounds
+  # Put the escalation in the PR thread, so GitHub answers this pause without the web UI.
+  - id: escalation-prompt
+    script: escalation-prompt
+    runtime: bun
     depends_on: [rounds]
+    when: "$rounds.output.ready == false"
+    with:
+      repo: "$fetch-pr-feedback.output.repo"
+      pr_number: "$fetch-pr-feedback.output.pr_number"
+      reason: "$rounds.output.reason"
+      summary: "$rounds.output.summary"
+    output_format:
+      type: object
+      properties:
+        posted: { type: boolean }
+        summary: { type: string }
+      required: [posted, summary]
+
+  - id: escalate-rounds
+    depends_on: [rounds, escalation-prompt]
     when: "$rounds.output.ready == false"
     wait:
       attention: |
         PR revision "$fetch-pr-feedback.output.title" ($fetch-pr-feedback.output.pr_url) did not reach green LGTM ($rounds.output.reason).
         Summary: $rounds.output.summary
-        Approve to leave PR updated for manual review; Reject to cancel.
-      form: approval
+
+        Reason `implement_blocked` is a scope blocker: the work needs a path outside the reserved folders, and the fixer cannot widen the reservation itself.
+        Read round-feedback.md and mechanical-gate.md in this run's artifacts before deciding.
+      form: select
+      options:
+        - id: leave-open
+          label: "Keep the PR for manual review"
+          does: "Ends the run after finalizing the PR body and evidence; nothing merges. Use when the remaining work is small enough to finish by hand."
+        - id: widen-reservation
+          label: "Widen the reservation, then re-run"
+          does: "Ends the run untouched. You add the needed folder to `**Allowed Folders:**` (or the `allowed_folders` input) and start a new run; the reservation is re-checked against other live runs."
+        - id: split-slice
+          label: "Split the out-of-scope work into another slice"
+          does: "Ends the run untouched. You file the extra work as its own slice, then re-run this revision with its reservation unchanged."
+        - id: cancel
+          label: "Cancel this run"
+          does: "Cancels the run. The PR and branch stay on disk for you to delete or keep."
       labels:
         factory: "escalated"
 
   - id: cancel-exhausted
     depends_on: [escalate-rounds]
-    when: "$escalate-rounds.output.decision == 'reject'"
+    when: "$escalate-rounds.output.decision == 'cancel'"
     cancel: "Cancelled after PR revision QA escalation: $escalate-rounds.output.text"
 
   # Typed decision gate: a skipped loop_group has no output, so finalize-pr must not

@@ -80,3 +80,7 @@ qa__verdict:
   reason: review_findings
   diff_stat: "4 files changed, 205 insertions(+)"
   summary: "Round findings open in Seams+Errors; sent back to factory:changes-requested."
+
+escalation-prompt:
+  posted: true
+  summary: "escalation prompt posted to PR #24"
