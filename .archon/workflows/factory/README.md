@@ -7,9 +7,13 @@ Standalone workflows for refining requests, delivering scoped changes, and impro
 | Workflow | What it does |
 | :--- | :--- |
 | **`factory-refine`** | Turn a raw request or GitHub issue into a repository-grounded slice contract; ask for approval or clarification when needed. |
-| **`factory-slice`** | Implement a slice contract, check owned paths and run repository verification, open a draft PR, run independent QA, and apply the selected merge policy. |
+| **`factory-slice`** | Implement a slice contract, enforce path policy and any folder reservation, run repository verification, open a draft PR, run independent QA, and apply the selected merge policy. |
 | **`factory-pr-revise`** | Address maintainer `CHANGES_REQUESTED` reviews, inline comments, or `/fix` directives on an existing PR and re-run gates & QA. |
 | **`factory-learn`** | Audit the harness and recent run evidence. Recommend one addition, update, consolidation, or removal; optionally open a draft PR for human review. |
+
+`factory-qa` is not a runnable workflow: it is the QA round both delivery workflows
+include from their fix loop (mechanical gate, UX verification, the review axes, round
+verdict). Change reviewer models, review prompts, or gate wiring there once.
 
 ## Copying to Another Repository
 
@@ -25,7 +29,7 @@ To copy only the workflow pack manually without starter files:
 
 ```bash
 mkdir -p .archon/workflows/factory
-cp -a ~/.archon/factory-pack/{.shared,factory-refine,factory-slice,factory-pr-revise,factory-learn,README.md} .archon/workflows/factory/
+cp -a ~/.archon/factory-pack/{.shared,factory-refine,factory-slice,factory-pr-revise,factory-learn,factory-qa,README.md} .archon/workflows/factory/
 ```
 
 To enable autonomous GitHub issue/PR polling (`archon-factory-dispatch.timer`):
@@ -34,12 +38,13 @@ To enable autonomous GitHub issue/PR polling (`archon-factory-dispatch.timer`):
 bash ~/.archon/factory-pack/init-repo.sh /path/to/repo --labels --dispatch
 ```
 
-The dispatcher verifies every GitHub author against `.archon/sdlc/policy/maintainers.json` (fail-closed when empty) and drives the factory-owned `factory:*` state machine, defaulting to `refine_mode=labeled` so non-Archon issues (`factory:human`, `factory:wontfix`, `factory:spec`, `factory:epic`, `wayfinder:*`, `[Epic Spec]`) are never touched:
+The dispatcher checks maintainer actions against `.archon/sdlc/policy/maintainers.json` (fail-closed when empty). Its default `refine_mode=labeled` takes explicitly routed work and skips inactive labels (`factory:human`, `factory:wontfix`, `factory:spec`, `factory:epic`, `wayfinder:*`) and `[Epic Spec]` tickets:
 - **Vague tickets (`factory:triage` / `factory:needs-info`)**: runs `factory-refine` (`approval_mode=github`), posts clarifying questions (`factory:needs-info`), and re-refines when a maintainer replies (or accepts `/approve` / `/reject`).
-- **Ready issues (`factory:ready`)**: checks both native GitHub `blockedBy` and Markdown `Blocked by` edges; if the contract has `Owned / Allowed Paths` + `Verification Command`, dispatches `factory-slice` directly—otherwise grounds it via `factory-refine` first.
+- **Ready issues (`factory:ready`)**: checks both native GitHub `blockedBy` and Markdown `Blocked by` edges; dispatches contracts with acceptance criteria and a resolved verification command to `factory-slice`, and sends ungrounded requests to `factory-refine` first.
 - **Blocked issues (`factory:blocked`)**: waits until every native or Markdown blocker is merged; reconciliation flips the issue back to `factory:ready` (or `factory:triage` when it still needs grounding).
 - **PR change requests**: dispatches `factory-pr-revise` on maintainer `CHANGES_REQUESTED` reviews, inline diff comments, or `/fix` / `/revise` comments.
 - **PR merge gates**: settles paused `merge-approval` gates when a maintainer comments `/approve` or `/merge` (or `/reject` / `/hold`).
+- **QA escalations**: a run that exhausts its QA rounds or hits a scope blocker pauses at `escalate-rounds`, and the same prompt is posted on the PR. A maintainer replies `/leave-open`, `/widen-reservation`, `/split-slice`, or `/cancel` (`/approve` means `/leave-open`) and the dispatcher answers the paused run.
 - **Claims (`factory:in-progress`)**: applied to the issue for the whole life of a dispatched run (including pauses), removed when the run ends, and excluded from further dispatch. Failed/cancelled `factory-refine` runs release the claim and are retried on the next pass.
 
 Matt Pocock's canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) and the old `stage:*` labels are accepted as **inbound aliases only**; the dispatcher normalizes them to `factory:*` and never emits them. See `.archon/workflows/factory/.shared/labels.ts`.
@@ -53,15 +58,41 @@ A minimal Markdown contract can be written by hand; add acceptance criteria and 
 ```markdown
 # Reject blank search queries
 
-- **Owned / Allowed Paths:**
-  - `src/search/**`
+- **Work Areas:**
+  - `src/search/`
 - **Verification Command:** `go test ./src/search/...`
 - [ ] A blank query returns a validation error without calling the search backend.
 ```
 
 Phase (`L0–L3`), slice ID, linked UI briefs, and blocker issues (native GitHub `--blocked-by` or Markdown `Blocked by: #N`) are optional. `factory-refine` marks ready GitHub issues with `factory:ready` (or `factory:blocked` while a blocker is open) and `risk:<tier>` by default. Automatic issue admission, clarification replies, and `/approve` on GitHub require a dispatcher; without one, invoke the workflow manually and use Archon for approvals.
 
-Use the smallest cohesive folders in `Owned / Allowed Paths`, including test locations. Use exact paths for genuinely file-specific work or necessary root configuration. `Forbidden Shared Files` overrides ownership when the two overlap.
+Triage names the outcome, observable acceptance criteria, and invariants to preserve. Optional `Work Areas` lists likely module folders, including test locations where useful; it does not authorize edits or set a reservation. Legacy `Owned / Allowed Paths` also supplies hints only. Explicitly agreed `Forbidden Paths` (including legacy `Forbidden Shared Files`) remain hard exclusions. QA checks the accepted behavior, not whether files match the hints.
+
+### Folder reservations and protected paths
+
+Delivery and PR revision are exclusive by default. To allow concurrent runs, add an explicit reservation to the operator-maintained issue for dispatcher runs, or pass `--input 'allowed_folders=["src/search/","tests/search/"]'` for a manual run. The issue form is:
+
+```markdown
+- **Allowed Folders:**
+  - `src/search/`
+  - `tests/search/`
+```
+
+Use canonical repo-relative folders with trailing slashes, not file paths or globs. An omitted reservation or `[]` runs exclusively; only disjoint nonempty reservations can run together. Parent and child folders overlap, and paused runs still hold their reservation. Use one Archon project and dispatcher host per repository. If accepted work needs a new folder, the run reports its exact path and rationale before editing there. End that run, update the reservation, then start a new run.
+
+Factory protects `.github/`, `.archon/workflows/`, `.archon/sdlc/policy/`, and `.archon/config.yaml`, plus paths from `.archon/sdlc/policy/protected-paths.json` on the target base branch at intake. That optional file is a JSON array of repo-relative paths or glob patterns. Neither exclusive runs nor folder reservations override repository protections or slice prohibitions. Maintainers make protected changes through a separately approved, manual PR.
+
+The run executes the contract’s verification command and checks changes against the reservation and forbidden paths. The publisher enforces these boundaries before committing and checks again before pushing. These gates verify and publish the PR; they do not deploy it.
+
+### Answering pauses from chat
+
+Runs pause on attention nodes: contract approval in `factory-refine`, a blocked implementer, the QA escalation, and the merge checkpoint. They are answered from a chat channel:
+
+- **Slack**: `archon plugin add coleam00/Archon/plugins/chat-slack`, set `SLACK_BOT_TOKEN`, then run `archon serve`. A paused run posts as a Slack message; `select` options render as buttons, and the chosen option is recorded with the answerer's name.
+- **GitHub**: with `--dispatch`, the dispatcher posts the merge prompt and the QA escalation prompt on the PR and resolves the pause from a maintainer reply whose **first line** is the verb: `/approve`, `/merge`, `/reject`, `/hold` at a merge checkpoint; `/leave-open`, `/widen-reservation`, `/split-slice`, `/cancel` at a QA escalation. Verbs named inside a prompt's prose never count, so a posted prompt cannot answer itself.
+- **Any other channel**: `archon workflow answer <run-id> --occurrence <id> --choose <option-id>`. Other chat platforms ship as plugins; `archon plugin list` shows what this install has.
+
+`archon workflow attention` lists what is waiting; `archon workflow wait <run-id>` blocks until that run needs an answer.
 
 ### Scaffold contracts
 
