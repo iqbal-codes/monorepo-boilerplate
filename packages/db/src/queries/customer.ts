@@ -35,6 +35,13 @@ export type CustomerListQuery = CustomerScopeQuery & {
  */
 export const CUSTOMER_EXPORT_LIMIT = 10_000;
 
+export interface ImportManyResult {
+  /** Inserted Customers, in input order. Empty when nothing was new. */
+  created: Customer[];
+  /** Emails already stored (any status), byte-exact. */
+  existingEmails: string[];
+}
+
 export interface CustomerQueries {
   list(query: CustomerListQuery): Promise<{ rows: Customer[]; rowCount: number }>;
   /**
@@ -49,6 +56,28 @@ export interface CustomerQueries {
   archiveMany(ids: readonly string[]): Promise<{ count: number } | null>;
   remove(id: string): Promise<{ id: string }>;
   stats(): Promise<{ total: number; active: number; balanceMinor: number }>;
+  /**
+   * Every stored email that matches `emails` byte-for-byte. Archived Customers
+   * are included: the unique index behind them still blocks a re-import.
+   */
+  existingEmails(emails: readonly string[]): Promise<Set<string>>;
+  /**
+   * Revalidates and inserts inside one transaction. Only emails that are not
+   * already stored become rows, so an existing Customer is never updated.
+   */
+  importMany(rows: readonly NewCustomer[]): Promise<ImportManyResult>;
+}
+
+/** Postgres unique-violation, raised by the `customer_email_unique` index. */
+export const UNIQUE_VIOLATION = "23505";
+
+export function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === UNIQUE_VIOLATION
+  );
 }
 
 export type CustomerExportRow = {
@@ -206,6 +235,38 @@ export function customerQueries(db: Database): CustomerQueries {
         active: totals?.active ?? 0,
         balanceMinor: Number(totals?.balanceMinor ?? 0),
       };
+    },
+
+    async existingEmails(emails) {
+      if (emails.length === 0) return new Set<string>();
+      const rows = await db
+        .select({ email: customer.email })
+        .from(customer)
+        .where(inArray(customer.email, [...emails]));
+      return new Set(rows.map((row) => row.email));
+    },
+
+    async importMany(rows) {
+      if (rows.length === 0) return { created: [], existingEmails: [] };
+
+      // One transaction: revalidate against stored emails, then insert every
+      // still-unknown row in a single multi-row INSERT. Either all new Customers
+      // are stored or the statement fails, and no existing Customer is touched.
+      return db.transaction(async (tx) => {
+        const stored = await tx
+          .select({ email: customer.email })
+          .from(customer)
+          .where(inArray(customer.email, [...new Set(rows.map((row) => row.email))]))
+          .orderBy(asc(customer.email))
+          .for("update");
+        const existingEmails = stored.map((row) => row.email);
+        const conflicts = new Set(existingEmails);
+        const fresh = rows.filter((row) => !conflicts.has(row.email));
+
+        if (fresh.length === 0) return { created: [], existingEmails };
+        const created = await tx.insert(customer).values(fresh).returning();
+        return { created, existingEmails };
+      });
     },
   };
 }

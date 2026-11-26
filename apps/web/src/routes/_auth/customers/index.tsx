@@ -27,6 +27,7 @@ import { PlusIcon, UsersIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
+import { CustomerImport } from "@/components/customers/customer-import";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
 import { ExportButton } from "@monorepo-boilerplate/ui/components/export-button";
 import {
@@ -270,18 +271,28 @@ function CustomersScreen() {
             </Select>
           }
           actions={
-            <ExportButton
-              label="Export CSV"
-              hint="CSV escaping may change literal text."
-              getFilename={customerExportFilename}
-              cancelSignal={exportCancelSignal}
-              fetchExport={customerExportRequest({
-                search: list.search,
-                status: list.status,
-                sortBy: list.sortBy,
-                sortDir: list.sortDir,
-              })}
-            />
+            <>
+              <CustomerImport
+                onImported={(created) => {
+                  setNotice({
+                    text: created === 1 ? "1 customer imported." : `${created} customers imported.`,
+                  });
+                  void queryClient.invalidateQueries(trpc.customers.pathFilter());
+                }}
+              />
+              <ExportButton
+                label="Export CSV"
+                hint="CSV escaping may change literal text."
+                getFilename={customerExportFilename}
+                cancelSignal={exportCancelSignal}
+                fetchExport={customerExportRequest({
+                  search: list.search,
+                  status: list.status,
+                  sortBy: list.sortBy,
+                  sortDir: list.sortDir,
+                })}
+              />
+            </>
           }
         />
         <p role="status" className={notice && !notice.error ? "text-sm" : "sr-only"}>

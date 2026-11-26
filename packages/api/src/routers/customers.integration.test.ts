@@ -108,6 +108,219 @@ describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () =
     });
     expect(await staff.byId({ id: customer.id })).toMatchObject({ status: "active" });
   });
+
+  const unique = () => `${crypto.randomUUID()}@example.test`;
+
+  function row(lineNumber: number, values: Partial<Record<string, string>> = {}) {
+    return {
+      lineNumber,
+      values: {
+        name: `Import ${lineNumber}`,
+        email: unique(),
+        phone: "",
+        company: "",
+        status: "",
+        balanceMinor: "",
+        currency: "",
+        notes: "",
+        ...values,
+      },
+    };
+  }
+
+  async function countCustomers() {
+    const { rows } = await staff.list({ status: "all", pageSize: 100 });
+    return rows.length;
+  }
+
+  describe("customers import", () => {
+    test("preview never writes and reports defaults for a clean file", async () => {
+      const before = await countCustomers();
+      const input = { rows: [row(2), row(3, { status: "inactive", balanceMinor: "1250" })] };
+
+      const preview = await staff.importPreview(input);
+
+      expect(preview.total).toBe(2);
+      expect(preview.issues).toEqual([]);
+      expect(preview.sample).toHaveLength(2);
+      expect(preview.sample[0]).toMatchObject({
+        status: "active",
+        balanceMinor: 0,
+        currency: "USD",
+      });
+      expect(preview.sample[1]).toMatchObject({
+        status: "inactive",
+        balanceMinor: 1250,
+        currency: "USD",
+        lineNumber: 3,
+      });
+      expect(await countCustomers()).toBe(before);
+    });
+
+    test("confirm stores every row and announces the created count", async () => {
+      const emails = [unique(), unique()];
+      const result = await staff.importConfirm({
+        rows: [row(2, { email: emails[0]! }), row(5, { email: emails[1]! })],
+      });
+
+      expect(result).toEqual({ ok: true, created: 2 });
+      expect(await staff.list({ search: emails[0]! })).toMatchObject({ rowCount: 1 });
+      expect(await staff.list({ search: emails[1]! })).toMatchObject({ rowCount: 1 });
+      for (const found of [
+        (await staff.list({ search: emails[0]! })).rows[0],
+        (await staff.list({ search: emails[1]! })).rows[0],
+      ]) {
+        if (found) fixtureIds.push(found.id);
+      }
+    });
+
+    test("reports within-file duplicates by the later line number", async () => {
+      const email = unique();
+      const preview = await staff.importPreview({
+        rows: [row(2, { email }), row(4, { email })],
+      });
+
+      expect(preview.issues).toMatchObject([
+        { lineNumber: 4, field: "email", message: expect.stringContaining("line 2") },
+      ]);
+
+      const confirm = await staff.importConfirm({ rows: [row(2, { email }), row(4, { email })] });
+      expect(confirm).toEqual({ ok: false, conflictLineNumbers: [4] });
+    });
+
+    test("rejects invalid fields arriving directly, with the row's line number", async () => {
+      const preview = await staff.importPreview({
+        rows: [
+          row(2, { name: "   ", email: "not-an-email" }),
+          row(3, { status: "archived" }),
+          row(4, { balanceMinor: "1.5" }),
+          row(5, { balanceMinor: "1e3" }),
+          row(6, { balanceMinor: "1,000" }),
+          row(7, { balanceMinor: `${9_007_199_254_740_992}` }),
+          row(8, { currency: "US" }),
+        ],
+      });
+
+      expect(preview.issues.map((issue) => `${issue.lineNumber}:${issue.field}`)).toEqual([
+        "2:name",
+        "2:email",
+        "3:status",
+        "4:balanceMinor",
+        "5:balanceMinor",
+        "6:balanceMinor",
+        "7:balanceMinor",
+        "8:currency",
+      ]);
+      expect(preview.sample).toEqual([]);
+    });
+
+    test("accepts the exact balance bounds and preserves a negative minor amount", async () => {
+      const result = await staff.importConfirm({
+        rows: [
+          row(2, { balanceMinor: "-9007199254740991" }),
+          row(3, { balanceMinor: "9007199254740991" }),
+        ],
+      });
+      expect(result).toEqual({ ok: true, created: 2 });
+
+      const { rows } = await staff.list({ search: "Import 2", status: "all" });
+      expect(rows[0]?.balanceMinor).toBe(-9_007_199_254_740_991);
+      fixtureIds.push(...rows.map((found) => found.id));
+    });
+
+    test("detects an existing Customer case-sensitively and counts archived rows", async () => {
+      const local = unique();
+      const saved = await staff.create({
+        name: "Import saved fixture",
+        email: local,
+        balanceMinor: 0,
+      });
+      fixtureIds.push(saved.id);
+      await staff.archiveMany({ ids: [saved.id] });
+
+      const preview = await staff.importPreview({
+        rows: [row(2, { email: local }), row(3, { email: local.toUpperCase() })],
+      });
+
+      expect(preview.issues).toMatchObject([
+        { lineNumber: 2, field: "email", message: expect.stringContaining("existing Customer") },
+      ]);
+
+      const confirm = await staff.importConfirm({
+        rows: [row(2, { email: local }), row(3, { email: local.toUpperCase() })],
+      });
+      expect(confirm).toEqual({ ok: false, conflictLineNumbers: [2] });
+
+      // All-or-nothing: the case variant is a distinct Customer, but it must not
+      // slip in beside a conflicting row.
+      expect(await staff.list({ search: local.toUpperCase(), status: "all" })).toMatchObject({
+        rowCount: 0,
+      });
+
+      const created = await staff.importConfirm({ rows: [row(3, { email: local.toUpperCase() })] });
+      expect(created).toEqual({ ok: true, created: 1 });
+
+      const stored = await staff.list({ search: local.toUpperCase(), status: "all" });
+      expect(stored).toMatchObject({
+        rowCount: 1,
+        rows: [{ email: local.toUpperCase() }],
+      });
+      fixtureIds.push(...stored.rows.map((found) => found.id));
+      expect(await staff.byId({ id: saved.id })).toMatchObject({ status: "archived" });
+    });
+
+    test("a Customer saved between preview and confirm leaves the whole batch unsaved", async () => {
+      const rows = [row(2), row(3), row(4)];
+      const preview = await staff.importPreview({ rows });
+      expect(preview.issues).toEqual([]);
+
+      const raced = await staff.create({
+        name: "Raced in",
+        email: rows[1]!.values.email,
+        balanceMinor: 0,
+      });
+      fixtureIds.push(raced.id);
+
+      const confirm = await staff.importConfirm({ rows });
+      expect(confirm).toEqual({ ok: false, conflictLineNumbers: [3] });
+
+      for (const attempt of [rows[0]!, rows[2]!]) {
+        expect(await staff.list({ search: attempt.values.email, status: "all" })).toMatchObject({
+          rowCount: 0,
+        });
+      }
+    });
+
+    test("accepts at most the documented row count", async () => {
+      const tooMany = Array.from({ length: 1001 }, (_, index) => row(index + 2));
+      const signedIn = staff;
+
+      await expect(signedIn.importPreview({ rows: tooMany })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+    });
+
+    test("rejects a repeated or unknown field in a row", async () => {
+      const bad = { lineNumber: 2, values: { ...row(2).values, statuses: "active" } };
+      await expect(staff.importPreview({ rows: [bad] })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+    });
+
+    test("a signed-out caller cannot preview or confirm", async () => {
+      const signedOut = customersRouter.createCaller({ db, session: null });
+      const rows = [row(2)];
+      await expect(signedOut.importPreview({ rows })).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
+      await expect(signedOut.importConfirm({ rows })).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
+      expect(await staff.list({ search: rows[0]!.values.email, status: "all" })).toMatchObject({
+        rowCount: 0,
+      });
+    });
+  });
 });
 
 describe.skipIf(!databaseUrl)("Customers export with disposable Postgres", () => {
