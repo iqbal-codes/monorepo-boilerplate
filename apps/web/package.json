@@ -8,7 +8,8 @@
     "build": "vp build",
     "serve": "vp preview",
     "start": "vp dev",
-    "check-types": "vp build && tsc --noEmit",
+    "routes:generate": "bun -e \"import { tanstackRouterGenerator } from '@tanstack/router-plugin/vite'; const p = tanstackRouterGenerator({ target: 'react' }); await p.vite.configResolved({ root: process.cwd() });\"",
+    "check-types": "bun run routes:generate && tsc --noEmit && vp build",
     "generate-pwa-assets": "pwa-assets-generator",
     "env:generate": "varlock codegen"
   },
