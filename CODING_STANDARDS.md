@@ -20,3 +20,9 @@ Reviewed on diffs alongside [GLOSSARY.md](./GLOSSARY.md) and [docs/adr/](./docs/
 - **Form value shapes:** Store date-only fields as `"YYYY-MM-DD"`, datetime fields as UTC ISO-8601 strings, phones as E.164 strings, and uploads as provider-relative asset paths resolved at render time via `apps/web/src/lib/asset-url.ts` ([ADR 0004](./docs/adr/0004-store-asset-paths-relative.md)).
 - **Tables (`@tanstack/react-table` v9.3.1):** Use `useTable` + explicit `tableFeatures(...)`, not v8 `useReactTable` (see `packages/ui/src/components/data-table.tsx`).
 - **Server & Auth:** Keep domain logic in `packages/*`; `apps/server` only wires routes/adapters. Gate admin procedures with `adminProcedure` from `packages/api/src/procedures.ts`.
+
+## Browser Runtime & Test Hygiene
+
+- **Off-main-thread bulk I/O:** Receive and decode large HTTP payloads (bulk exports/imports) directly inside a Web Worker or off the Window main thread; moving only post-parse transformation into a worker leaves response buffering and text decoding blocking list input.
+- **Navigation-safe teardown:** TanStack Router mounts the destination route before detaching the source route, so cancel in-flight downloads or background runs on router departure (`onBeforeNavigate` with `pathChanged`) in addition to React unmount. Keep `AbortController` hooks idempotent under `<StrictMode>` double-mount.
+- **Deterministic async assertions:** Assert deferred microtask/timer behavior via callback hooks or resolved promises rather than racing `setTimeout(..., 0)` against React `act()` flushes.
