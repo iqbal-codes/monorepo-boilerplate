@@ -76,6 +76,9 @@ verdict:
   diff_stat: "2 files changed, 120 insertions(+)"
   summary: "Round 1 passed: mechanical gate green, QA LGTM (Spec+Tests, Standards+Code)."
 
+rounds-gate:
+  finalize: true
+
 finalize-pr:
   pr_number: 21
   pr_url: "https://github.com/owner/repo/pull/21"

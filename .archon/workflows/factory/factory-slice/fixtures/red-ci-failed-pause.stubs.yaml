@@ -81,6 +81,9 @@ verdict:
   diff_stat: "3 files changed, 210 insertions(+)"
   summary: "Round 1 passed."
 
+rounds-gate:
+  finalize: true
+
 finalize-pr:
   pr_number: 23
   pr_url: "https://github.com/owner/repo/pull/23"

@@ -1,0 +1,51 @@
+# Red path: implementer blocked -> operator approves acknowledgement -> run completes without a PR.
+# Regression: finalize-pr must skip (rounds never ran) instead of failing on $rounds.output.ready.
+fixture:
+  expect: completed
+  inputs:
+    issue: "4"
+
+fetch-contract:
+  source: issue
+  repo: owner/repo
+  issue_number: 4
+  title: "API Backbone"
+  slice_id: SL-L0-03
+  phase: L0
+  risk_tier: strict
+  review_mode: strict
+  contract_ok: true
+  contract_error: ""
+  has_ui: false
+  run_ux: false
+  capture_before: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-4-sl-l0-03
+  verification_command: "npm test"
+  owned_paths: ["src/api/**"]
+  forbidden_paths: ["package.json"]
+  blockers_ok: true
+  unmet_blockers: []
+  contract_path: "/tmp/contract.md"
+  before_summary: "Base main."
+
+implement:
+  done: true
+  blocked: true
+  summary: "Cannot add missing dependency without editing forbidden package.json."
+
+escalate-blocked:
+  decision: approve
+  text: "Acknowledged; end the run without a PR."
+
+rounds-gate:
+  finalize: false
+
+summary:
+  delivered: false
+  merged: false
+  pr_url: ""
+  status: blocked
+  summary: "Blocked slice acknowledged; no PR opened."

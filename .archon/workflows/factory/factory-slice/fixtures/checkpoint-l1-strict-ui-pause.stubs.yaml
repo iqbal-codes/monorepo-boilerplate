@@ -88,6 +88,9 @@ verdict:
   diff_stat: "8 files changed, 450 insertions(+)"
   summary: "Round 1 passed: mechanical gate green, UX verified, QA LGTM (3 axes)."
 
+rounds-gate:
+  finalize: true
+
 finalize-pr:
   pr_number: 22
   pr_url: "https://github.com/owner/repo/pull/22"
