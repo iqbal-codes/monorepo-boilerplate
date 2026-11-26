@@ -143,7 +143,7 @@ nodes:
   # Stage 1: Initial TDD implementation (`factory:in-progress`) whose session is resumed if QA sends changes back.
   - id: implement
     command: implement
-    model: large
+    model: medium
     depends_on: [fetch-contract, capture-before]
     trigger_rule: none_failed_min_one_success
     when: "$fetch-contract.output.contract_ok == true && $fetch-contract.output.blockers_ok == true"
@@ -246,7 +246,7 @@ nodes:
       nodes:
         - id: fix
           command: fix
-          model: large
+          model: medium
           context: { resume: implement }
           when: "$LOOP_PREV.verdict.output.done == false"
           with:
