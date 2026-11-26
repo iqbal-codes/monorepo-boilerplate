@@ -21,11 +21,11 @@ TypeScript monorepo: React + TanStack Router web app, Hono + tRPC server, Drizzl
 
 The template is aimed at internal tools, so it ships a shell, reusable blocks, and one working reference flow rather than a pile of components:
 
-| Tier       | Where                        | Contents                                                                                                                                          |
-| :--------- | :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Primitives | `packages/ui/src/components` | 60+ shadcn/ui atoms (base-sera style)                                                                                                             |
-| Blocks     | `packages/ui/src/components` | `data-table`, `list-toolbar`, `bulk-action-bar`, `confirmation-dialog`, `page-header`, `kpi-card`, `chart-card`, `form-fields`, `upload-dropzone` |
-| Screens    | `apps/web/src/routes`        | Dashboard, Customers, Customer detail, Settings, login                                                                                            |
+| Tier       | Where                        | Contents                                                                                                                                                           |
+| :--------- | :--------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primitives | `packages/ui/src/components` | 60+ shadcn/ui atoms (base-sera style)                                                                                                                              |
+| Blocks     | `packages/ui/src/components` | `data-table`, `list-toolbar`, `bulk-action-bar`, `export-button`, `confirmation-dialog`, `page-header`, `kpi-card`, `chart-card`, `form-fields`, `upload-dropzone` |
+| Screens    | `apps/web/src/routes`        | Dashboard, Customers, Customer detail, Settings, login                                                                                                             |
 
 The App Shell follows shadcn's official `sidebar-07` block (collapsible sidebar with sub-items, header breadcrumbs, user menu), adapted for a single-tenant app with real sessions and typed router links.
 
@@ -45,7 +45,13 @@ Blocks are controlled and router-free: `DataTable` takes pagination and sorting 
 
 **Bulk Actions:** Combine `ListToolbar`, optional page-scoped `DataTable` selection, `BulkActionBar`, and `ConfirmationDialog`. Customers owns search, filters, selection, and the mutation. Archive keeps customer records and attachments and hides them from the default list; use the Archived filter and choose Active or Inactive in the edit drawer to restore one customer.
 
-To run the Customers archive integration tests, apply the schema to a disposable Postgres database with `DATABASE_URL=<test-url> bun run db:push`, then run `CUSTOMERS_TEST_DATABASE_URL=<test-url> bun test ./packages/api/src/routers/customers.integration.test.ts`. Never point this suite at a persistent database.
+**Exports:** `ExportButton` takes a `label`, a `getFilename(activatedAt)`, a `fetchExport(signal)` that resolves with an opaque payload, and an optional `hint`; it reports `onExported(file, rowCount)` and never exposes rows. Mount it through `ListToolbar`'s `actions` slot. Customers supplies `apps/web/src/lib/customer-export.ts`, which snapshots the committed search, status, sort key, and sort direction at activation (never the URL input mid-typing, the current page, or the selection) and calls `customers.export` imperatively.
+
+The API answers `customers.export` from one query over the same criteria as the list, including the `asc(customer.id)` tie-break, and projects `name,email,phone,company,status,balanceMinor,currency,notes` in that column order. It reads at most 10,001 rows: exactly 10,000 Customer rows export, and 10,001 throws `PAYLOAD_TOO_LARGE` with a narrow-your-filters message instead of a partial file. `packages/db/src/queries/customer.ts` owns `CUSTOMER_EXPORT_LIMIT` (10,000).
+
+The payload is UTF-8 JSON built in an on-demand module worker (`packages/ui/src/components/export/worker.ts` plus the pure `export/csv.ts`), so decoding and generation never block the main thread and the dataset never enters React state or the query cache. The file is RFC 4180 CSV with CRLF records, no BOM, and `text/csv;charset=utf-8`. `balanceMinor` stays an exact integer; other fields are text or blank. **CSV escaping may change literal text:** a cell whose first non-whitespace character is `=`, `+`, `-`, `@`, a tab, or CR gets a leading apostrophe before quoting so a spreadsheet cannot run it as a formula. Negative numeric balances are never prefixed. A zero-match scope downloads a header-only file.
+
+To run the Customers archive integration tests, apply the schema to a disposable Postgres database with `DATABASE_URL=<test-url> bun run db:push`, then run `CUSTOMERS_TEST_DATABASE_URL=<test-url> bun test ./packages/api/src/routers/customers.integration.test.ts`. The same suite covers `customers.export` (auth, scope/order/tie-break, archived, zero matches, the 10,000-row success, and the 10,001-row rejection). Never point this suite at a persistent database.
 
 **Forms** ship as typed fields over TanStack Form: text (with counter), number with unit, currency (edits major units, stores integer minor units), textarea, plus an upload dropzone with preview, progress, and cancellation.
 

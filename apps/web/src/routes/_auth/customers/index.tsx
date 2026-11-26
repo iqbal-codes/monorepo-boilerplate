@@ -28,6 +28,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
+import { ExportButton } from "@monorepo-boilerplate/ui/components/export-button";
+import { customerExportFilename, customerExportRequest } from "@/lib/customer-export";
 import { useUiPrefs } from "@/lib/ui-prefs-store";
 import { useListSearchParams, type CustomerStatusFilter } from "@/lib/use-data-table-search-params";
 import { trpc } from "@/utils/trpc";
@@ -227,6 +229,8 @@ function CustomersScreen() {
       />
 
       <div className="flex min-w-0 flex-col gap-2">
+        {/* `actions` captures the committed scope when the button is activated, so
+            a pending search or a new page cannot change what was downloaded. */}
         <ListToolbar
           search={{
             inputRef: searchRef,
@@ -257,6 +261,19 @@ function CustomersScreen() {
                 </SelectGroup>
               </SelectContent>
             </Select>
+          }
+          actions={
+            <ExportButton
+              label="Export CSV"
+              hint="CSV escaping may change literal text."
+              getFilename={customerExportFilename}
+              fetchExport={customerExportRequest({
+                search: list.search,
+                status: list.status,
+                sortBy: list.sortBy,
+                sortDir: list.sortDir,
+              })}
+            />
           }
         />
         <p role="status" className={notice && !notice.error ? "text-sm" : "sr-only"}>
