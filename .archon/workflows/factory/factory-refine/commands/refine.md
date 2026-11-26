@@ -11,6 +11,8 @@ Ground the raw/vague request in `$INPUTS.request_path` against the live reposito
    - **`has_ui`**: `true` if user-facing UI components/pages/styles change; otherwise `false`.
    - **Work Type:** `scaffold` when creating a repository/workspace or bootstrapping a new app from upstream tooling; omit for ordinary changes. Follow the `scaffold-repo` handoff procedure below for scaffold work.
 4. Write the complete structured contract to `$ARTIFACTS_DIR/refined-contract.md` using this exact format (so `factory-slice`'s deterministic parser reads it cleanly):
+   - Specify the outcome, observable acceptance, and invariants to preserve. `Work Areas` is optional: list cohesive module folders as investigation hints only. Legacy `Owned / Allowed Paths` also supplies hints, not authorization.
+   - Preserve explicitly agreed `Forbidden Paths` (including legacy `Forbidden Shared Files`); omit if none were agreed. Triage does not set `Allowed Folders` reservations.
 
 ```markdown
 # <Concise Outcome Title>
@@ -19,17 +21,18 @@ Ground the raw/vague request in `$INPUTS.request_path` against the live reposito
 - **Risk Tier:** `<standard|strict>`
 - **Blocked By:** `None` (or `#<N>`)
 
-## File Ownership Boundaries
-- **Owned / Allowed Paths:**
-  - `<smallest cohesive feature or generator destination folders, including test locations; name exact files only for genuinely file-specific work or necessary root config>`
-- **Forbidden Shared Files (Do Not Modify):**
-  - `<shared entrypoints/lockfiles that must stay untouched>`
+## Work Areas & Constraints
+- **Work Areas:**
+  - `<optional module folder hint, such as src/search/>`
+- **Forbidden Paths:**
+  - `<explicitly agreed path or pattern that must stay untouched, if any>`
 
 ## Problem & Desired Outcome
 <2–4 crisp lines grounded in live code citing exact file:line references and error/crash trigger if bug report>
 
 ## Scope & Deliverables
 1. <List each requested deliverable. For a route startup check, list the paths and static markers. Include feature interactions only when requested.>
+- **Invariants:** <existing behavior or constraints that must remain true; omit if none apply>
 
 ## Visual & UI Contract (Tool-Agnostic)
 - **Shell / Auth Boundary:** `<navigation context and access rules, if applicable>`
@@ -71,4 +74,4 @@ Return the required JSON:
 - `has_ui`: boolean.
 - `open_questions`: array of concise operator questions (empty when `ready: true`).
 - `contract_path`: exact path `$ARTIFACTS_DIR/refined-contract.md`.
-- `summary`: 1–2 sentence summary of the grounded scope and target files.
+- `summary`: 1–2 sentences describing the outcome, acceptance, and key invariants.

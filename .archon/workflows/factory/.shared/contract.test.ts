@@ -10,31 +10,38 @@ import {
   validateSliceContract,
 } from './contract.ts';
 
-const scopedContract = '# Update feature\n\n- **Owned / Allowed Paths:**\n  - `src/feature/**`';
+const scopedContract = '# Update feature\n\n- [ ] A blank query returns a validation error.';
 
 describe('Slice contract and boundary guards', () => {
-  test('auditBoundaries fails closed when ownedPaths is empty', () => {
-    const res = auditBoundaries(['apps/api/src/index.ts'], [], []);
-    expect(res.ok).toBe(false);
-    expect(res.outOfBounds).toEqual(['apps/api/src/index.ts']);
+  test('exclusive delivery permits any unprotected path without a path list', () => {
+    const res = auditBoundaries(['apps/api/src/index.ts'], [], ['.github/']);
+    expect(res.ok).toBe(true);
   });
 
-  test('auditBoundaries enforces ownedPaths and forbiddenPaths', () => {
+  test('parallel delivery enforces folder reservations and cannot override forbidden paths', () => {
     const res = auditBoundaries(
-      ['apps/pos/src/Menu.tsx', 'package.json', 'apps/kds/src/App.tsx'],
-      ['apps/pos/src/**'],
-      ['package.json']
+      ['apps/pos/src/Menu.tsx', 'apps/pos/src/ci.yaml', 'apps/pos/src-old/App.tsx'],
+      ['apps/pos/src/'],
+      ['apps/pos/src/ci.yaml']
     );
     expect(res.ok).toBe(false);
-    expect(res.forbiddenHits).toEqual(['package.json']);
-    expect(res.outOfBounds).toEqual(['apps/kds/src/App.tsx']);
+    expect(res.forbiddenHits).toEqual(['apps/pos/src/ci.yaml']);
+    expect(res.outOfBounds).toEqual(['apps/pos/src-old/App.tsx']);
   });
 
-  test('validateSliceContract rejects vague issue without Owned Paths', () => {
-    const parsed = parseSliceContract('# Vague request\nPlease make checkout faster.\n\n- **Verification Command:** `go test ./...`');
-    const readiness = validateSliceContract(parsed);
-    expect(readiness.ok).toBe(false);
-    expect(readiness.errors[0]).toContain('Owned / Allowed Paths');
+  test('paths and a check do not make a request ready without acceptance criteria', () => {
+    const parsed = parseSliceContract('# Vague request\n- **Work Areas:** `apps/checkout/`\n## Acceptance Criteria & Verification\n- **Verification Command:** `go test ./...`');
+    expect(validateSliceContract(parsed).errors).toEqual([
+      'Missing observable acceptance criteria. Describe the behavior that must be verified.',
+    ]);
+  });
+
+  test('legacy paths are only hints; only explicit Allowed Folders reserve areas', () => {
+    const parsed = parseSliceContract(`${scopedContract}\n- **Owned / Allowed Paths:** \`src/feature/index.ts\`\n- **Allowed Folders:**\n  - \`src/feature/\`\n- **Forbidden Shared Files:** \`src/feature/schema.ts\``);
+    expect(parsed.workAreas).toEqual(['src/feature/index.ts']);
+    expect(parsed.parallelFolders).toEqual(['src/feature/']);
+    expect(parsed.forbiddenPaths).toEqual(['src/feature/schema.ts']);
+    expect(parseSliceContract(`${scopedContract}\n- **Owned / Allowed Paths:** \`src/feature/**\``).parallelFolders).toEqual([]);
   });
 
   test('explicit verification works with any project stack', () => {
@@ -71,7 +78,7 @@ describe('Slice contract and boundary guards', () => {
 
   test('UI classification follows declared states and changed surface files', () => {
     expect(parseSliceContract(scopedContract + '\n\n- **Required UI States:**\n  - Preview screen').hasUi).toBe(true);
-    expect(parseSliceContract(scopedContract.replace('src/feature/**', 'apps/pos/src/**')).hasUi).toBe(false);
+    expect(parseSliceContract(scopedContract + '\n- **Work Areas:** `apps/pos/src/`').hasUi).toBe(false);
   });
 
   test('isRenderedUiFile detects real UI extensions from git diff', () => {

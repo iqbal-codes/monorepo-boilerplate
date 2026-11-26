@@ -2,7 +2,7 @@ name: factory-refine
 description: |
   Intake and refinement workflow. Grounds a
   raw/vague GitHub issue, bug/crash report, or free-form request against the live
-  repository in one agent pass, drafts an executable slice contract (Owned Paths,
+  repository in one agent pass, drafts an executable slice contract (Outcome,
   Scope, Regression Test / UI States, Verification Command, Risk Tier), pauses for
   operator approval only when ambiguous (`approval_mode: if-ambiguous`), preserves
   the original report/stack trace in the issue body, and publishes `factory:ready` (or

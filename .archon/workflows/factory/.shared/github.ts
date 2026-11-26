@@ -179,7 +179,9 @@ export function syncBranchChanges(opts: {
   commitMessage: string;
   baseSha: string;
   branchName: string;
+  assertPublishable: (head: string) => void;
 }): { headSha: string; shortSha: string; diffStat: string } {
+  opts.assertPublishable(runCmd(['git', 'rev-parse', 'HEAD']).stdout);
   const status = runCmd(['git', 'status', '--porcelain'], { allowFail: true }).stdout;
   if (status) {
     runCmd(['git', 'add', '-A']);
@@ -191,15 +193,16 @@ export function syncBranchChanges(opts: {
   }
 
   const headSha = runCmd(['git', 'rev-parse', 'HEAD']).stdout;
+  opts.assertPublishable(headSha);
   const shortSha = headSha.slice(0, 7);
 
   let diffStat = opts.baseSha
-    ? runCmd(['git', 'diff', '--stat', `${opts.baseSha}..HEAD`], { allowFail: true }).stdout
+    ? runCmd(['git', 'diff', '--stat', `${opts.baseSha}..${headSha}`], { allowFail: true }).stdout
     : '';
   if (!diffStat) {
-    diffStat = runCmd(['git', 'show', '--stat', '--format=', 'HEAD'], { allowFail: true }).stdout;
+    diffStat = runCmd(['git', 'show', '--stat', '--format=', headSha], { allowFail: true }).stdout;
   }
 
-  runCmd(['git', 'push', '-u', 'origin', `HEAD:refs/heads/${opts.branchName}`]);
+  runCmd(['git', 'push', '--no-follow-tags', 'origin', `${headSha}:refs/heads/${opts.branchName}`]);
   return { headSha, shortSha, diffStat };
 }

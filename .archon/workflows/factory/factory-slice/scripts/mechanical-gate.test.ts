@@ -26,7 +26,7 @@ test('a preview hook added by the first UI slice reaches the UX gate', () => {
           ARTIFACTS_DIR: join(dir, 'artifacts'),
           INPUTS_BASE_SHA: 'HEAD',
           INPUTS_CONTRACT_HAS_UI: 'true',
-          INPUTS_OWNED_PATHS: '["index.html",".archon/ui-preview.sh"]',
+          INPUTS_ALLOWED_FOLDERS: '[]',
           INPUTS_FORBIDDEN_PATHS: '[]',
           INPUTS_VERIFICATION_COMMAND: 'true',
           INPUTS_PREVIEW_CMD: previewCmd,

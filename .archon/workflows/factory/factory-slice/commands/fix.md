@@ -13,11 +13,13 @@ $INPUTS.prev_summary
    - Read `$ARTIFACTS_DIR/mechanical-gate.md` (if failed)
    - Read `$ARTIFACTS_DIR/evidence/ux-report.md` (if present and failed)
    - Read every report under `$ARTIFACTS_DIR/review/` (`spec.md`, `standards.md`, `seams-errors.md`)
-   - Re-read `$INPUTS.contract_path` where boundaries or acceptance criteria are referenced.
+   - Re-read `$INPUTS.contract_path` for the accepted outcome, acceptance criteria, and invariants.
+   - Confirm ownership before editing: read `$INPUTS.allowed_folders` (JSON: `[]` is exclusive; a nonempty list limits edits to those reserved folders) and `$INPUTS.forbidden_paths` (JSON: resolved repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Identify the owning modules and check every target against the reservation and forbidden paths.
+   - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
 
 2. **Address every `[P0]` / `[P1]` finding and failing gate at root cause:**
-   - Fix boundary violations immediately (if an unowned or forbidden file was touched, revert it cleanly and solve within `Owned / Allowed Paths`—or return `blocked: true` only if genuinely impossible without crossing `Forbidden Shared Files`).
-   - For a scope finding, remove unrequested behavior. If required work cannot be kept cohesive within owned paths, report the exact ownership conflict.
+   - Undo only your own boundary violations, then solve within the permitted paths or report the conflict as above.
+   - For scope findings, remove behavior outside the accepted slice regardless of where it was implemented.
    - Fix failing tests/lint/typecheck without weakening assertions or deleting tests.
    - Fix every `[P0]` and `[P1]` QA defect cleanly; adopt valid `[P2]` suggestions when small and low-risk. For UX/UI fixes, use the contract, repo standards, and observations in the UX report.
    - If you determine a reviewer finding is factually false or already satisfied, document exact `file:line` counter-evidence in `$ARTIFACTS_DIR/implementation.md` under `## Declined Review Items` so the next fresh review round can verify it.
@@ -31,6 +33,6 @@ $INPUTS.prev_summary
 ## Output
 
 Return the required JSON:
-- `done`: `true` when fixes and local verification finished (or when permanently blocked).
-- `blocked`: `true` ONLY if a hard boundary conflict or missing prerequisite makes fixing impossible without operator intervention.
-- `summary`: concise 1–2 sentence summary of the fixes made and verification result.
+- `done`: `true` when fixes and verification finished (or when blocked).
+- `blocked`: `true` if a reservation expansion, hard path conflict, or missing prerequisite requires operator action.
+- `summary`: concise fixes and verification results, or the exact blocker and rationale.

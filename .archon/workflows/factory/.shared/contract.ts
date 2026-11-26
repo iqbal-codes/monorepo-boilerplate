@@ -13,7 +13,9 @@ export interface ParsedSliceContract {
   phase: 'L0' | 'L1' | 'L2' | 'L3' | '';
   riskTier: 'strict' | 'standard';
   scaffoldHandoff: string | null;
-  ownedPaths: string[];
+  workAreas: string[];
+  parallelFolders: string[];
+  hasAcceptance: boolean;
   forbiddenPaths: string[];
   blockedBy: number[];
   verificationCommand: string;
@@ -151,7 +153,7 @@ export function isRenderedUiFile(filePath: string): boolean {
 
 export function auditBoundaries(
   changedFiles: string[],
-  ownedPaths: string[],
+  allowedFolders: readonly string[],
   forbiddenPaths: string[]
 ): { ok: boolean; outOfBounds: string[]; forbiddenHits: string[] } {
   const forbiddenHits: string[] = [];
@@ -162,13 +164,13 @@ export function auditBoundaries(
       forbiddenHits.push(file);
       continue;
     }
-    if (ownedPaths.length === 0 || !ownedPaths.some((pat) => matchPathPattern(file, pat))) {
+    if (allowedFolders.length > 0 && !allowedFolders.some((folder) => file.startsWith(folder))) {
       outOfBounds.push(file);
     }
   }
 
   return {
-    ok: ownedPaths.length > 0 && forbiddenHits.length === 0 && outOfBounds.length === 0,
+    ok: forbiddenHits.length === 0 && outOfBounds.length === 0,
     outOfBounds,
     forbiddenHits,
   };
@@ -320,33 +322,22 @@ export function parseSliceContract(
     riskMatch?.[1]?.toLowerCase() === 'strict' ? 'strict' : 'standard';
   if (labels.includes('risk:strict')) riskTier = 'strict';
 
-  const ownedPaths = extractSectionBulletPaths(
+  const workAreas = extractSectionBulletPaths(
     markdown,
-    /\*\*Owned\s*\/?\s*Allowed Paths:\*\*|##\s*Owned\s*\/?\s*Allowed Paths/i
+    /\*\*Work Areas:\*\*|^##\s+Work Areas\s*$|\*\*Owned\s*\/?\s*Allowed Paths:\*\*|^##\s+Owned\s*\/?\s*Allowed Paths\s*$/i
+  );
+  const parallelFolders = extractSectionBulletPaths(
+    markdown,
+    /^\s*(?:[-*]\s+)?\*\*Allowed Folders:\*\*|^##\s+Allowed Folders\s*$/i
   );
   const forbiddenPaths = extractSectionBulletPaths(
     markdown,
-    /\*\*Forbidden Shared Files[^:]*:\*\*|##\s*Forbidden Shared Files/i
+    /\*\*Forbidden (?:Paths|Shared Files)[^:]*:\*\*|^##\s+Forbidden (?:Paths|Shared Files)\b/i
   );
 
-  // If a slice owns a package manifest and the matching lockfile is NOT explicitly forbidden,
-  // auto-allow the root lockfile so frozen-lockfile CI installs never block valid package additions.
-  const manifestLockMap: [RegExp, string[]][] = [
-    [/(^|\/)package\.json$/, ['bun.lock', 'bun.lockb', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']],
-    [/(^|\/)Cargo\.toml$/, ['Cargo.lock']],
-    [/(^|\/)pyproject\.toml$/, ['uv.lock', 'poetry.lock']],
-    [/(^|\/)go\.mod$/, ['go.sum']],
-  ];
-  for (const [manifestRe, lockfiles] of manifestLockMap) {
-    if (ownedPaths.some((p) => manifestRe.test(p))) {
-      for (const lockfile of lockfiles) {
-        const isForbidden = forbiddenPaths.some((fp) => matchPathPattern(lockfile, fp));
-        if (!isForbidden && !ownedPaths.includes(lockfile)) {
-          ownedPaths.push(lockfile);
-        }
-      }
-    }
-  }
+  const acceptanceSection = markdown.match(/^##[ \t]+Acceptance Criteria[^\r\n]*\r?\n([\s\S]*?)(?=^#{1,2}[ \t]|$(?![\s\S]))/im);
+  const hasAcceptance = /^[ \t]*[-*][ \t]+\[[ xX]\][ \t]+\S/m.test(markdown)
+    || /^[ \t]*(?:[-*]|\d+\.)[ \t]+(?!\*\*(?:Test Seam\(s\)|Verification Command):)\S/im.test(acceptanceSection?.[1] ?? '');
 
   const blockedBy = extractBlockedBy(markdown);
 
@@ -376,7 +367,7 @@ export function parseSliceContract(
     uiStates.length > 0 ||
     labels.includes('area:ui') ||
     labels.includes('ui') ||
-    ownedPaths.some(isRenderedUiFile);
+    workAreas.some(isRenderedUiFile);
 
   return {
     title,
@@ -384,7 +375,9 @@ export function parseSliceContract(
     phase,
     riskTier,
     scaffoldHandoff: isScaffold || handoff ? handoff?.[1].trim() ?? '' : null,
-    ownedPaths,
+    workAreas,
+    parallelFolders,
+    hasAcceptance,
     forbiddenPaths,
     blockedBy: [...new Set(blockedBy)],
     verificationCommand,
@@ -431,8 +424,8 @@ export function validateSliceContract(
   opts: { cwd?: string } = {}
 ): { ok: boolean; errors: string[]; verificationCommand: string } {
   const errors: string[] = [];
-  if (parsed.ownedPaths.length === 0) {
-    errors.push('Missing Owned / Allowed Paths (required for fail-closed boundary isolation)');
+  if (!parsed.hasAcceptance) {
+    errors.push('Missing observable acceptance criteria. Describe the behavior that must be verified.');
   }
   const verificationCommand = parsed.verificationCommand || repoVerificationCommand(opts.cwd ?? process.cwd());
   if (!verificationCommand) {
@@ -454,9 +447,10 @@ export function validateSliceContract(
   return { ok: errors.length === 0, errors, verificationCommand };
 }
 
-export function hasTrackedOwnedFiles(ownedPaths: string[], cwd = process.cwd()): boolean {
-  const tracked = runCmd(['git', 'ls-files', '-z'], { cwd, allowFail: true });
-  return tracked.code === 0 && tracked.stdout.split('\0').some((file) =>
-    file && ownedPaths.some((path) => matchPathPattern(file, path))
+export function hasTrackedWorkAreas(workAreas: string[], cwd = process.cwd()): boolean {
+  if (workAreas.length === 0) return true;
+  const tracked = runCmd(['git', 'ls-files', '-z'], { cwd });
+  return tracked.stdout.split('\0').some((file) =>
+    file && workAreas.some((area) => matchPathPattern(file, area))
   );
 }

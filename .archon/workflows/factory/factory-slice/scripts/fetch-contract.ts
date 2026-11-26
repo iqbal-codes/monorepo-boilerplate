@@ -11,7 +11,7 @@ import {
   detectGitRepo,
   emit,
   extractNativeBlockedByNumbers,
-  hasTrackedOwnedFiles,
+  hasTrackedWorkAreas,
   parseSliceContract,
   resolvePreviewCommand,
   runCmd,
@@ -20,6 +20,7 @@ import {
 } from '../../.shared/contract.ts';
 import { postIssueComment, setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
+import { assertReservation, fetchPolicyBase, parseAllowedFolders, resolveForbiddenPaths } from '../../.shared/ownership.ts';
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 mkdirSync(join(artifactsDir, 'evidence'), { recursive: true });
@@ -32,8 +33,9 @@ const baseBranch = text(process.env.INPUTS_BASE_BRANCH) || detectBaseBranch();
 const previewInput = text(process.env.INPUTS_PREVIEW_CMD);
 const userArgs = text(process.env.ARGUMENTS);
 
-const baseSha =
-  runCmd(['git', 'rev-parse', 'HEAD'], { allowFail: true }).stdout || 'HEAD';
+const policyBase = fetchPolicyBase(baseBranch);
+const baseSha = runCmd(['git', 'merge-base', policyBase, 'HEAD']).stdout;
+const allowedFolders = parseAllowedFolders(process.env.INPUTS_ALLOWED_FOLDERS ?? '[]');
 
 let source: 'issue' | 'file' | 'arguments' = 'arguments';
 let issueNumber = 0;
@@ -153,7 +155,9 @@ if (source === 'issue' && repoInput && allBlockers.length > 0) {
 const previewCmd = resolvePreviewCommand(previewInput);
 
 const runUx = parsed.hasUi && previewCmd.length > 0;
-const captureBefore = runUx && hasTrackedOwnedFiles(parsed.ownedPaths);
+const captureBefore = runUx && hasTrackedWorkAreas(parsed.workAreas);
+const forbiddenPaths = resolveForbiddenPaths(policyBase, parsed.forbiddenPaths);
+if (contractOk && unmetBlockers.length === 0) assertReservation(text(process.env.INPUTS_RUN_ID), allowedFolders);
 
 const slugSource = (parsed.sliceId || parsed.title)
   .toLowerCase()
@@ -178,7 +182,7 @@ if (source === 'issue' && repoInput && issueNumber > 0) {
         '',
         `**Reason:** ${contractError}`,
         '',
-        'Removed `factory:ready` so this issue is not picked up without scope boundaries. Run `factory-refine` or add `**Owned / Allowed Paths:**` and `**Verification Command:**` before re-queueing.',
+        'Removed `factory:ready`. Run `factory-refine` or supply observable acceptance criteria and a runnable verification command before re-queueing.',
       ].join('\n'),
       artifactsDir
     );
@@ -189,7 +193,7 @@ if (source === 'issue' && repoInput && issueNumber > 0) {
   }
 }
 
-const beforeSummary = `Base ${baseBranch} @ ${baseSha.slice(0, 7)} (owned paths: ${parsed.ownedPaths.length}).`;
+const beforeSummary = `Base ${baseBranch} @ ${baseSha.slice(0, 7)}.`;
 
 emit({
   source,
@@ -210,8 +214,8 @@ emit({
   base_sha: baseSha,
   branch_name: branchName,
   verification_command: readiness.verificationCommand,
-  owned_paths: parsed.ownedPaths,
-  forbidden_paths: parsed.forbiddenPaths,
+  allowed_folders: allowedFolders,
+  forbidden_paths: forbiddenPaths,
   blockers_ok: unmetBlockers.length === 0,
   unmet_blockers: unmetBlockers,
   contract_path: contractPath,

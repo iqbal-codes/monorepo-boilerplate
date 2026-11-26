@@ -1,4 +1,4 @@
-# Implement Slice (Initial TDD Pass Within Owned Paths)
+# Implement Slice (Initial TDD Pass)
 
 Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD inside this isolated worktree. After you finish, your changes will be pushed to a Draft PR and handed over to `factory:review` (Mechanical Gate + independent QA reviewers).
 
@@ -11,16 +11,14 @@ Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD i
    - Read only the referenced sections of linked design docs, `Archetype Reference`, and directory `README.md` contracts along your target paths.
    - If an `Archetype Reference` is listed, mirror its folder/layer conventions (while strictly applying any newer standards in `AGENTS.md`).
    - Use the framework and UI implementation choices established by the repository or approved spec. If an unresolved choice is required to build the slice, return `blocked: true` and name the decision.
-   - For **Work Type: scaffold**, follow the versioned official setup sequence in **Scaffold Handoff** before adding project wiring. Generate in scratch if needed to preserve the checkout, then integrate the relevant output inside owned folders. If the approved setup cannot work within those boundaries, return `blocked: true` with the conflict instead of hand-writing a replacement scaffold.
+   - For **Work Type: scaffold**, follow the official versioned setup in **Scaffold Handoff**. Generate in scratch if needed to inventory output, then integrate relevant files under the ownership rules below. Report a boundary conflict instead of hand-writing a replacement scaffold.
    - Derive permitted behavior from this slice’s deliverables, acceptance criteria, and referenced spec section. Use the UI brief for the screens and states named by this slice.
-   - For an entry-path smoke preview, render a static app name at each requested route. Build interactive demos, sample domain data, and product flows only when the slice explicitly owns them.
-2. **Strict Boundary Discipline & Modular Decomposition:**
-   - Create and modify files **strictly within `Owned / Allowed Paths`**.
-   - Keep entrypoints focused on mounting the app. If required behavior needs component files outside ownership, return `blocked: true` and name the needed path.
-   - Never touch any file listed in `Forbidden Shared Files`.
-   - When `Owned / Allowed Paths` grants a feature/module directory glob (e.g. `features/<slice>/**`, `routes/**`), decompose complex pages and modules into focused modules with thin entrypoints, following the local architecture.
-   - If the slice changes dependencies, update the corresponding lockfile within the resolved ownership boundaries.
-   - If completing the task genuinely cannot be done without editing a forbidden or unowned file, stop immediately and return `blocked: true` naming the exact file and technical reason.
+   - For an entry-path smoke preview, render a static app name at each requested route. Build interactive demos, sample data, and product flows only when required by the accepted behavior.
+2. **Confirm ownership before editing:**
+   - Read `$INPUTS.allowed_folders` (JSON: `[]` is exclusive; a nonempty list limits edits to those reserved folders) and `$INPUTS.forbidden_paths` (JSON: resolved repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only.
+   - Identify the owning modules and confirm that each planned edit serves the accepted behavior, stays within any reservation, and avoids forbidden paths. Repeat for new targets, including tests, lockfiles, and generator output.
+   - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
+   - Keep entrypoints thin and decompose complex modules according to repository conventions. Update the corresponding lockfile when dependencies change, subject to the same ownership rules.
 3. **TDD & Domain-Appropriate UI Execution:**
    - For behavior changes, write failing tests at the declared `Test Seam(s)` first, then implement and refactor. For scaffolds, use the upstream generator for the baseline and verify the integration checks in the handoff; do not use guessed filenames as tests of scaffold correctness.
    - For product UI within the slice, implement the contract’s flows, states, and layout. Reuse the project’s components and style conventions where they exist. Preserve accessible names, keyboard/focus behavior, readable contrast, and recovery from errors on the supported devices.
@@ -50,6 +48,6 @@ Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD i
 ## Output
 
 Return the required JSON:
-- `done`: `true` when implementation and local verification finished (or when permanently blocked).
-- `blocked`: `true` only if an explicit boundary or missing prerequisite makes completion impossible without operator intervention.
-- `summary`: concise summary of deliverables completed and verification results.
+- `done`: `true` when implementation and verification finished (or when blocked).
+- `blocked`: `true` if a reservation expansion, hard path conflict, or missing prerequisite requires operator action.
+- `summary`: concise deliverables and verification results, or the exact blocker and rationale.

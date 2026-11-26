@@ -21,6 +21,7 @@ import {
 import { setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import { isMaintainer, loadMaintainers } from '../../.shared/maintainers.ts';
+import { assertReservation, fetchPolicyBase, parseAllowedFolders, resolveForbiddenPaths } from '../../.shared/ownership.ts';
 
 interface PrReview {
   id?: number;
@@ -78,6 +79,7 @@ const specFileInput = text(process.env.INPUTS_SPEC_FILE);
 const repoInput = text(process.env.INPUTS_REPO) || detectGitRepo();
 const previewInput = text(process.env.INPUTS_PREVIEW_CMD);
 const userArgs = text(process.env.ARGUMENTS);
+const allowedFolders = parseAllowedFolders(process.env.INPUTS_ALLOWED_FOLDERS ?? '[]');
 
 function failClosed(reason: string, extra: Partial<{
   prNumber: number;
@@ -110,7 +112,7 @@ function failClosed(reason: string, extra: Partial<{
     base_sha: 'HEAD',
     branch_name: extra.branchName ?? '',
     verification_command: '',
-    owned_paths: [],
+    allowed_folders: [],
     forbidden_paths: [],
     contract_path: contractPath,
     feedback_path: feedbackPath,
@@ -279,6 +281,8 @@ if (!readiness.ok) {
   });
 }
 
+assertReservation(text(process.env.INPUTS_RUN_ID), allowedFolders);
+
 // Ensure worktree sits on the PR head branch and compute base merge-base SHA for boundary gating
 runCmd(['git', 'fetch', 'origin', pr.baseRefName, pr.headRefName]);
 runCmd(['git', 'checkout', '-B', pr.headRefName, 'FETCH_HEAD']);
@@ -287,10 +291,9 @@ const remoteHead = runCmd(['git', 'rev-parse', `origin/${pr.headRefName}`], { al
 if (remoteHead && currentHead !== remoteHead) {
   runCmd(['git', 'reset', '--hard', remoteHead]);
 }
-const baseSha =
-  runCmd(['git', 'merge-base', `origin/${pr.baseRefName}`, 'HEAD'], { allowFail: true }).stdout ||
-  runCmd(['git', 'rev-parse', `origin/${pr.baseRefName}`], { allowFail: true }).stdout ||
-  'HEAD';
+const policyBase = fetchPolicyBase(pr.baseRefName);
+const baseSha = runCmd(['git', 'merge-base', policyBase, 'HEAD']).stdout;
+const forbiddenPaths = resolveForbiddenPaths(policyBase, parsed.forbiddenPaths);
 
 const contractPath = join(artifactsDir, 'contract.md');
 writeFileSync(contractPath, contractMarkdown, 'utf8');
@@ -365,8 +368,8 @@ emit({
   base_sha: baseSha,
   branch_name: pr.headRefName,
   verification_command: readiness.verificationCommand,
-  owned_paths: parsed.ownedPaths,
-  forbidden_paths: parsed.forbiddenPaths,
+  allowed_folders: allowedFolders,
+  forbidden_paths: forbiddenPaths,
   contract_path: contractPath,
   feedback_path: feedbackPath,
   before_summary: `PR #${pr.number} base ${pr.baseRefName} @ ${baseSha.slice(0, 7)}.`,

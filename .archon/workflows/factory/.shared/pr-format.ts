@@ -103,7 +103,7 @@ export function extractMechanicalFailureSummary(mechMarkdown: string, tailLines 
   const verifyLines: string[] = [];
 
   for (const line of lines) {
-    if (/^##\s+(Forbidden Shared Files|Out-of-Bounds Files)/i.test(line)) {
+    if (/^##\s+(Forbidden Paths|Out-of-Bounds Files)/i.test(line)) {
       section = 'boundary';
       parts.push(line);
       continue;

@@ -58,7 +58,7 @@ describe('PR formatting & review comment extraction', () => {
     const md = [
       '# Mechanical Gate Report',
       '',
-      '## Out-of-Bounds Files Outside Owned Paths (P0)',
+      '## Out-of-Bounds Files Outside Reserved Folders (P0)',
       '- `apps/pos/src/App.tsx`',
       '',
       '## Diff Stat',

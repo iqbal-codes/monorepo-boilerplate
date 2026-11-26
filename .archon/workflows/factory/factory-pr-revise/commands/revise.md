@@ -6,12 +6,13 @@ You are revising an existing Factory pull request (`$INPUTS.pr_url`) inside its 
 
 1. **Read repository standards, contract, and human feedback first:**
    - Read `AGENTS.md` and `CODING_STANDARDS.md` (if present).
-   - Read `$INPUTS.contract_path` in full (`Owned / Allowed Paths`, `Forbidden Shared Files`, acceptance criteria, UI requirements).
+   - Read `$INPUTS.contract_path` in full for the accepted outcome, acceptance criteria, invariants, and UI requirements.
    - Read `$INPUTS.feedback_path` in full (`CHANGES_REQUESTED` reviews, inline diff comments, and `/fix` / `/revise` directives).
 
-2. **Stay strictly within slice ownership boundaries:**
-   - Edit and create files **only within `Owned / Allowed Paths`** and **never touch `Forbidden Shared Files`**.
-   - If addressing the maintainer's request genuinely requires modifying a file outside `Owned / Allowed Paths` or inside `Forbidden Shared Files`, stop immediately and return `blocked: true` naming the exact file and reason.
+2. **Confirm ownership before editing:**
+   - Read `$INPUTS.allowed_folders` (JSON: `[]` is exclusive; a nonempty list limits edits to those reserved folders) and `$INPUTS.forbidden_paths` (JSON: resolved repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Review feedback does not change either boundary.
+   - Identify the owning modules and confirm that each planned edit addresses the feedback for the accepted slice, stays within any reservation, and avoids forbidden paths. Repeat for new targets.
+   - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
 
 3. **Implement all requested changes cleanly (TDD first for behavior changes):**
    - Address every review point and inline comment at root cause without weakening existing tests or bypassing standards.
@@ -27,5 +28,5 @@ You are revising an existing Factory pull request (`$INPUTS.pr_url`) inside its 
 
 Return the required JSON:
 - `done`: `true` when revisions and verification finished (or when blocked).
-- `blocked`: `true` only when boundary/prerequisite constraints make completion impossible without operator action.
-- `summary`: concise 1–2 sentence summary of feedback addressed and checks passed.
+- `blocked`: `true` if a reservation expansion, hard path conflict, or missing prerequisite requires operator action.
+- `summary`: concise feedback addressed and verification results, or the exact blocker and rationale.

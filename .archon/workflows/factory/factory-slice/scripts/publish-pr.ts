@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { emit, runCmd, text } from '../../.shared/contract.ts';
+import { auditBoundaries, emit, runCmd, text } from '../../.shared/contract.ts';
 import {
   findOpenPr,
   postPrComment,
@@ -28,6 +28,7 @@ import {
   syncBranchChanges,
 } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
+import { assertReservation, deliveryPaths, parseAllowedFolders } from '../../.shared/ownership.ts';
 import {
   extractVerificationEvidenceLine,
   parsePrSummarySections,
@@ -72,6 +73,8 @@ const implSummary = text(process.env.INPUTS_IMPL_SUMMARY);
 const roundNum = Number.parseInt(text(process.env.INPUTS_ROUND) || '1', 10) || 1;
 const diffStatInput = text(process.env.INPUTS_DIFF_STAT);
 const mergeMode = text(process.env.INPUTS_MERGE_MODE) || 'ask';
+const allowedFolders = parseAllowedFolders(process.env.INPUTS_ALLOWED_FOLDERS);
+const forbiddenPaths: string[] = JSON.parse(text(process.env.INPUTS_FORBIDDEN_PATHS));
 
 function readSnippet(filePath: string, maxChars = 3000): string {
   if (!existsSync(filePath)) return '';
@@ -262,6 +265,13 @@ const { headSha, shortSha, diffStat: gitDiffStat } = syncBranchChanges({
   commitMessage: commitMsg,
   baseSha,
   branchName,
+  assertPublishable(headSha) {
+    assertReservation(text(process.env.INPUTS_RUN_ID), allowedFolders);
+    const { ok, forbiddenHits, outOfBounds } = auditBoundaries(deliveryPaths(baseSha, headSha), allowedFolders, forbiddenPaths);
+    if (!ok) {
+      throw new Error(`Refusing to publish outside delivery boundaries. Protected: ${JSON.stringify(forbiddenHits)}; outside reserved folders: ${JSON.stringify(outOfBounds)}.`);
+    }
+  },
 });
 const diffStat = gitDiffStat || diffStatInput || 'See diff tab';
 const prTitle = sliceId && !title.includes(sliceId) ? `[${sliceId}] ${title}` : title;
