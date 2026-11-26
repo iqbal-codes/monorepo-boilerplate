@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Starts the web app on a free port and prints URL= and PID= for factory-slice
-# UX verification. Pass --with-api (or PREVIEW_WITH_API=1) for full-stack E2E
-# with apps/server (:3000) and apps/web (:3001). Safe to run more than once.
+# Starts an isolated web preview server on a free port and prints URL= and PID=
+# for UX/E2E verification. Pass --with-api (or PREVIEW_WITH_API=1) for
+# full-stack verification with apps/server and apps/web on free ports.
+# Optional overrides: PREVIEW_WEB_PORT, PREVIEW_API_PORT, PREVIEW_DATABASE_URL.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,16 +20,24 @@ for arg in "$@"; do
   esac
 done
 
-# Pick a free port so parallel slices and a running dev server do not collide.
-# curl exit 7 means the connection was refused, so nothing is listening there.
+# Pick a free port across IPv4/IPv6 so parallel slices and local dev servers never collide.
 pick_port() {
-  local port code
-  for port in $(seq 4100 4199); do
-    code=0
-    curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:$port/" || code=$?
-    if [ "$code" -eq 7 ]; then
-      printf '%s' "$port"
-      return 0
+  local start="${1:-4100}"
+  local end="${2:-4199}"
+  local port
+  for port in $(seq "$start" "$end"); do
+    if command -v ss >/dev/null 2>&1; then
+      if [ -z "$(ss -ltnH "sport = :$port" 2>/dev/null)" ]; then
+        printf '%s' "$port"
+        return 0
+      fi
+    else
+      local code=0
+      curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:$port/" || code=$?
+      if [ "$code" -eq 7 ]; then
+        printf '%s' "$port"
+        return 0
+      fi
     fi
   done
   return 1
@@ -42,7 +51,7 @@ wait_for_http() {
   for _ in $(seq 1 120); do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "ui-preview: $label exited; log follows" >&2
-      tail -n 20 "$log" >&2
+      tail -n 20 "$log" >&2 || true
       return 1
     fi
     if curl -sf -o /dev/null --max-time 2 "$url"; then
@@ -51,7 +60,7 @@ wait_for_http() {
     sleep 1
   done
   echo "ui-preview: timed out waiting for $label ($url); log follows" >&2
-  tail -n 20 "$log" >&2
+  tail -n 20 "$log" >&2 || true
   return 1
 }
 
@@ -60,28 +69,70 @@ if [ ! -f "$WEB_DIR/.env" ] || [ ! -f "$SERVER_DIR/.env" ]; then
 fi
 
 if [ "$WITH_API" = "1" ]; then
-  API_PORT=3000
-  WEB_PORT=3001
+  API_PORT="${PREVIEW_API_PORT:-$(pick_port 4200 4299)}" || {
+    echo "ui-preview: no free API port in 4200-4299" >&2
+    exit 1
+  }
+  WEB_PORT="${PREVIEW_WEB_PORT:-$(pick_port 4100 4199)}" || {
+    echo "ui-preview: no free web port in 4100-4199" >&2
+    exit 1
+  }
+
+  API_URL="http://localhost:$API_PORT"
+  WEB_URL="http://localhost:$WEB_PORT"
   API_LOG="${TMPDIR:-/tmp}/archon-e2e-api-$API_PORT.log"
   WEB_LOG="${TMPDIR:-/tmp}/archon-e2e-web-$WEB_PORT.log"
+  META_FILE="$(mktemp "${TMPDIR:-/tmp}/archon-e2e-meta.XXXXXX")"
 
-  API_PID=""
-  if ! curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:$API_PORT/"; then
-    cd "$SERVER_DIR"
-    setsid bun run --hot src/index.ts >"$API_LOG" 2>&1 < /dev/null &
-    API_PID=$!
-    if ! wait_for_http "http://127.0.0.1:$API_PORT/" "$API_PID" "$API_LOG" "api server"; then
-      kill -- -"$API_PID" 2>/dev/null || kill "$API_PID" 2>/dev/null || true
-      exit 1
+  # Supervise both children in one session (`PGID == SUP_PID`) so `kill "$PID"` tears down API, Web, and Vite children.
+  setsid bash -c '
+    set -euo pipefail
+    api_dir="$1" web_dir="$2" api_port="$3" web_port="$4" api_url="$5" web_url="$6" api_log="$7" web_log="$8" meta_file="$9" db_url="${10:-}"
+
+    if [ -n "$db_url" ]; then
+      (cd "$api_dir" && exec env PORT="$api_port" BETTER_AUTH_URL="$api_url" CORS_ORIGIN="$web_url" DATABASE_URL="$db_url" bun run --hot src/index.ts >"$api_log" 2>&1 < /dev/null) &
+    else
+      (cd "$api_dir" && exec env PORT="$api_port" BETTER_AUTH_URL="$api_url" CORS_ORIGIN="$web_url" bun run --hot src/index.ts >"$api_log" 2>&1 < /dev/null) &
     fi
-  fi
+    api_pid=$!
 
-  cd "$WEB_DIR"
-  setsid bunx --bun vp dev --port "$WEB_PORT" --strictPort --host localhost >"$WEB_LOG" 2>&1 < /dev/null &
-  WEB_PID=$!
-  if ! wait_for_http "http://localhost:$WEB_PORT/" "$WEB_PID" "$WEB_LOG" "web dev server"; then
-    kill -- -"$WEB_PID" 2>/dev/null || kill "$WEB_PID" 2>/dev/null || true
-    [ -n "$API_PID" ] && { kill -- -"$API_PID" 2>/dev/null || kill "$API_PID" 2>/dev/null || true; }
+    (cd "$web_dir" && exec env VITE_SERVER_URL="$api_url" bunx --bun vp dev --port "$web_port" --strictPort --host localhost >"$web_log" 2>&1 < /dev/null) &
+    web_pid=$!
+
+    printf "SUP_PID=%s\nAPI_PID=%s\nWEB_PID=%s\n" "$$" "$api_pid" "$web_pid" >"$meta_file"
+
+    cleanup() {
+      trap "" TERM INT EXIT
+      rm -f "$meta_file"
+      kill -TERM -- -"$$" 2>/dev/null || true
+      exit 0
+    }
+    trap cleanup TERM INT EXIT
+
+    while kill -0 "$api_pid" 2>/dev/null && kill -0 "$web_pid" 2>/dev/null; do
+      sleep 1
+    done
+    cleanup
+  ' _ "$SERVER_DIR" "$WEB_DIR" "$API_PORT" "$WEB_PORT" "$API_URL" "$WEB_URL" "$API_LOG" "$WEB_LOG" "$META_FILE" "${PREVIEW_DATABASE_URL:-}" >/dev/null 2>&1 < /dev/null &
+
+  for _ in $(seq 1 40); do
+    [ -s "$META_FILE" ] && break
+    sleep 0.1
+  done
+  if [ ! -s "$META_FILE" ]; then
+    rm -f "$META_FILE"
+    echo "ui-preview: supervisor failed to start" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "$META_FILE"
+
+  if ! wait_for_http "http://127.0.0.1:$API_PORT/" "$API_PID" "$API_LOG" "api server"; then
+    kill "$SUP_PID" 2>/dev/null || true
+    exit 1
+  fi
+  if ! wait_for_http "$WEB_URL/" "$WEB_PID" "$WEB_LOG" "web dev server"; then
+    kill "$SUP_PID" 2>/dev/null || true
     exit 1
   fi
 
@@ -89,38 +140,55 @@ if [ "$WITH_API" = "1" ]; then
   E2E_PASSWORD="${PREVIEW_E2E_PASSWORD:-Password123!}"
   curl -s -o /dev/null -X POST "http://127.0.0.1:$API_PORT/api/auth/sign-up/email" \
     -H "Content-Type: application/json" \
-    -H "Origin: http://localhost:$WEB_PORT" \
+    -H "Origin: $WEB_URL" \
     -d "{\"name\":\"Dev User\",\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" || true
 
-  printf 'URL=http://localhost:%s\nPID=%s\nWEB_LOG=%s\nAPI_URL=http://localhost:%s\nAPI_PID=%s\nAPI_LOG=%s\nE2E_EMAIL=%s\nE2E_PASSWORD=%s\n' \
-    "$WEB_PORT" "$WEB_PID" "$WEB_LOG" "$API_PORT" "$API_PID" "$API_LOG" "$E2E_EMAIL" "$E2E_PASSWORD"
+  printf 'URL=%s\nPID=%s\nWEB_LOG=%s\nAPI_URL=%s\nAPI_PID=%s\nAPI_LOG=%s\nE2E_EMAIL=%s\nE2E_PASSWORD=%s\n' \
+    "$WEB_URL" "$SUP_PID" "$WEB_LOG" "$API_URL" "$API_PID" "$API_LOG" "$E2E_EMAIL" "$E2E_PASSWORD"
   exit 0
 fi
 
-PORT="$(pick_port)" || {
+PORT="${PREVIEW_WEB_PORT:-$(pick_port 4100 4199)}" || {
   echo "ui-preview: no free port in 4100-4199" >&2
   exit 1
 }
 
 LOG="${TMPDIR:-/tmp}/archon-ui-preview-$PORT.log"
+META_FILE="$(mktemp "${TMPDIR:-/tmp}/archon-ui-meta.XXXXXX")"
 
-cd "$WEB_DIR"
+setsid bash -c '
+  set -euo pipefail
+  web_dir="$1" port="$2" log="$3" meta_file="$4"
+  (cd "$web_dir" && exec bunx --bun vp dev --port "$port" --strictPort --host 127.0.0.1 >"$log" 2>&1 < /dev/null) &
+  web_pid=$!
+  printf "SUP_PID=%s\nWEB_PID=%s\n" "$$" "$web_pid" >"$meta_file"
+  cleanup() {
+    trap "" TERM INT EXIT
+    rm -f "$meta_file"
+    kill -TERM -- -"$$" 2>/dev/null || true
+    exit 0
+  }
+  trap cleanup TERM INT EXIT
+  wait "$web_pid" || true
+  cleanup
+' _ "$WEB_DIR" "$PORT" "$LOG" "$META_FILE" >/dev/null 2>&1 < /dev/null &
 
-bunx --bun vp dev --port "$PORT" --strictPort --host 127.0.0.1 >"$LOG" 2>&1 &
-LAUNCH_PID=$!
+for _ in $(seq 1 40); do
+  [ -s "$META_FILE" ] && break
+  sleep 0.1
+done
+if [ ! -s "$META_FILE" ]; then
+  rm -f "$META_FILE"
+  echo "ui-preview: preview supervisor failed to start" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$META_FILE"
 
-cleanup() {
-  kill "$LAUNCH_PID" 2>/dev/null || true
-}
-trap cleanup INT TERM
-
-if wait_for_http "http://127.0.0.1:$PORT/" "$LAUNCH_PID" "$LOG" "dev server"; then
-  # The launcher spawns the real server as a child, so report the process that
-  # owns the port; stopping it stops the preview.
-  PID="$(ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)"
-  printf 'URL=http://127.0.0.1:%s\nPID=%s\n' "$PORT" "${PID:-$LAUNCH_PID}"
+if wait_for_http "http://127.0.0.1:$PORT/" "$WEB_PID" "$LOG" "dev server"; then
+  printf 'URL=http://127.0.0.1:%s\nPID=%s\n' "$PORT" "$SUP_PID"
   exit 0
 fi
 
-cleanup
+kill "$SUP_PID" 2>/dev/null || true
 exit 1
