@@ -430,12 +430,28 @@ nodes:
     when: "$escalate-rounds.output.decision == 'reject'"
     cancel: "Cancelled after PR revision QA escalation: $escalate-rounds.output.text"
 
+  # Typed decision gate: a skipped loop_group has no output, so finalize-pr must not
+  # dot-access it. Resolve readiness here and gate finalize-pr on this node.
+  - id: rounds-gate
+    script: rounds-gate
+    runtime: bun
+    depends_on: [rounds, escalate-rounds]
+    trigger_rule: all_done
+    with:
+      rounds_ready: { from: "$rounds.output.ready", if_skipped: false }
+      escalation_decision: { from: "$escalate-rounds.output.decision", if_skipped: "" }
+    output_format:
+      type: object
+      properties:
+        finalize: { type: boolean }
+      required: [finalize]
+
   - id: finalize-pr
     script: publish-pr
     runtime: bun
-    depends_on: [fetch-pr-feedback, push-revise, rounds, escalate-rounds]
+    depends_on: [fetch-pr-feedback, push-revise, rounds, escalate-rounds, rounds-gate]
     trigger_rule: none_failed_min_one_success
-    when: "$rounds.output.ready == true || $escalate-rounds.output.decision == 'approve'"
+    when: "$rounds-gate.output.finalize == true"
     with:
       mode: "finalize"
       repo: "$fetch-pr-feedback.output.repo"
