@@ -4,19 +4,8 @@ import { customersRouter } from "./customers";
 
 const databaseUrl = process.env.CUSTOMERS_TEST_DATABASE_URL;
 
-describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () => {
-  if (!databaseUrl) return;
-  const db = createDb({ DATABASE_URL: databaseUrl });
-  const fixtureIds: string[] = [];
-  afterAll(async () => {
-    try {
-      const admin = customersRouter.createCaller({ db, session: adminSession });
-      for (const id of fixtureIds) await admin.remove({ id });
-    } finally {
-      await db.$client.end();
-    }
-  });
-
+function createCustomerTestContext(url: string) {
+  const db = createDb({ DATABASE_URL: url });
   const now = new Date();
   const session = {
     session: {
@@ -40,6 +29,21 @@ describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () =
   };
   const adminSession = { ...session, user: { ...session.user, role: "admin" } };
   const staff = customersRouter.createCaller({ db, session });
+  return { db, session, adminSession, staff };
+}
+
+describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () => {
+  if (!databaseUrl) return;
+  const { db, adminSession, staff } = createCustomerTestContext(databaseUrl);
+  const fixtureIds: string[] = [];
+  afterAll(async () => {
+    try {
+      const admin = customersRouter.createCaller({ db, session: adminSession });
+      for (const id of fixtureIds) await admin.remove({ id });
+    } finally {
+      await db.$client.end();
+    }
+  });
 
   const create = async () => {
     const fixture = await staff.create({
@@ -108,7 +112,7 @@ describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () =
 
 describe.skipIf(!databaseUrl)("Customers export with disposable Postgres", () => {
   if (!databaseUrl) return;
-  const db = createDb({ DATABASE_URL: databaseUrl });
+  const { db, adminSession, staff } = createCustomerTestContext(databaseUrl);
   const adminIds: string[] = [];
   const emailPrefixes: string[] = [];
   afterAll(async () => {
@@ -122,30 +126,6 @@ describe.skipIf(!databaseUrl)("Customers export with disposable Postgres", () =>
       await db.$client.end();
     }
   });
-
-  const now = new Date();
-  const session = {
-    session: {
-      id: "staff-session",
-      userId: "staff",
-      token: "test-session",
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: new Date(now.getTime() + 60_000),
-    },
-    user: {
-      id: "staff",
-      name: "Staff",
-      email: "staff@example.test",
-      role: "user",
-      emailVerified: true,
-      createdAt: now,
-      banned: false,
-      updatedAt: now,
-    },
-  };
-  const adminSession = { ...session, user: { ...session.user, role: "admin" } };
-  const staff = customersRouter.createCaller({ db, session });
 
   const token = () => `export-${crypto.randomUUID()}`;
 

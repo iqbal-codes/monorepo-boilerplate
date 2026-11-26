@@ -5,7 +5,9 @@
  * access (`fetchExport`) and the filename (`getFilename`), and receives the
  * finished `File` plus its row count. The payload is never sliced, decoded, or
  * stored in React state here: it goes straight to an on-demand module worker
- * (`./export/worker.ts`) that builds the whole file and posts it back once.
+ * (`./export/worker.ts`) — which can also fetch and decode an HTTP export
+ * response directly off the main thread — builds the whole file, and posts it
+ * back once.
  *
  * Deliberately free of tRPC, nuqs, TanStack Router, domain types, and
  * `DataTable`, so any Screen can reuse it. Nothing outlives a run: the worker is
@@ -18,7 +20,15 @@ import { DownloadIcon } from "lucide-react";
 
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
-import type { CsvExportRequest, CsvExportResponse } from "./export/csv";
+import type { CsvExportHttpRequest, CsvExportRequest, CsvExportResponse } from "./export/csv";
+
+export type ExportHttpSource = CsvExportHttpRequest & {
+  kind: "http";
+  /** Screen-owned mapper for non-2xx HTTP responses or transport failures. */
+  mapError?: (error: { status?: number; body?: string; cause?: unknown }) => string;
+};
+
+export type ExportSource = string | ExportHttpSource;
 
 type ExportWorker = {
   postMessage(message: CsvExportRequest): void;
@@ -26,6 +36,8 @@ type ExportWorker = {
   onmessage: ((event: MessageEvent<CsvExportResponse>) => void) | null;
   onerror: ((event: ErrorEvent) => void) | null;
 };
+
+type WorkerPhase = "idle" | "loading" | "fetching" | "generating";
 
 /**
  * A worker script error has no useful technical detail to show staff, so it gets
@@ -46,8 +58,12 @@ export function ExportButton({
   label: React.ReactNode;
   /** Called once per activation; the returned name is never recomputed mid-run. */
   getFilename: (activatedAt: Date) => string;
-  /** Screen-owned data access. Resolves with the opaque export payload. */
-  fetchExport: (signal: AbortSignal) => Promise<string>;
+  /**
+   * Screen-owned data access. Resolves either with the opaque payload string or
+   * with an HTTP descriptor so the worker receives and decodes the response off
+   * the main thread.
+   */
+  fetchExport: (signal: AbortSignal) => Promise<ExportSource>;
   /** Visible caveat, associated with the button. */
   hint?: React.ReactNode;
   disabled?: boolean;
@@ -71,6 +87,7 @@ export function ExportButton({
   const inFlight = React.useRef(false);
   const abortRef = React.useRef<AbortController | null>(null);
   const workerRef = React.useRef<ExportWorker | null>(null);
+  const workerPhaseRef = React.useRef<WorkerPhase>("idle");
   /**
    * Object URLs that have been clicked but not yet revoked. `downloadFile`
    * schedules revocation on the next task so the browser can start the download;
@@ -87,11 +104,43 @@ export function ExportButton({
   const releaseWorker = React.useCallback(() => {
     const worker = workerRef.current;
     workerRef.current = null;
+    workerPhaseRef.current = "idle";
     if (worker) {
       worker.onmessage = null;
       worker.onerror = null;
       worker.terminate();
     }
+  }, []);
+
+  /**
+   * Stops any active worker. When the worker has an HTTP fetch in flight, ask it
+   * to abort its `AbortController` first so the browser closes the request cleanly
+   * with `net::ERR_ABORTED`, then terminate once aborted (or after a short cap).
+   */
+  const abortWorker = React.useCallback(() => {
+    const worker = workerRef.current;
+    if (!worker) return;
+    const phase = workerPhaseRef.current;
+    workerRef.current = null;
+    workerPhaseRef.current = "idle";
+    if (phase === "fetching") {
+      const finish = () => {
+        clearTimeout(timer);
+        worker.onmessage = null;
+        worker.onerror = null;
+        worker.terminate();
+      };
+      const timer = setTimeout(finish, 50);
+      worker.onmessage = (event) => {
+        if (event.data.type === "aborted") finish();
+      };
+      worker.onerror = finish;
+      worker.postMessage({ type: "abort" });
+      return;
+    }
+    worker.onmessage = null;
+    worker.onerror = null;
+    worker.terminate();
   }, []);
 
   const revokeUrl = React.useCallback((url: string) => {
@@ -108,20 +157,25 @@ export function ExportButton({
     if (mounted.current) setBusy(false);
   }, []);
 
+  const cancelRun = React.useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    abortWorker();
+    settle();
+    if (mounted.current) setMessage("");
+  }, [abortWorker, settle]);
+
   React.useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      abortRef.current?.abort();
-      abortRef.current = null;
-      releaseWorker();
+      cancelRun();
       revokeAllUrls();
-      inFlight.current = false;
     };
-  }, [releaseWorker, revokeAllUrls]);
+  }, [cancelRun, revokeAllUrls]);
 
   async function start() {
-    if (inFlight.current || disabled) return;
+    if (inFlight.current || disabled || cancelSignalRef.current?.aborted) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -130,52 +184,88 @@ export function ExportButton({
     const controller = new AbortController();
     abortRef.current = controller;
     /** True when this run may still deliver a file for the Screen. */
-    const resumed = () =>
+    const isActive = () =>
       !controller.signal.aborted && mounted.current && !(cancelSignalRef.current?.aborted ?? false);
 
     try {
       // The Screen owns the filename policy, so a throwing provider is a normal
       // failure: it must settle the control and offer a retry, not strand it.
       const filename = getFilename(new Date());
-      const payload = await fetchExport(controller.signal);
-      if (!resumed()) return;
+      const source = await fetchExport(controller.signal);
+      if (!isActive()) {
+        cancelRun();
+        return;
+      }
 
-      setMessage("Generating the CSV file.");
       const worker: ExportWorker = new Worker(new URL("./export/worker.ts", import.meta.url), {
         type: "module",
       });
       workerRef.current = worker;
+      workerPhaseRef.current = typeof source === "string" ? "generating" : "loading";
+      if (typeof source === "string") {
+        setMessage("Generating the CSV file.");
+      }
 
       worker.onmessage = (event) => {
         if (workerRef.current !== worker) return;
+        const response = event.data;
+        if (response.type === "stage") {
+          workerPhaseRef.current = response.stage;
+          if (response.stage === "generating" && isActive()) {
+            setMessage("Generating the CSV file.");
+          }
+          return;
+        }
         releaseWorker();
         settle();
-        if (!resumed()) return;
-        const response = event.data;
+        if (!isActive()) return;
         if (response.type === "done") {
           downloadFile(response.file);
           setMessage(`Exported ${response.rowCount} ${response.rowCount === 1 ? "row" : "rows"}.`);
           onExported?.(response.file, response.rowCount);
-        } else {
-          setMessage("");
-          setError(`Could not prepare the CSV file. ${response.message} Try again.`);
+          return;
         }
+        setMessage("");
+        if (response.type === "http-error") {
+          const mapped =
+            typeof source !== "string" && source.mapError
+              ? source.mapError({
+                  status: response.status,
+                  body: response.body,
+                  cause: response.message,
+                })
+              : FALLBACK_ERROR;
+          setError(mapped || FALLBACK_ERROR);
+          return;
+        }
+        if (response.type === "aborted") {
+          return;
+        }
+        setError(`Could not prepare the CSV file. ${response.message} Try again.`);
       };
       worker.onerror = () => {
         if (workerRef.current !== worker) return;
         releaseWorker();
         settle();
-        if (!resumed()) return;
+        if (!isActive()) return;
         setMessage("");
         setError(FALLBACK_ERROR);
       };
 
-      worker.postMessage({ payload, filename });
+      if (typeof source === "string") {
+        worker.postMessage({ payload: source, filename });
+      } else {
+        const { url, credentials, headers, payloadPath } = source;
+        worker.postMessage({
+          type: "http",
+          request: { url, credentials, headers, payloadPath },
+          filename,
+        });
+      }
     } catch (cause) {
-      if (controller.signal.aborted) return;
-      releaseWorker();
-      settle();
-      if (!mounted.current) return;
+      const cancelled = controller.signal.aborted || (cancelSignalRef.current?.aborted ?? false);
+      cancelRun();
+      if (cancelled || !mounted.current) return;
       setMessage("");
       setError(cause instanceof Error && cause.message !== "" ? cause.message : FALLBACK_ERROR);
     } finally {
@@ -190,17 +280,13 @@ export function ExportButton({
    */
   React.useEffect(() => {
     if (!cancelSignal) return;
-    const onCancel = () => {
-      abortRef.current?.abort();
-      abortRef.current = null;
-      releaseWorker();
-      inFlight.current = false;
-      if (mounted.current) setBusy(false);
-    };
-    if (cancelSignal.aborted) onCancel();
-    else cancelSignal.addEventListener("abort", onCancel, { once: true });
-    return () => cancelSignal.removeEventListener("abort", onCancel);
-  }, [cancelSignal, releaseWorker]);
+    if (cancelSignal.aborted) {
+      cancelRun();
+      return;
+    }
+    cancelSignal.addEventListener("abort", cancelRun, { once: true });
+    return () => cancelSignal.removeEventListener("abort", cancelRun);
+  }, [cancelSignal, cancelRun]);
 
   function downloadFile(file: File) {
     const url = URL.createObjectURL(file);

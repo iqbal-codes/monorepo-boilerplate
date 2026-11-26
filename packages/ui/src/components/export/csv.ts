@@ -26,14 +26,58 @@ export type CsvExportPayload = {
   rows: CsvCell[][];
 };
 
-export type CsvExportRequest = {
+export type CsvExportHttpRequest = {
+  url: string;
+  credentials?: RequestCredentials;
+  headers?: Record<string, string>;
+  /** Optional JSON key path to unwrap an opaque payload string from an API envelope. */
+  payloadPath?: readonly string[];
+};
+
+export type CsvExportPayloadRequest = {
+  type?: "payload";
   payload: string;
   filename: string;
 };
 
+export type CsvExportRequest =
+  | CsvExportPayloadRequest
+  | { type: "http"; request: CsvExportHttpRequest; filename: string }
+  | { type: "abort" };
+
 export type CsvExportResponse =
+  | { type: "stage"; stage: "fetching" | "generating" }
   | { type: "done"; file: File; rowCount: number }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "http-error"; status?: number; body?: string; message?: string }
+  | { type: "aborted" };
+
+/**
+ * Unwraps a raw response string when the API nests the opaque payload inside an
+ * envelope object (for example `["result", "data"]`).
+ */
+export function unwrapCsvExportPayload(rawText: string, payloadPath?: readonly string[]): string {
+  if (!payloadPath || payloadPath.length === 0) return rawText;
+
+  let current: unknown;
+  try {
+    current = JSON.parse(rawText);
+  } catch {
+    throw new Error("Export payload is not valid JSON.");
+  }
+
+  for (const segment of payloadPath) {
+    if (!isRecord(current) || !(segment in current)) {
+      throw new Error("Export payload is missing the expected data field.");
+    }
+    current = current[segment];
+  }
+
+  if (typeof current !== "string") {
+    throw new Error("Export payload data must be text.");
+  }
+  return current;
+}
 
 /**
  * Validates the opaque payload before any file exists. A payload that does not
@@ -101,7 +145,7 @@ export function buildCsv({ headers, rows }: CsvExportPayload): string {
 }
 
 /** Worker body: decode, validate, and generate exactly one response. */
-export function runCsvExport({ payload, filename }: CsvExportRequest): CsvExportResponse {
+export function runCsvExport({ payload, filename }: CsvExportPayloadRequest): CsvExportResponse {
   try {
     const decoded = decodeCsvExportPayload(payload);
     const file = new File([buildCsv(decoded)], filename, { type: CSV_MIME_TYPE });

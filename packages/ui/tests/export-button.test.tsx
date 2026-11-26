@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
+import { StrictMode } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ExportButton } from "../src/components/export-button";
+import { ExportButton, type ExportSource } from "../src/components/export-button";
 import { ListToolbar } from "../src/components/list-toolbar";
 
 /** Button attributes with `class` removed, so utility names cannot match. */
@@ -94,12 +95,13 @@ type Harness = {
 async function mountExportButton(
   win: Window,
   props: {
-    fetchExport: (signal: AbortSignal) => Promise<string>;
+    fetchExport: (signal: AbortSignal) => Promise<ExportSource>;
     getFilename?: (activatedAt: Date) => string;
     onExported?: (file: File, rowCount: number) => void;
     hint?: string;
     disabled?: boolean;
     cancelSignal?: AbortSignal;
+    strict?: boolean;
   },
 ): Promise<Harness> {
   const container = win.document.createElement("div");
@@ -171,7 +173,7 @@ async function mountExportButton(
   };
 
   await act(async () => {
-    root.render(
+    const node = (
       <ExportButton
         label="Export CSV"
         hint={props.hint ?? "CSV escaping may change literal text."}
@@ -180,8 +182,9 @@ async function mountExportButton(
         fetchExport={capture}
         cancelSignal={props.cancelSignal}
         onExported={props.onExported}
-      />,
+      />
     );
+    root.render(props.strict ? <StrictMode>{node}</StrictMode> : node);
   });
 
   const harness: Harness = {
@@ -205,7 +208,7 @@ async function mountExportButton(
     button: () => container.querySelector("button"),
     text: () => container.textContent ?? "",
     alert: () => container.querySelector('[role="alert"]')?.textContent ?? "",
-    status: () => container.querySelector('[role="status"]')?.textContent ?? "",
+    status: () => container.querySelector('p[role="status"]')?.textContent ?? "",
   };
 
   return harness;
@@ -626,7 +629,7 @@ describe("ExportButton guards", () => {
     );
   });
 
-  test("a run that resolves while the Screen is already gone never downloads", async () => {
+  test("a run that resolves while the Screen is already gone never downloads and does not stay busy", async () => {
     const cancel = new AbortController();
     cancel.abort();
 
@@ -637,6 +640,117 @@ describe("ExportButton guards", () => {
 
         expect(harness.workers).toEqual([]);
         expect(harness.downloads).toEqual([]);
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+        expect(harness.button()?.getAttribute("aria-busy")).toBeNull();
+      },
+    );
+  });
+
+  test("StrictMode double-mount does not lock the export button", async () => {
+    await withHarness({ fetchExport: async () => payload(), strict: true }, async (harness) => {
+      await harness.click();
+      await act(async () => {
+        harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+      });
+
+      expect(harness.downloads).toEqual(["customers-2026-11-26.csv"]);
+      expect(harness.status()).toBe("Exported 1 row.");
+    });
+  });
+
+  test("HTTP worker mode keeps preparing while fetching, maps http-error, and aborts cleanly on cancel", async () => {
+    const cancel = new AbortController();
+    await withHarness(
+      {
+        cancelSignal: cancel.signal,
+        fetchExport: async () => ({
+          kind: "http",
+          url: "http://localhost:3000/trpc/customers.export",
+          credentials: "include",
+          payloadPath: ["result", "data"],
+          mapError: ({ status }) =>
+            status === 413 ? "Narrow filters." : "Could not export customers. Try again.",
+        }),
+      },
+      async (harness) => {
+        await harness.click();
+        expect(harness.workers).toHaveLength(1);
+        expect(harness.workers[0]?.posted[0]).toEqual({
+          type: "http",
+          request: {
+            url: "http://localhost:3000/trpc/customers.export",
+            credentials: "include",
+            headers: undefined,
+            payloadPath: ["result", "data"],
+          },
+          filename: "customers-2026-11-26.csv",
+        });
+
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "stage", stage: "fetching" });
+        });
+        expect(harness.status()).toBe("Preparing the export.");
+
+        await act(async () => {
+          cancel.abort();
+        });
+        expect(harness.workers[0]?.posted).toContainEqual({ type: "abort" });
+        expect(harness.workers[0]?.terminated).toBe(false);
+        expect(harness.status()).toBe("");
+
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "aborted" });
+        });
+        expect(harness.workers[0]?.terminated).toBe(true);
+        expect(harness.downloads).toEqual([]);
+      },
+    );
+
+    await withHarness(
+      {
+        fetchExport: async () => ({
+          kind: "http",
+          url: "http://localhost:3000/trpc/customers.export",
+          mapError: ({ status }) =>
+            status === 413 ? "Narrow filters." : "Could not export customers. Try again.",
+        }),
+      },
+      async (harness) => {
+        await harness.click();
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "stage", stage: "fetching" });
+          harness.workers[0]?.deliver({ type: "stage", stage: "generating" });
+        });
+        expect(harness.status()).toBe("Generating the CSV file.");
+
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+        });
+        expect(harness.downloads).toEqual(["customers-2026-11-26.csv"]);
+        expect(harness.status()).toBe("Exported 1 row.");
+      },
+    );
+
+    await withHarness(
+      {
+        fetchExport: async () => ({
+          kind: "http",
+          url: "http://localhost:3000/trpc/customers.export",
+          mapError: ({ status }) =>
+            status === 413 ? "Narrow filters." : "Could not export customers. Try again.",
+        }),
+      },
+      async (harness) => {
+        await harness.click();
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "stage", stage: "fetching" });
+          harness.workers[0]?.deliver({ type: "http-error", status: 413, body: "{}" });
+        });
+
+        expect(harness.workers[0]?.terminated).toBe(true);
+        expect(harness.downloads).toEqual([]);
+        expect(harness.alert()).toBe("Narrow filters.");
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
       },
     );
   });

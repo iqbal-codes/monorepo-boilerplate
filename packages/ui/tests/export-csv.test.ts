@@ -6,6 +6,7 @@ import {
   decodeCsvExportPayload,
   escapeCsvCell,
   runCsvExport,
+  unwrapCsvExportPayload,
 } from "../src/components/export/csv";
 import { registerCsvExportWorker } from "../src/components/export/worker";
 
@@ -272,5 +273,110 @@ describe("export worker message seam", () => {
     expect(response.type).toBe("error");
     expect(response.file).toBeUndefined();
     expect(response.message).toMatch(/not valid JSON/);
+  });
+
+  test("unwraps nested response envelopes only when requested", () => {
+    const inner = payloadOf([]);
+    expect(unwrapCsvExportPayload(inner)).toBe(inner);
+    expect(
+      unwrapCsvExportPayload(JSON.stringify({ result: { data: inner } }), ["result", "data"]),
+    ).toBe(inner);
+    expect(() => unwrapCsvExportPayload("{}", ["result", "data"])).toThrow(/missing the expected/);
+    expect(() =>
+      unwrapCsvExportPayload(JSON.stringify({ result: { data: 123 } }), ["result", "data"]),
+    ).toThrow(/must be text/);
+  });
+
+  test("fetches, unwraps, and generates a CSV off-thread in HTTP worker mode", async () => {
+    const scope = fakeScope();
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          result: {
+            data: payloadOf([["Ada", "ada@example.test", null, null, "active", 42, "USD", null]]),
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    registerCsvExportWorker(scope, fakeFetch);
+    scope.emit({
+      type: "http",
+      request: {
+        url: "http://localhost:3000/trpc/customers.export?input=%7B%7D",
+        credentials: "include",
+        payloadPath: ["result", "data"],
+      },
+      filename: "customers.csv",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init?.credentials).toBe("include");
+    expect(scope.posted.map((m) => (m as { type: string }).type)).toEqual([
+      "stage",
+      "stage",
+      "done",
+    ]);
+    const done = scope.posted[2] as { type: string; rowCount: number; file: File };
+    expect(done.rowCount).toBe(1);
+    expect(await done.file.text()).toContain("Ada,ada@example.test,,,active,42,USD,");
+  });
+
+  test("posts http-error without generating a file on non-2xx HTTP responses", async () => {
+    const scope = fakeScope();
+    const fakeFetch = (async () =>
+      new Response(JSON.stringify({ error: { message: "Too many rows" } }), {
+        status: 413,
+      })) as typeof fetch;
+
+    registerCsvExportWorker(scope, fakeFetch);
+    scope.emit({
+      type: "http",
+      request: {
+        url: "http://localhost:3000/trpc/customers.export",
+        payloadPath: ["result", "data"],
+      },
+      filename: "customers.csv",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(scope.posted).toEqual([
+      { type: "stage", stage: "fetching" },
+      { type: "http-error", status: 413, body: '{"error":{"message":"Too many rows"}}' },
+    ]);
+  });
+
+  test("aborts an in-flight HTTP fetch cleanly when asked to abort", async () => {
+    const scope = fakeScope();
+    let seenSignal: AbortSignal | undefined;
+    const fakeFetch = ((_url: string | URL | Request, init?: RequestInit) => {
+      seenSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })),
+          { once: true },
+        );
+      });
+    }) as typeof fetch;
+
+    registerCsvExportWorker(scope, fakeFetch);
+    scope.emit({
+      type: "http",
+      request: { url: "http://localhost:3000/trpc/customers.export" },
+      filename: "customers.csv",
+    });
+    scope.emit({ type: "abort" });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(seenSignal?.aborted).toBe(true);
+    expect(scope.posted).toEqual([{ type: "stage", stage: "fetching" }, { type: "aborted" }]);
   });
 });
