@@ -1,0 +1,36 @@
+# Red path: requested PR change requires editing a forbidden file -> pauses at escalate-blocked.
+fixture:
+  expect: paused
+  inputs:
+    pr: "28"
+
+fetch-pr-feedback:
+  ready: true
+  cancel_reason: ""
+  repo: owner/repo
+  pr_number: 28
+  pr_url: "https://github.com/owner/repo/pull/28"
+  issue_number: 13
+  title: "Add middleware guard"
+  slice_id: ""
+  phase: ""
+  risk_tier: strict
+  review_mode: strict
+  has_ui: false
+  run_ux: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-13-middleware
+  verification_command: "npm test"
+  owned_paths: ["src/middleware/**"]
+  forbidden_paths: ["package.json"]
+  contract_path: "/tmp/contract.md"
+  feedback_path: "/tmp/pr-feedback.md"
+  before_summary: "PR #28 base main @ 1111111."
+  feedback_summary: "1 review(s), 0 inline comment(s), 0 directive(s)"
+
+revise:
+  done: true
+  blocked: true
+  summary: "Maintainer requested upgrading a dependency in forbidden package.json."

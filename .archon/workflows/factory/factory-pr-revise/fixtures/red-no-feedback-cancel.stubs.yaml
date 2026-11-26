@@ -1,0 +1,31 @@
+# Red path: no maintainer feedback or unauthorized reviewer -> cancels immediately with 0 LLM tokens.
+fixture:
+  expect: cancelled
+  inputs:
+    pr: "27"
+
+fetch-pr-feedback:
+  ready: false
+  cancel_reason: "No actionable maintainer CHANGES_REQUESTED review, inline comment, or /fix directive found."
+  repo: owner/repo
+  pr_number: 27
+  pr_url: "https://github.com/owner/repo/pull/27"
+  issue_number: 12
+  title: "Update config loader"
+  slice_id: ""
+  phase: ""
+  risk_tier: standard
+  review_mode: standard
+  has_ui: false
+  run_ux: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-12-update-config
+  verification_command: ""
+  owned_paths: []
+  forbidden_paths: []
+  contract_path: "/tmp/contract.md"
+  feedback_path: "/tmp/pr-feedback.md"
+  before_summary: ""
+  feedback_summary: "No actionable maintainer feedback."

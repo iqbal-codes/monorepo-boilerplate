@@ -1,0 +1,88 @@
+# Green path: PR receives maintainer feedback -> revised -> gate + QA pass -> pauses at merge-approval (default ask).
+fixture:
+  expect: paused
+  inputs:
+    pr: "25"
+    merge_mode: ask
+
+fetch-pr-feedback:
+  ready: true
+  cancel_reason: ""
+  repo: owner/repo
+  pr_number: 25
+  pr_url: "https://github.com/owner/repo/pull/25"
+  issue_number: 10
+  title: "Add export endpoint"
+  slice_id: SL-L2-05
+  phase: L2
+  risk_tier: standard
+  review_mode: standard
+  has_ui: false
+  run_ux: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-10-sl-l2-05
+  verification_command: "npm test"
+  owned_paths: ["src/export/**"]
+  forbidden_paths: ["package.json"]
+  contract_path: "/tmp/contract.md"
+  feedback_path: "/tmp/pr-feedback.md"
+  before_summary: "PR #25 base main @ 1111111."
+  feedback_summary: "1 review(s), 2 inline comment(s), 0 directive(s)"
+
+revise:
+  done: true
+  blocked: false
+  summary: "Addressed inline comments and added 404 test."
+
+push-revise:
+  pr_number: 25
+  pr_url: "https://github.com/owner/repo/pull/25"
+  head_sha: "3333333333333333333333333333333333333333"
+  diff_stat: "2 files changed, 40 insertions(+)"
+  is_draft: false
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Pushed revision commit 3333333 to PR #25."
+
+mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "2 files changed, 40 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+review-spec:
+  lgtm: true
+  blocking_count: 0
+  summary: "All maintainer comments and tests verified."
+
+review-standards:
+  lgtm: true
+  blocking_count: 0
+  summary: "Follows coding standards."
+
+verdict:
+  round: 1
+  done: true
+  ready: true
+  effective_has_ui: false
+  reason: ready
+  diff_stat: "2 files changed, 40 insertions(+)"
+  summary: "Round 1 passed."
+
+finalize-pr:
+  pr_number: 25
+  pr_url: "https://github.com/owner/repo/pull/25"
+  head_sha: "3333333333333333333333333333333333333333"
+  diff_stat: "2 files changed, 40 insertions(+)"
+  is_draft: false
+  merge_action: ask
+  needs_human_merge_approval: true
+  approval_message: "Review updated PR #25 before merging."
+  summary: "PR #25 ready (merge_action=ask)."

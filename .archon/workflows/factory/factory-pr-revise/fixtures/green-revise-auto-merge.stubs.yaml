@@ -1,0 +1,100 @@
+# Green path: PR revision with merge_mode=auto -> passes gate + QA -> squash-merges cleanly.
+fixture:
+  expect: completed
+  inputs:
+    pr: "26"
+    merge_mode: auto
+
+fetch-pr-feedback:
+  ready: true
+  cancel_reason: ""
+  repo: owner/repo
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  issue_number: 11
+  title: "Fix pagination offset"
+  slice_id: ""
+  phase: ""
+  risk_tier: standard
+  review_mode: standard
+  has_ui: false
+  run_ux: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-11-fix-pagination
+  verification_command: "npm test"
+  owned_paths: ["src/api/**"]
+  forbidden_paths: ["package.json"]
+  contract_path: "/tmp/contract.md"
+  feedback_path: "/tmp/pr-feedback.md"
+  before_summary: "PR #26 base main @ 1111111."
+  feedback_summary: "0 review(s), 0 inline comment(s), 1 directive(s)"
+
+revise:
+  done: true
+  blocked: false
+  summary: "Clamped negative page offsets and added regression test."
+
+push-revise:
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  head_sha: "4444444444444444444444444444444444444444"
+  diff_stat: "2 files changed, 22 insertions(+)"
+  is_draft: false
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Pushed revision commit 4444444 to PR #26."
+
+mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "2 files changed, 22 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+review-spec:
+  lgtm: true
+  blocking_count: 0
+  summary: "Verified offset clamping."
+
+review-standards:
+  lgtm: true
+  blocking_count: 0
+  summary: "Clean."
+
+verdict:
+  round: 1
+  done: true
+  ready: true
+  effective_has_ui: false
+  reason: ready
+  diff_stat: "2 files changed, 22 insertions(+)"
+  summary: "Round 1 passed."
+
+finalize-pr:
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  head_sha: "4444444444444444444444444444444444444444"
+  diff_stat: "2 files changed, 22 insertions(+)"
+  is_draft: false
+  merge_action: auto
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "PR #26 ready (merge_action=auto)."
+
+ci-merge:
+  merged: true
+  ci_status: green
+  summary: "Squash-merged PR #26 pinned to 4444444."
+
+summary:
+  delivered: true
+  merged: true
+  pr_url: "https://github.com/owner/repo/pull/26"
+  status: merged
+  summary: "PR #26 merged."
