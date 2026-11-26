@@ -23,7 +23,7 @@ fetch-pr-feedback:
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-12-update-config
   verification_command: ""
-  owned_paths: []
+  allowed_folders: []
   forbidden_paths: []
   contract_path: "/tmp/contract.md"
   feedback_path: "/tmp/pr-feedback.md"

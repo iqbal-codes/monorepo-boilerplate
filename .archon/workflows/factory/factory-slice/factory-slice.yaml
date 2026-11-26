@@ -2,7 +2,7 @@ name: factory-slice
 description: |
   Delivers a scoped change from a GitHub issue or Markdown contract. Runs TDD
   implementation (factory:in-progress), opens a draft PR (factory:review), executes
-  deterministic Owned-Paths + Verification-Command gates, optional black-box
+  deterministic folder-reservation, protected-path, and verification gates, optional black-box
   browser UX verification, and independent fresh-context parallel
   QA review (2 axes on standard, 3 axes on risk:strict). When QA finds defects,
   it posts round findings to the PR, moves to factory:changes-requested, and sends
@@ -38,6 +38,9 @@ inputs:
   ci_wait_seconds:
     default: "600"
     description: Max seconds to poll GitHub Actions checks before timing out ("0" skips waiting).
+  allowed_folders:
+    default: "[]"
+    description: JSON array of literal repository-relative directories ending in /. Empty means exclusive delivery.
 
 worktree:
   enabled: true
@@ -56,6 +59,8 @@ nodes:
       repo: "$INPUTS.repo"
       base_branch: "$INPUTS.base_branch"
       preview_cmd: "$INPUTS.preview_cmd"
+      allowed_folders: "$INPUTS.allowed_folders"
+      run_id: "$WORKFLOW_ID"
     output_format:
       type: object
       properties:
@@ -77,7 +82,7 @@ nodes:
         base_sha: { type: string }
         branch_name: { type: string }
         verification_command: { type: string }
-        owned_paths: { type: array, items: { type: string } }
+        allowed_folders: { type: array, items: { type: string } }
         forbidden_paths: { type: array, items: { type: string } }
         blockers_ok: { type: boolean }
         unmet_blockers: { type: array, items: { type: string } }
@@ -102,7 +107,7 @@ nodes:
         - base_sha
         - branch_name
         - verification_command
-        - owned_paths
+        - allowed_folders
         - forbidden_paths
         - blockers_ok
         - unmet_blockers
@@ -153,6 +158,8 @@ nodes:
       verification_command: "$fetch-contract.output.verification_command"
       has_ui: "$fetch-contract.output.has_ui"
       preview_cmd: "$fetch-contract.output.preview_cmd"
+      allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+      forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
     output_format:
       type: object
       properties:
@@ -196,6 +203,9 @@ nodes:
       has_ui: "$fetch-contract.output.has_ui"
       base_branch: "$fetch-contract.output.base_branch"
       base_sha: "$fetch-contract.output.base_sha"
+      allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+      forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+      run_id: "$WORKFLOW_ID"
       branch_name: "$fetch-contract.output.branch_name"
       before_summary: "$fetch-contract.output.before_summary"
       before_capture_summary: { from: "$capture-before.output.summary", if_skipped: null }
@@ -241,20 +251,22 @@ nodes:
       max_iterations: 3
       on_exhausted: complete
       until_bash: |
-        done=$verdict.output.done
+        done=$qa.output.done
         test "$done" = "true"
       nodes:
         - id: fix
           command: fix
           model: medium
           context: { resume: implement }
-          when: "$LOOP_PREV.verdict.output.done == false"
+          when: "$LOOP_PREV.qa.output.done == false"
           with:
             contract_path: "$fetch-contract.output.contract_path"
             verification_command: "$fetch-contract.output.verification_command"
             has_ui: "$fetch-contract.output.has_ui"
             preview_cmd: "$fetch-contract.output.preview_cmd"
-            prev_summary: "$LOOP_PREV.verdict.output.summary"
+            allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+            forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+            prev_summary: "$LOOP_PREV.qa.output.summary"
           output_format:
             type: object
             properties:
@@ -267,7 +279,7 @@ nodes:
           script: publish-pr
           runtime: bun
           depends_on: [fix]
-          when: "$LOOP_PREV.verdict.output.done == false && $fix.output.blocked == false"
+          when: "$LOOP_PREV.qa.output.done == false && $fix.output.blocked == false"
           with:
             mode: "sync"
             repo: "$fetch-contract.output.repo"
@@ -279,6 +291,9 @@ nodes:
             has_ui: "$fetch-contract.output.has_ui"
             base_branch: "$fetch-contract.output.base_branch"
             base_sha: "$fetch-contract.output.base_sha"
+            allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+            forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+            run_id: "$WORKFLOW_ID"
             branch_name: "$fetch-contract.output.branch_name"
             before_summary: "$fetch-contract.output.before_summary"
             before_capture_summary: { from: "$capture-before.output.summary", if_skipped: null }
@@ -286,7 +301,7 @@ nodes:
             rounds_reason: ""
             rounds_summary: ""
             impl_summary: "$fix.output.summary"
-            round: "$LOOP_PREV.verdict.output.round"
+            round: "$LOOP_PREV.qa.output.round"
             diff_stat: ""
             merge_mode: "$INPUTS.merge_mode"
           output_format:
@@ -312,148 +327,28 @@ nodes:
               - approval_message
               - summary
 
-        - id: mechanical-gate
-          script: mechanical-gate
-          runtime: bun
+        # Gate, UX verification, the three review axes, and the round verdict live in the
+        # shared block both delivery workflows include. It always runs so the verdict can
+        # report a blocked fixer; the gate stops itself when `fix` reports a blocker.
+        - id: qa
+          include: factory-qa
           depends_on: [fix, push-fix]
           trigger_rule: all_done
-          when: "$LOOP_PREV.verdict.output.done != false || $fix.output.blocked == false"
           with:
             base_sha: "$fetch-contract.output.base_sha"
             verification_command: "$fetch-contract.output.verification_command"
-            owned_paths: { from: "$fetch-contract.output.owned_paths" }
+            allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
             forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
             contract_has_ui: "$fetch-contract.output.has_ui"
             preview_cmd: "$fetch-contract.output.preview_cmd"
-          output_format:
-            type: object
-            properties:
-              passed: { type: boolean }
-              boundary_ok: { type: boolean }
-              checks_ok: { type: boolean }
-              effective_has_ui: { type: boolean }
-              effective_run_ux: { type: boolean }
-              preview_cmd: { type: string }
-              diff_stat: { type: string }
-              summary: { type: string }
-            required: [passed, boundary_ok, checks_ok, effective_has_ui, effective_run_ux, preview_cmd, diff_stat, summary]
-
-        - id: ux-verify
-          command: ux-verify
-          model: medium
-          context: fresh
-          mutates_checkout: false
-          depends_on: [mechanical-gate]
-          when: "$mechanical-gate.output.effective_run_ux == true && $mechanical-gate.output.passed == true"
-          with:
             contract_path: "$fetch-contract.output.contract_path"
-            preview_cmd: "$mechanical-gate.output.preview_cmd"
-          output_format:
-            type: object
-            properties:
-              passed: { type: boolean }
-              screenshots: { type: array, items: { type: string } }
-              findings: { type: array, items: { type: string } }
-              summary: { type: string }
-            required: [passed, screenshots, findings, summary]
-
-        # Parallel Independent QA Review (strictly fresh context & read-only)
-        - id: review-spec
-          command: review-spec
-          model: medium
-          context: fresh
-          mutates_checkout: false
-          depends_on: [mechanical-gate, ux-verify]
-          trigger_rule: none_failed_min_one_success
-          when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
-          with:
-            contract_path: "$fetch-contract.output.contract_path"
-            base_sha: "$fetch-contract.output.base_sha"
-            has_ux_report: "$mechanical-gate.output.effective_run_ux"
-          output_format:
-            type: object
-            properties:
-              lgtm: { type: boolean }
-              blocking_count: { type: integer }
-              summary: { type: string }
-            required: [lgtm, blocking_count, summary]
-
-        - id: review-standards
-          command: review-standards
-          model: medium
-          context: fresh
-          mutates_checkout: false
-          depends_on: [mechanical-gate, ux-verify]
-          trigger_rule: none_failed_min_one_success
-          when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
-          with:
-            contract_path: "$fetch-contract.output.contract_path"
-            base_sha: "$fetch-contract.output.base_sha"
             review_mode: "$fetch-contract.output.review_mode"
-          output_format:
-            type: object
-            properties:
-              lgtm: { type: boolean }
-              blocking_count: { type: integer }
-              summary: { type: string }
-            required: [lgtm, blocking_count, summary]
-
-        - id: review-seams-errors
-          command: review-seams-errors
-          model: medium
-          context: fresh
-          mutates_checkout: false
-          depends_on: [mechanical-gate, ux-verify]
-          trigger_rule: none_failed_min_one_success
-          when: "$fetch-contract.output.review_mode == 'strict' && $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $fetch-contract.output.review_mode == 'strict' && $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
-          with:
-            contract_path: "$fetch-contract.output.contract_path"
-            base_sha: "$fetch-contract.output.base_sha"
-          output_format:
-            type: object
-            properties:
-              lgtm: { type: boolean }
-              blocking_count: { type: integer }
-              summary: { type: string }
-            required: [lgtm, blocking_count, summary]
-
-        - id: verdict
-          script: round-verdict
-          runtime: bun
-          depends_on: [fix, push-fix, mechanical-gate, ux-verify, review-spec, review-standards, review-seams-errors]
-          trigger_rule: all_done
-          with:
-            previous_round: "$LOOP_PREV.verdict.output.round"
             repo: "$fetch-contract.output.repo"
             issue_number: "$fetch-contract.output.issue_number"
             pr_number: "$publish-draft-pr.output.pr_number"
-            review_mode: "$fetch-contract.output.review_mode"
-            run_ux: "$mechanical-gate.output.effective_run_ux"
-            effective_has_ui: "$mechanical-gate.output.effective_has_ui"
+            previous_round: "$LOOP_PREV.qa.output.round"
             fix_blocked: { from: "$fix.output.blocked", if_skipped: false }
             fix_summary: { from: "$fix.output.summary", if_skipped: "" }
-            mech_passed: { from: "$mechanical-gate.output.passed", if_skipped: null }
-            mech_summary: { from: "$mechanical-gate.output.summary", if_skipped: null }
-            mech_diff_stat: { from: "$mechanical-gate.output.diff_stat", if_skipped: null }
-            ux_passed: { from: "$ux-verify.output.passed", if_skipped: null }
-            ux_summary: { from: "$ux-verify.output.summary", if_skipped: null }
-            spec_lgtm: { from: "$review-spec.output.lgtm", if_skipped: null }
-            spec_summary: { from: "$review-spec.output.summary", if_skipped: null }
-            std_lgtm: { from: "$review-standards.output.lgtm", if_skipped: null }
-            std_summary: { from: "$review-standards.output.summary", if_skipped: null }
-            seams_lgtm: { from: "$review-seams-errors.output.lgtm", if_skipped: null }
-            seams_summary: { from: "$review-seams-errors.output.summary", if_skipped: null }
-          output_format:
-            type: object
-            properties:
-              round: { type: integer }
-              done: { type: boolean }
-              ready: { type: boolean }
-              effective_has_ui: { type: boolean }
-              reason: { type: string }
-              diff_stat: { type: string }
-              summary: { type: string }
-            required: [round, done, ready, effective_has_ui, reason, diff_stat, summary]
 
   # Pause for human direction if the 3-round QA budget ran out or fix pass hit a blocker.
   - id: escalate-rounds
@@ -507,6 +402,9 @@ nodes:
       has_ui: "$rounds.output.effective_has_ui"
       base_branch: "$fetch-contract.output.base_branch"
       base_sha: "$fetch-contract.output.base_sha"
+      allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+      forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+      run_id: "$WORKFLOW_ID"
       branch_name: "$fetch-contract.output.branch_name"
       before_summary: "$fetch-contract.output.before_summary"
       before_capture_summary: { from: "$capture-before.output.summary", if_skipped: null }

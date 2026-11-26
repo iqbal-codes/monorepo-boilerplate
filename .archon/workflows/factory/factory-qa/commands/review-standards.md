@@ -18,7 +18,7 @@ Evaluate:
 1. **Repository Standards & Archetype:** Check documented repository rules, directory contracts, and the applicable archetype. For UI files, assess compliance with the repository’s UI conventions and flag material accessibility or interaction defects.
    - For scaffold contracts, compare recorded generator commands, versions, working directories, and deviations against the linked upstream instructions and resulting integration. Require evidence that each promised boundary works; a green check or the presence of predicted filenames alone is insufficient.
 2. **Modularity & Fowler Smell Baseline:** Read `$PACK_DIR/.shared/smell-baseline.md`. Check cohesive decomposition against the repository’s conventions and report material smells that hurt clarity or maintainability.
-   - Treat an entrypoint that absorbs feature behavior because ownership is narrow as [P1]. Remove excess behavior from the slice or require an ownership correction for approved behavior before passing review.
+   - Treat an entrypoint that absorbs feature behavior instead of delegating to the appropriate module as [P1]. Remove behavior outside the accepted slice or require a modular fix; `Work Areas` hints do not justify misplacing code.
 3. **Boundary Contracts & Single Source of Truth:** Verify changed integrations against their real counterparts. Check that shared formats, validation, and domain rules come from the owning contracts. In standard mode, also check for hand-synced boundary pairs and hidden failures. In strict mode, Axis 3 covers that deeper review.
 
 **Strict proof rule:** Cite exact `file:line`, concrete consequence, and smallest correction. Skip anything linter/formatter/typechecker already enforces.

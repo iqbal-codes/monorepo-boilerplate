@@ -1,0 +1,182 @@
+name: factory-qa
+description: |
+  Shared QA round for factory-slice and factory-pr-revise — include it from a loop_group
+  body once the patch and PR exist. Runs the deterministic mechanical gate (reserved
+  folders, protected paths, repository verification), optional black-box browser UX
+  verification, and the independent fresh-context review axes (2 on `standard`, plus
+  Seams & Failure-Safety on `risk:strict`), then joins them into one round verdict.
+  It never implements, fixes, or pushes, so it is not runnable on its own.
+
+inputs:
+  base_sha:
+    description: Base commit the diff, boundary, and verification are measured against.
+  verification_command:
+    description: Repository verification command from the slice contract.
+  allowed_folders:
+    description: JSON array of reserved repository-relative directories (empty means exclusive delivery).
+  forbidden_paths:
+    description: JSON array of protected paths the patch may not touch.
+  contract_has_ui:
+    description: Whether the slice contract declares a UI surface.
+  preview_cmd:
+    description: Preview server command, or empty when the contract declares none.
+  contract_path:
+    description: Path to the slice contract the reviewers verify against.
+  review_mode:
+    description: standard, or strict to add the Seams & Failure-Safety axis.
+  repo:
+    description: GitHub owner/repo.
+  issue_number:
+    description: GitHub issue number carrying the slice contract.
+  pr_number:
+    description: Pull request number the round reports on.
+  previous_round:
+    description: Round number of the caller's previous iteration; empty on its first round.
+  fix_blocked:
+    description: Whether this round's fix pass reported a blocker.
+  fix_summary:
+    description: This round's fix pass summary, or empty when the fix pass was skipped.
+
+returns: verdict
+
+nodes:
+  - id: mechanical-gate
+    script: mechanical-gate
+    runtime: bun
+    with:
+      base_sha: "$INPUTS.base_sha"
+      verification_command: "$INPUTS.verification_command"
+      allowed_folders: "$INPUTS.allowed_folders"
+      forbidden_paths: "$INPUTS.forbidden_paths"
+      contract_has_ui: "$INPUTS.contract_has_ui"
+      preview_cmd: "$INPUTS.preview_cmd"
+      fix_blocked: "$INPUTS.fix_blocked"
+    output_format:
+      type: object
+      properties:
+        passed: { type: boolean }
+        boundary_ok: { type: boolean }
+        checks_ok: { type: boolean }
+        effective_has_ui: { type: boolean }
+        effective_run_ux: { type: boolean }
+        preview_cmd: { type: string }
+        diff_stat: { type: string }
+        summary: { type: string }
+      required: [passed, boundary_ok, checks_ok, effective_has_ui, effective_run_ux, preview_cmd, diff_stat, summary]
+
+  - id: ux-verify
+    command: ux-verify
+    model: large
+    context: fresh
+    mutates_checkout: false
+    depends_on: [mechanical-gate]
+    when: "$mechanical-gate.output.effective_run_ux == true && $mechanical-gate.output.passed == true"
+    with:
+      contract_path: "$INPUTS.contract_path"
+      preview_cmd: "$mechanical-gate.output.preview_cmd"
+    output_format:
+      type: object
+      properties:
+        passed: { type: boolean }
+        screenshots: { type: array, items: { type: string } }
+        findings: { type: array, items: { type: string } }
+        summary: { type: string }
+      required: [passed, screenshots, findings, summary]
+
+  # Parallel Independent QA Review (strictly fresh context & read-only)
+  - id: review-spec
+    command: review-spec
+    model: large
+    context: fresh
+    mutates_checkout: false
+    depends_on: [mechanical-gate, ux-verify]
+    trigger_rule: none_failed_min_one_success
+    when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
+    with:
+      contract_path: "$INPUTS.contract_path"
+      base_sha: "$INPUTS.base_sha"
+      has_ux_report: "$mechanical-gate.output.effective_run_ux"
+    output_format:
+      type: object
+      properties:
+        lgtm: { type: boolean }
+        blocking_count: { type: integer }
+        summary: { type: string }
+      required: [lgtm, blocking_count, summary]
+
+  - id: review-standards
+    command: review-standards
+    model: large
+    context: fresh
+    mutates_checkout: false
+    depends_on: [mechanical-gate, ux-verify]
+    trigger_rule: none_failed_min_one_success
+    when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
+    with:
+      contract_path: "$INPUTS.contract_path"
+      base_sha: "$INPUTS.base_sha"
+      review_mode: "$INPUTS.review_mode"
+    output_format:
+      type: object
+      properties:
+        lgtm: { type: boolean }
+        blocking_count: { type: integer }
+        summary: { type: string }
+      required: [lgtm, blocking_count, summary]
+
+  - id: review-seams-errors
+    command: review-seams-errors
+    model: large
+    context: fresh
+    mutates_checkout: false
+    depends_on: [mechanical-gate, ux-verify]
+    trigger_rule: none_failed_min_one_success
+    when: "$INPUTS.review_mode == 'strict' && $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $INPUTS.review_mode == 'strict' && $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
+    with:
+      contract_path: "$INPUTS.contract_path"
+      base_sha: "$INPUTS.base_sha"
+    output_format:
+      type: object
+      properties:
+        lgtm: { type: boolean }
+        blocking_count: { type: integer }
+        summary: { type: string }
+      required: [lgtm, blocking_count, summary]
+
+  - id: verdict
+    script: round-verdict
+    runtime: bun
+    depends_on: [mechanical-gate, ux-verify, review-spec, review-standards, review-seams-errors]
+    trigger_rule: all_done
+    with:
+      previous_round: "$INPUTS.previous_round"
+      repo: "$INPUTS.repo"
+      issue_number: "$INPUTS.issue_number"
+      pr_number: "$INPUTS.pr_number"
+      review_mode: "$INPUTS.review_mode"
+      run_ux: "$mechanical-gate.output.effective_run_ux"
+      effective_has_ui: "$mechanical-gate.output.effective_has_ui"
+      fix_blocked: "$INPUTS.fix_blocked"
+      fix_summary: "$INPUTS.fix_summary"
+      mech_passed: { from: "$mechanical-gate.output.passed", if_skipped: null }
+      mech_summary: { from: "$mechanical-gate.output.summary", if_skipped: null }
+      mech_diff_stat: { from: "$mechanical-gate.output.diff_stat", if_skipped: null }
+      ux_passed: { from: "$ux-verify.output.passed", if_skipped: null }
+      ux_summary: { from: "$ux-verify.output.summary", if_skipped: null }
+      spec_lgtm: { from: "$review-spec.output.lgtm", if_skipped: null }
+      spec_summary: { from: "$review-spec.output.summary", if_skipped: null }
+      std_lgtm: { from: "$review-standards.output.lgtm", if_skipped: null }
+      std_summary: { from: "$review-standards.output.summary", if_skipped: null }
+      seams_lgtm: { from: "$review-seams-errors.output.lgtm", if_skipped: null }
+      seams_summary: { from: "$review-seams-errors.output.summary", if_skipped: null }
+    output_format:
+      type: object
+      properties:
+        round: { type: integer }
+        done: { type: boolean }
+        ready: { type: boolean }
+        effective_has_ui: { type: boolean }
+        reason: { type: string }
+        diff_stat: { type: string }
+        summary: { type: string }
+      required: [round, done, ready, effective_has_ui, reason, diff_stat, summary]

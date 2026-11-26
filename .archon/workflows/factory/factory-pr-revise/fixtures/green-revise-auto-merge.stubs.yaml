@@ -24,7 +24,7 @@ fetch-pr-feedback:
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-11-fix-pagination
   verification_command: "npm test"
-  owned_paths: ["src/api/**"]
+  allowed_folders: ["src/api/"]
   forbidden_paths: ["package.json"]
   contract_path: "/tmp/contract.md"
   feedback_path: "/tmp/pr-feedback.md"
@@ -47,7 +47,7 @@ push-revise:
   approval_message: ""
   summary: "Pushed revision commit 4444444 to PR #26."
 
-mechanical-gate:
+qa__mechanical-gate:
   passed: true
   boundary_ok: true
   checks_ok: true
@@ -57,17 +57,17 @@ mechanical-gate:
   diff_stat: "2 files changed, 22 insertions(+)"
   summary: "boundary clean & checks passed"
 
-review-spec:
+qa__review-spec:
   lgtm: true
   blocking_count: 0
   summary: "Verified offset clamping."
 
-review-standards:
+qa__review-standards:
   lgtm: true
   blocking_count: 0
   summary: "Clean."
 
-verdict:
+qa__verdict:
   round: 1
   done: true
   ready: true

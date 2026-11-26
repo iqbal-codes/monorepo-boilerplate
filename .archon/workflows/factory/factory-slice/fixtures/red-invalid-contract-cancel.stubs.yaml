@@ -14,7 +14,7 @@ fetch-contract:
   risk_tier: standard
   review_mode: standard
   contract_ok: false
-  contract_error: "Missing Owned / Allowed Paths (required for fail-closed boundary isolation)"
+  contract_error: "Missing observable acceptance criteria. Describe the behavior that must be verified."
   has_ui: false
   run_ux: false
   capture_before: false
@@ -23,7 +23,7 @@ fetch-contract:
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-99-fix-broken-checkout-button-maybe
   verification_command: ""
-  owned_paths: []
+  allowed_folders: []
   forbidden_paths: []
   blockers_ok: true
   unmet_blockers: []

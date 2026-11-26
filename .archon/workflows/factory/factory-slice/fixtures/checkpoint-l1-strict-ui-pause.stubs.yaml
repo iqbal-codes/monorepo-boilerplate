@@ -24,7 +24,7 @@ fetch-contract:
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-6-sl-l1-01
   verification_command: "npm test"
-  owned_paths: ["src/web/routes/LoginPage.tsx", ".archon/ui-preview.sh"]
+  allowed_folders: []
   forbidden_paths: ["package.json"]
   blockers_ok: true
   unmet_blockers: []
@@ -47,7 +47,7 @@ publish-draft-pr:
   approval_message: ""
   summary: "Draft PR #22 opened; moved to factory:review."
 
-mechanical-gate:
+qa__mechanical-gate:
   passed: true
   boundary_ok: true
   checks_ok: true
@@ -58,28 +58,28 @@ mechanical-gate:
   diff_stat: "8 files changed, 450 insertions(+)"
   summary: "boundary clean & checks passed"
 
-ux-verify:
+qa__ux-verify:
   passed: true
   screenshots: ["after-default.png", "after-error.png"]
   findings: []
   summary: "All 3 required UI states verified via agent-browser."
 
-review-spec:
+qa__review-spec:
   lgtm: true
   blocking_count: 0
   summary: "Spec and tests clean."
 
-review-standards:
+qa__review-standards:
   lgtm: true
   blocking_count: 0
   summary: "Standards clean."
 
-review-seams-errors:
+qa__review-seams-errors:
   lgtm: true
   blocking_count: 0
   summary: "Tenant boundaries and error handling verified."
 
-verdict:
+qa__verdict:
   round: 1
   done: true
   ready: true

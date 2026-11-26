@@ -24,7 +24,7 @@ fetch-pr-feedback:
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-13-middleware
   verification_command: "npm test"
-  owned_paths: ["src/middleware/**"]
+  allowed_folders: ["src/middleware/"]
   forbidden_paths: ["package.json"]
   contract_path: "/tmp/contract.md"
   feedback_path: "/tmp/pr-feedback.md"
