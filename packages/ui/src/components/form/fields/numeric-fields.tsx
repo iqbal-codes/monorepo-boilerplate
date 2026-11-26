@@ -9,11 +9,89 @@ import {
   InputGroupText,
 } from "@monorepo-boilerplate/ui/components/input-group";
 import { Slider } from "@monorepo-boilerplate/ui/components/slider";
-import { formatMoney, parseMoneyInput } from "@monorepo-boilerplate/ui/lib/format";
+import {
+  formatMoney,
+  formatNumberInput,
+  parseMoneyInput,
+  parseNumberInput,
+} from "@monorepo-boilerplate/ui/lib/format";
 
 import { buildDescribedBy, FieldFrame, useFieldFeedback, useFieldIds } from "../field-frame";
 import { useFieldContext } from "../form-context";
 import type { BaseFieldProps } from "../types";
+
+type CaretAnchor = { digits: number; atEnd: boolean };
+
+function countDigits(value: string): number {
+  let digits = 0;
+  for (const char of value) {
+    if (char >= "0" && char <= "9") digits++;
+  }
+  return digits;
+}
+
+/**
+ * Keeps a grouped draft while the user types and re-anchors the caret by digit
+ * count, so inserted separators never move the insertion point. When not
+ * editing, the displayed value comes from form state.
+ */
+function useFormattedNumberInput({
+  value,
+  formatValue,
+  onRawChange,
+}: {
+  value: number | undefined;
+  formatValue: (value: number) => string;
+  onRawChange: (raw: string) => void;
+}) {
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const caretAnchor = React.useRef<CaretAnchor | null>(null);
+
+  const displayed =
+    draft ?? (value !== undefined && Number.isFinite(value) ? formatValue(value) : "");
+
+  React.useLayoutEffect(() => {
+    const anchor = caretAnchor.current;
+    const input = inputRef.current;
+    caretAnchor.current = null;
+    if (!anchor || !input || input.ownerDocument.activeElement !== input) return;
+    if (anchor.atEnd) {
+      input.setSelectionRange(input.value.length, input.value.length);
+      return;
+    }
+    let position = 0;
+    let digits = 0;
+    while (position < input.value.length && digits < anchor.digits) {
+      const char = input.value.charAt(position);
+      if (char >= "0" && char <= "9") digits++;
+      position++;
+    }
+    input.setSelectionRange(position, position);
+  }, [draft]);
+
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const raw = input.value;
+    const caret = input.selectionStart ?? raw.length;
+    const selectionEnd = input.selectionEnd ?? raw.length;
+    const next = formatNumberInput(raw);
+    if (next !== raw) {
+      caretAnchor.current = {
+        digits: countDigits(raw.slice(0, caret)),
+        atEnd: caret === raw.length && selectionEnd === raw.length,
+      };
+    }
+    setDraft(next);
+    onRawChange(raw);
+  }
+
+  function handleBlur() {
+    setDraft(null);
+  }
+
+  return { inputRef, displayed, handleChange, handleBlur };
+}
 
 export type NumberFieldProps = BaseFieldProps & {
   min?: number;
@@ -60,17 +138,28 @@ export function NumberField({
   const trailing = endAddon ?? unit;
   const hasAddons = Boolean(startAddon || trailing);
 
-  const rawValue =
-    field.state.value !== undefined && Number.isFinite(field.state.value)
-      ? String(field.state.value)
-      : "";
+  const { inputRef, displayed, handleChange, handleBlur } = useFormattedNumberInput({
+    value: field.state.value,
+    formatValue: (next) => formatNumberInput(String(next)),
+    onRawChange: (raw) => {
+      if (raw.trim() === "") {
+        field.handleChange(undefined);
+        return;
+      }
+      const parsed = parseNumberInput(raw);
+      if (parsed !== null) {
+        field.handleChange(parsed);
+      }
+    },
+  });
 
   const sharedInputProps = {
+    ref: inputRef,
     id: ids.fieldId,
     name: field.name,
-    type: "number" as const,
+    type: "text" as const,
     inputMode: "decimal" as const,
-    value: rawValue,
+    value: displayed,
     min,
     max,
     step,
@@ -84,17 +173,11 @@ export function NumberField({
       invalid,
       ids,
     }),
-    onBlur: field.handleBlur,
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (event.target.value.trim() === "") {
-        field.handleChange(undefined);
-        return;
-      }
-      const parsed = event.target.valueAsNumber;
-      if (Number.isFinite(parsed)) {
-        field.handleChange(parsed);
-      }
+    onBlur: () => {
+      handleBlur();
+      field.handleBlur();
     },
+    onChange: handleChange,
   };
 
   return (
@@ -162,13 +245,21 @@ export function CurrencyField({
   const field = useFieldContext<number | undefined>();
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
-  const [draft, setDraft] = React.useState<string | null>(null);
 
-  const displayed =
-    draft ??
-    (field.state.value !== undefined && Number.isFinite(field.state.value)
-      ? formatMoney({ minor: field.state.value, currency }, { withSymbol: false })
-      : "");
+  const { inputRef, displayed, handleChange, handleBlur } = useFormattedNumberInput({
+    value: field.state.value,
+    formatValue: (minor) => formatMoney({ minor, currency }, { withSymbol: false }),
+    onRawChange: (raw) => {
+      if (raw.trim() === "") {
+        field.handleChange(undefined);
+        return;
+      }
+      const parsed = parseMoneyInput(raw, currency);
+      if (parsed !== null) {
+        field.handleChange(parsed);
+      }
+    },
+  });
 
   return (
     <FieldFrame
@@ -188,6 +279,7 @@ export function CurrencyField({
           <InputGroupText className="text-xs font-medium">{currency}</InputGroupText>
         </InputGroupAddon>
         <InputGroupInput
+          ref={inputRef}
           id={ids.fieldId}
           name={field.name}
           inputMode="decimal"
@@ -204,21 +296,10 @@ export function CurrencyField({
           })}
           className={cn("text-right tabular-nums", inputClassName)}
           onBlur={() => {
-            setDraft(null);
+            handleBlur();
             field.handleBlur();
           }}
-          onChange={(event) => {
-            const raw = event.target.value;
-            setDraft(raw);
-            if (raw.trim() === "") {
-              field.handleChange(undefined);
-              return;
-            }
-            const parsed = parseMoneyInput(raw, currency);
-            if (parsed !== null) {
-              field.handleChange(parsed);
-            }
-          }}
+          onChange={handleChange}
         />
       </InputGroup>
     </FieldFrame>

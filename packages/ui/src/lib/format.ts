@@ -100,6 +100,41 @@ export function parseMoneyInput(input: string, currency: string): number | null 
   return toMinorUnits(value, currency);
 }
 
+const integerGroupFormatter = new Intl.NumberFormat(DEFAULT_LOCALE, { maximumFractionDigits: 0 });
+
+/**
+ * Formats a partially typed decimal string for editing: groups the integer
+ * part and preserves a trailing decimal separator. No rounding, so live typing
+ * round-trips through `parseNumberInput`/`parseMoneyInput`.
+ */
+export function formatNumberInput(input: string): string {
+  if (/[eE]/.test(input)) return input;
+  const negative = input.trimStart().startsWith("-");
+  const unsigned = negative ? input.slice(input.indexOf("-") + 1) : input;
+  const separator = unsigned.indexOf(".");
+  const integerPart = (separator === -1 ? unsigned : unsigned.slice(0, separator)).replace(
+    /\D/g,
+    "",
+  );
+  const digits = integerPart.replace(/^0+(?=\d)/, "");
+  const fraction = separator === -1 ? "" : unsigned.slice(separator + 1).replace(/\D/g, "");
+  const grouped = digits === "" ? "" : integerGroupFormatter.format(BigInt(digits));
+  return `${negative ? "-" : ""}${grouped}${separator === -1 ? "" : "."}${fraction}`;
+}
+
+/**
+ * Parses grouped numeric input ("1,234.5") into a number. Returns `null` for
+ * blank or incomplete input.
+ */
+export function parseNumberInput(input: string): number | null {
+  const normalized = input.replace(/,/g, "").trim();
+  if (normalized === "" || normalized === "-" || normalized === "." || normalized === "-.") {
+    return null;
+  }
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function formatNumber(
   value: number,
   {
