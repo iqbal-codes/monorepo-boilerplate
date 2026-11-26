@@ -23,8 +23,8 @@ fetch-contract:
   base_branch: main
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-6-sl-l1-01
-  verification_command: "bun run ci"
-  owned_paths: ["apps/backoffice/src/routes/LoginPage.tsx", ".archon/ui-preview.sh"]
+  verification_command: "npm test"
+  owned_paths: ["src/web/routes/LoginPage.tsx", ".archon/ui-preview.sh"]
   forbidden_paths: ["package.json"]
   blockers_ok: true
   unmet_blockers: []
@@ -45,7 +45,7 @@ publish-draft-pr:
   merge_action: pr-only
   needs_human_merge_approval: false
   approval_message: ""
-  summary: "Draft PR #22 opened; moved to stage:review."
+  summary: "Draft PR #22 opened; moved to factory:review."
 
 mechanical-gate:
   passed: true

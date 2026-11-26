@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   auditBoundaries,
+  extractNativeBlockedByNumbers,
   isRenderedUiFile,
   parseSliceContract,
   validateSliceContract,
@@ -78,5 +79,19 @@ describe('Slice contract and boundary guards', () => {
     expect(isRenderedUiFile('packages/ui/src/styles/theme.css')).toBe(true);
     expect(isRenderedUiFile('frontend/Search.svelte')).toBe(true);
     expect(isRenderedUiFile('apps/api/src/routes/orders.ts')).toBe(false);
+  });
+
+  test('parses Blocked by across bold inline, plain inline, section bullets, and native GitHub blockedBy', () => {
+    expect(parseSliceContract('# S\n- **Blocked By:** #1, #2').blockedBy).toEqual([1, 2]);
+    expect(parseSliceContract('# S\nBlocked by: #3, #4').blockedBy).toEqual([3, 4]);
+    expect(parseSliceContract('# S\n## Blocked by\n- #5\n- #6\n## Next\n#7').blockedBy).toEqual([5, 6]);
+    expect(
+      extractNativeBlockedByNumbers({
+        nodes: [
+          { number: 10, state: 'OPEN' },
+          { number: 11, state: 'CLOSED' },
+        ],
+      })
+    ).toEqual({ open: [10], all: [10, 11] });
   });
 });

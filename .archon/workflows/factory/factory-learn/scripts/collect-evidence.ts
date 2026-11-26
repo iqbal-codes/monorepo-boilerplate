@@ -17,7 +17,7 @@ const common = runCmd(['git', 'rev-parse', '--path-format=absolute', '--git-comm
 const checkout = dirname(common);
 const ledger = join(state, 'factory-learn', 'seen.json');
 const seen = new Set<string>(existsSync(ledger) ? JSON.parse(readFileSync(ledger, 'utf8')) : []);
-const names: Record<string, true> = { 'factory-slice': true, 'factory-refine': true, 'egm-slice': true, 'egm-refine': true };
+const names: Record<string, true> = { 'factory-slice': true, 'factory-refine': true };
 const terminal: Record<string, true> = { completed: true, failed: true, cancelled: true };
 
 type Run = {
@@ -61,16 +61,14 @@ for (const number of new Set(snapshot?.signals.map((signal) => signal.pr) ?? [])
 }
 const issues = new Set(evidence.flatMap((run) => run.issue ? [run.issue] : []));
 for (const issue of [...issues].slice(0, 6)) {
-  for (const branch of ['factory', 'egm']) {
-    const result = runCmd(['gh', 'pr', 'list', '--repo', repo, '--state', 'all', '--limit', '12', '--search', `head:${branch}/issue-${issue}-`, '--json', 'number,url,headRefName,state,reviewDecision,reviews,statusCheckRollup'], { allowFail: true });
-    if (result.code !== 0) continue;
-    const prs = JSON.parse(result.stdout);
-    if (!Array.isArray(prs)) continue;
-    for (const pr of prs.filter((item) => item.headRefName?.startsWith(`${branch}/issue-${issue}-`)).slice(0, 2)) {
-      reviews.push({ issue, number: pr.number, url: pr.url, state: pr.state, review_decision: pr.reviewDecision,
-        maintainer_reviews: (pr.reviews ?? []).filter((review) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(review.authorAssociation) && review.state === 'CHANGES_REQUESTED').slice(-3).map((review) => ({ state: review.state, excerpt: excerpt(review.body) })),
-        checks: (pr.statusCheckRollup ?? []).slice(0, 12).map((check) => ({ name: excerpt(check.name ?? check.context), result: check.conclusion ?? check.state })) });
-    }
+  const result = runCmd(['gh', 'pr', 'list', '--repo', repo, '--state', 'all', '--limit', '12', '--search', `head:factory/issue-${issue}-`, '--json', 'number,url,headRefName,state,reviewDecision,reviews,statusCheckRollup'], { allowFail: true });
+  if (result.code !== 0) continue;
+  const prs = JSON.parse(result.stdout);
+  if (!Array.isArray(prs)) continue;
+  for (const pr of prs.filter((item) => item.headRefName?.startsWith(`factory/issue-${issue}-`)).slice(0, 2)) {
+    reviews.push({ issue, number: pr.number, url: pr.url, state: pr.state, review_decision: pr.reviewDecision,
+      maintainer_reviews: (pr.reviews ?? []).filter((review) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(review.authorAssociation) && review.state === 'CHANGES_REQUESTED').slice(-3).map((review) => ({ state: review.state, excerpt: excerpt(review.body) })),
+      checks: (pr.statusCheckRollup ?? []).slice(0, 12).map((check) => ({ name: excerpt(check.name ?? check.context), result: check.conclusion ?? check.state })) });
   }
 }
 const harness = runCmd(['git', 'ls-tree', '-r', '--name-only', '-z', base]).stdout.split('\0').filter((path) => /(?:^|\/)(?:scripts|tests|skills|\.archon|\.github)\/|(?:^|\/)(?:AGENTS\.md|CODING_STANDARDS\.md|package\.json|Makefile)$|lint|guardrail/i.test(path)).slice(0, 250);

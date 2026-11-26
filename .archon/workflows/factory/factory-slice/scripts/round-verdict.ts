@@ -2,14 +2,15 @@
  * Joins one QA/review iteration's deterministic & independent reviewer verdicts into a structured
  * loop decision, writes $ARTIFACTS_DIR/round-feedback.md, posts a real PR review-round
  * comment on GitHub, and transitions issue/PR stage labels between:
- *   stage:review -> stage:changes-requested (sent back to implementer)
- *   stage:review -> stage:approved (all gates & QA LGTM)
+ *   factory:review -> factory:changes-requested (sent back to implementer)
+ *   factory:review -> factory:approved (all gates & QA LGTM)
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { emit, text } from '../../.shared/contract.ts';
-import { postPrComment, setStageLabel } from '../../.shared/github.ts';
+import { postPrComment, setFactoryState } from '../../.shared/github.ts';
+import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import {
   extractBlockingFindings,
   extractMechanicalFailureSummary,
@@ -140,14 +141,14 @@ if (repo && prNumber > 0) {
         ? `### ✅ Round 1 Approved — Gate: PASS${uxBadge} · QA Review (${axesLabel}): LGTM`
         : `### ✅ Round ${round} Resolved & Approved — Gate: PASS${uxBadge} · QA Review (${axesLabel}): LGTM`
     );
-    setStageLabel(repo, { issueNumber, prNumber }, 'stage:approved');
+    setFactoryState(repo, { issueNumber, prNumber }, FACTORY_LABELS.approved);
   } else {
     commentLines.push(
       `### 🔁 Round ${round}: Changes Requested (\`${reason}\`)`,
       '',
       fixBlocked
         ? `> **Blocked:** ${summary}`
-        : `> Resuming \`@implementer\` to resolve failing items before Round ${round + 1}.`,
+        : `> Resuming implementer session to resolve failing items before Round ${round + 1}.`,
       ''
     );
 
@@ -196,7 +197,7 @@ if (repo && prNumber > 0) {
       );
     }
 
-    setStageLabel(repo, { issueNumber, prNumber }, 'stage:changes-requested');
+    setFactoryState(repo, { issueNumber, prNumber }, FACTORY_LABELS.changesRequested);
   }
 
   postPrComment(repo, prNumber, commentLines.join('\n').slice(0, 55000), artifactsDir);

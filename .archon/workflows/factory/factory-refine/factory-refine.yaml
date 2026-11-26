@@ -5,8 +5,9 @@ description: |
   repository in one agent pass, drafts an executable slice contract (Owned Paths,
   Scope, Regression Test / UI States, Verification Command, Risk Tier), pauses for
   operator approval only when ambiguous (`approval_mode: if-ambiguous`), preserves
-  the original report/stack trace in the issue body, and publishes `factory:refined` +
-  `factory:ready` labels for manual or dispatcher-driven delivery with `factory-slice`.
+  the original report/stack trace in the issue body, and publishes `factory:ready` (or
+  `factory:blocked` when an open blocker remains) +
+  `risk:<tier>` labels for manual or dispatcher-driven delivery with `factory-slice`.
 
 inputs:
   issue:
@@ -17,7 +18,7 @@ inputs:
     description: Optional GitHub owner/repo (auto-detected from git remote origin when empty).
   auto_label:
     default: "true"
-    description: '"true" applies factory:refined, risk:<tier>, and factory:ready labels on the GitHub issue upon publish.'
+    description: '"true" applies factory:ready (or factory:blocked when blocked) and risk:<tier> on the GitHub issue upon publish.'
   approval_mode:
     default: "if-ambiguous"
     description: '"if-ambiguous" pauses in Archon only when ready=false; "github" posts open questions on the GitHub issue instead of pausing; "always" always pauses; "never" skips pause.'
@@ -26,8 +27,9 @@ worktree:
   enabled: false
 mutates_checkout: false
 
-returns: publish-contract
-outcome_field: published
+returns:
+  node: publish-contract
+  outcome: published
 
 nodes:
   - id: load-issue
@@ -48,7 +50,7 @@ nodes:
 
   - id: refine
     command: refine
-    model: ['@triage', medium]
+    model: medium
     mutates_checkout: false
     depends_on: [load-issue]
     with:

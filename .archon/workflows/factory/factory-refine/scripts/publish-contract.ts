@@ -1,13 +1,14 @@
 /**
  * Publishes an approved refined slice contract back to the GitHub issue
- * (with `factory:refined`, `risk:<tier>`, and `factory:ready` labels) or writes
+ * (with `factory:ready`/`factory:blocked` and `risk:<tier>` labels) or writes
  * `$ARTIFACTS_DIR/slice-contract.md` when run without an issue number.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { emit, parseSliceContract, runCmd, text, validateSliceContract } from '../../.shared/contract.ts';
-import { postIssueComment } from '../../.shared/github.ts';
+import { ensureFactoryLabels, postIssueComment, setFactoryState } from '../../.shared/github.ts';
+import { FACTORY_LABELS } from '../../.shared/labels.ts';
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 
@@ -59,50 +60,21 @@ if (source === 'issue' && issueNumber > 0 && repo && ((approvalMode === 'github'
       '- Reply with your answers. With the Factory dispatcher enabled, it reruns refinement; otherwise rerun `factory-refine` manually.',
       scaffoldBlocked || contractErrors.length > 0
         ? '- Resolve the contract blockers before delivery. Approval alone does not mark the issue ready.'
-        : '- With the dispatcher enabled, reply **`/approve`** to proceed with the drafted scope as-is, or **`/reject`** to put on hold.',
+        : '- With the dispatcher enabled, reply **`/approve`** to proceed with the drafted scope as-is, or **`/reject`** to hand back (`factory:human`).',
     ]
       .filter((l) => l !== undefined && !(l === '' && !refineSummary))
       .join('\n'),
     artifactsDir
   );
 
-  runCmd(
-    [
-      'gh',
-      'label',
-      'create',
-      'factory:needs-info',
-      '--repo',
-      repo,
-      '--color',
-      'FBCA04',
-      '--description',
-      'Waiting for maintainer clarification on GitHub',
-      '--force',
-    ],
-    { allowFail: true }
-  );
-  runCmd(
-    [
-      'gh',
-      'issue',
-      'edit',
-      String(issueNumber),
-      '--repo',
-      repo,
-      '--add-label',
-      'factory:needs-info',
-      '--remove-label',
-      'factory:ready',
-    ],
-    { allowFail: true }
-  );
+  ensureFactoryLabels(repo);
+  setFactoryState(repo, { issueNumber }, FACTORY_LABELS.needsInfo);
 
   emit({
     published: false,
     target: `https://github.com/${repo}/issues/${issueNumber}`,
-    labels: ['factory:needs-info'],
-    summary: `Posted ${qLines.length} clarification question(s) on issue #${issueNumber} and applied factory:needs-info.`,
+    labels: [FACTORY_LABELS.needsInfo],
+    summary: `Posted ${qLines.length} clarification question(s) on issue #${issueNumber} and applied ${FACTORY_LABELS.needsInfo}.`,
   });
   process.exit(0);
 }
@@ -159,16 +131,49 @@ if (source === 'issue' && issueNumber > 0 && repo) {
   ]);
 
   if (autoLabel) {
-    const desired = ['factory:refined', `risk:${riskTier}`, 'factory:ready'];
-    for (const label of desired) {
-      // Ensure label exists (idempotent; ignore error if already exists)
-      runCmd(['gh', 'label', 'create', label, '--repo', repo, '--force'], { allowFail: true });
-      const res = runCmd(
-        ['gh', 'issue', 'edit', String(issueNumber), '--repo', repo, '--add-label', label],
-        { allowFail: true }
-      );
-      if (res.code === 0) appliedLabels.push(label);
+    ensureFactoryLabels(repo);
+
+    // Grounded and unblocked -> ready; grounded but waiting on an open blocker -> blocked.
+    const openBlockers = new Set<number>();
+    const openRes = runCmd(
+      ['gh', 'issue', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number'],
+      { allowFail: true }
+    );
+    if (openRes.code === 0 && openRes.stdout) {
+      try {
+        for (const row of JSON.parse(openRes.stdout) as { number: number }[]) openBlockers.add(row.number);
+      } catch {
+        // fall through; native check below still applies
+      }
     }
+    const nativeRes = runCmd(
+      ['gh', 'issue', 'view', String(issueNumber), '--repo', repo, '--json', 'blockedBy'],
+      { allowFail: true }
+    );
+    if (nativeRes.code === 0 && nativeRes.stdout) {
+      try {
+        const parsed = JSON.parse(nativeRes.stdout) as {
+          blockedBy?: { nodes?: { number: number; state?: string }[] };
+        };
+        for (const node of parsed.blockedBy?.nodes ?? []) {
+          if (node.state !== 'CLOSED') openBlockers.add(node.number);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const unmet = parsedDraft.blockedBy.filter((dep) => openBlockers.has(dep));
+    const target = unmet.length > 0 ? FACTORY_LABELS.blocked : FACTORY_LABELS.ready;
+    setFactoryState(repo, { issueNumber }, target);
+    appliedLabels.push(target);
+
+    const riskLabel = `risk:${riskTier}`;
+    runCmd(['gh', 'label', 'create', riskLabel, '--repo', repo, '--force'], { allowFail: true });
+    const res = runCmd(
+      ['gh', 'issue', 'edit', String(issueNumber), '--repo', repo, '--add-label', riskLabel],
+      { allowFail: true }
+    );
+    if (res.code === 0) appliedLabels.push(riskLabel);
   }
 
   emit({

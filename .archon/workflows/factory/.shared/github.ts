@@ -6,36 +6,17 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCmd, text } from './contract.ts';
+import {
+  LABEL_DEFS,
+  LEGACY_LABEL_ALIASES,
+  LIFECYCLE_LABELS,
+  type FactoryLabel,
+} from './labels.ts';
 
-export type StageName =
-  | 'stage:implement'
-  | 'stage:review'
-  | 'stage:changes-requested'
-  | 'stage:approved';
-
-const STAGE_DEFS: Record<StageName, { color: string; description: string }> = {
-  'stage:implement': {
-    color: '1D76DB',
-    description: 'Currently being implemented or fixed by implementer',
-  },
-  'stage:review': {
-    color: 'FBCA04',
-    description: 'Draft PR updated; undergoing Mechanical Gate & Independent QA review',
-  },
-  'stage:changes-requested': {
-    color: 'D93F0B',
-    description: 'Independent QA review found defects; sent back to implementer',
-  },
-  'stage:approved': {
-    color: '0E8A16',
-    description: 'All gates & Independent QA axes LGTM',
-  },
-};
-
-const ALL_STAGES = Object.keys(STAGE_DEFS) as StageName[];
 const ensuredRepos = new Set<string>();
 
-export function ensureStageLabels(repo: string): void {
+/** Creates/updates every factory lifecycle label once per repo. */
+export function ensureFactoryLabels(repo: string): void {
   if (!repo || ensuredRepos.has(repo)) return;
   const listRes = runCmd(
     ['gh', 'label', 'list', '--repo', repo, '--limit', '100', '--json', 'name'],
@@ -51,11 +32,10 @@ export function ensureStageLabels(repo: string): void {
     return;
   }
 
-  for (const stage of ALL_STAGES) {
-    if (!existing.has(stage)) {
-      const def = STAGE_DEFS[stage];
+  for (const def of LABEL_DEFS) {
+    if (!existing.has(def.name)) {
       runCmd(
-        ['gh', 'label', 'create', stage, '--repo', repo, '--color', def.color, '--description', def.description],
+        ['gh', 'label', 'create', def.name, '--repo', repo, '--color', def.color, '--description', def.description],
         { allowFail: true }
       );
     }
@@ -63,11 +43,17 @@ export function ensureStageLabels(repo: string): void {
   ensuredRepos.add(repo);
 }
 
-function syncItemStageLabels(
+/** Labels removed whenever a new lifecycle state is applied (factory + inbound aliases). */
+const REMOVABLE_STATE_LABELS: readonly string[] = [
+  ...LIFECYCLE_LABELS,
+  ...Object.keys(LEGACY_LABEL_ALIASES),
+];
+
+function syncItemStateLabels(
   repo: string,
   kind: 'issue' | 'pr',
   itemNumber: number,
-  targetStage: StageName
+  target: FactoryLabel
 ): void {
   if (!repo || itemNumber <= 0) return;
   const viewRes = runCmd(
@@ -86,14 +72,14 @@ function syncItemStageLabels(
 
   const args = ['gh', kind, 'edit', String(itemNumber), '--repo', repo];
   let changed = false;
-  for (const stage of ALL_STAGES) {
-    if (stage !== targetStage && current.has(stage)) {
-      args.push('--remove-label', stage);
+  for (const label of REMOVABLE_STATE_LABELS) {
+    if (label !== target && current.has(label)) {
+      args.push('--remove-label', label);
       changed = true;
     }
   }
-  if (!current.has(targetStage)) {
-    args.push('--add-label', targetStage);
+  if (!current.has(target)) {
+    args.push('--add-label', target);
     changed = true;
   }
 
@@ -102,18 +88,19 @@ function syncItemStageLabels(
   }
 }
 
-export function setStageLabel(
+/** Moves an issue and/or PR into exactly one factory lifecycle state. */
+export function setFactoryState(
   repo: string,
   targets: { issueNumber?: number; prNumber?: number },
-  targetStage: StageName
+  target: FactoryLabel
 ): void {
   if (!repo) return;
-  ensureStageLabels(repo);
+  ensureFactoryLabels(repo);
   if (targets.issueNumber && targets.issueNumber > 0) {
-    syncItemStageLabels(repo, 'issue', targets.issueNumber, targetStage);
+    syncItemStateLabels(repo, 'issue', targets.issueNumber, target);
   }
   if (targets.prNumber && targets.prNumber > 0) {
-    syncItemStageLabels(repo, 'pr', targets.prNumber, targetStage);
+    syncItemStateLabels(repo, 'pr', targets.prNumber, target);
   }
 }
 

@@ -10,6 +10,7 @@ import {
   detectBaseBranch,
   detectGitRepo,
   emit,
+  extractNativeBlockedByNumbers,
   hasTrackedOwnedFiles,
   parseSliceContract,
   resolvePreviewCommand,
@@ -17,7 +18,8 @@ import {
   text,
   validateSliceContract,
 } from '../../.shared/contract.ts';
-import { postIssueComment, setStageLabel } from '../../.shared/github.ts';
+import { postIssueComment, setFactoryState } from '../../.shared/github.ts';
+import { FACTORY_LABELS } from '../../.shared/labels.ts';
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 mkdirSync(join(artifactsDir, 'evidence'), { recursive: true });
@@ -39,6 +41,8 @@ let rawTitle = '';
 let labels: string[] = [];
 let markdown = '';
 
+let nativeBlockedBy: number[] = [];
+
 if (issueInput) {
   source = 'issue';
   issueNumber = Number.parseInt(issueInput.replace(/^#/, ''), 10);
@@ -48,24 +52,41 @@ if (issueInput) {
   if (!repoInput) {
     throw new Error('Could not determine GitHub owner/repo; pass --input repo=<owner/repo>.');
   }
-  const gh = runCmd([
-    'gh',
-    'issue',
-    'view',
-    String(issueNumber),
-    '--repo',
-    repoInput,
-    '--json',
-    'title,body,labels,url',
-  ]);
+  let gh = runCmd(
+    [
+      'gh',
+      'issue',
+      'view',
+      String(issueNumber),
+      '--repo',
+      repoInput,
+      '--json',
+      'title,body,labels,url,blockedBy',
+    ],
+    { allowFail: true }
+  );
+  if (gh.code !== 0) {
+    gh = runCmd([
+      'gh',
+      'issue',
+      'view',
+      String(issueNumber),
+      '--repo',
+      repoInput,
+      '--json',
+      'title,body,labels,url',
+    ]);
+  }
   const data = JSON.parse(gh.stdout) as {
     title: string;
     body: string;
     labels: { name: string }[];
     url: string;
+    blockedBy?: unknown;
   };
   rawTitle = data.title;
   labels = (data.labels ?? []).map((l) => l.name);
+  nativeBlockedBy = extractNativeBlockedByNumbers(data.blockedBy).all;
   markdown = `# ${data.title}\n\n> **GitHub Issue:** [#${issueNumber}](${data.url})\n\n${data.body ?? ''}`;
 } else if (specFileInput) {
   source = 'file';
@@ -85,10 +106,11 @@ const readiness = validateSliceContract(parsed);
 const contractOk = readiness.ok;
 const contractError = readiness.errors.join('; ');
 
-// Verify Blocked By dependencies on GitHub when running from an issue
+// Verify Blocked By dependencies (both Markdown and native GitHub blockedBy) when running from an issue
+const allBlockers = [...new Set([...parsed.blockedBy, ...nativeBlockedBy])];
 const unmetBlockers: string[] = [];
-if (source === 'issue' && repoInput && parsed.blockedBy.length > 0) {
-  for (const dep of parsed.blockedBy) {
+if (source === 'issue' && repoInput && allBlockers.length > 0) {
+  for (const dep of allBlockers) {
     const check = runCmd(
       ['gh', 'issue', 'view', String(dep), '--repo', repoInput, '--json', 'state'],
       { allowFail: true }
@@ -99,7 +121,7 @@ if (source === 'issue' && repoInput && parsed.blockedBy.length > 0) {
     }
     const state = (JSON.parse(check.stdout) as { state?: string }).state ?? 'OPEN';
     if (state !== 'CLOSED') {
-      // Accept merged PRs on factory branches or historical issue branches.
+      // Accept merged PRs on factory branches.
       const prs = runCmd(
         [
           'gh',
@@ -119,10 +141,8 @@ if (source === 'issue' && repoInput && parsed.blockedBy.length > 0) {
       let mergedMatch = false;
       if (prs.code === 0 && prs.stdout) {
         const list = JSON.parse(prs.stdout) as { headRefName: string }[];
-        mergedMatch = list.some(
-          (p) =>
-            p.headRefName.startsWith(`build/${dep}-`) ||
-            new RegExp(`^(?:factory|egm)/issue-${dep}(?:-|$)`).test(p.headRefName)
+        mergedMatch = list.some((p) =>
+          new RegExp(`^factory/issue-${dep}(?:-|$)`).test(p.headRefName)
         );
       }
       if (!mergedMatch) unmetBlockers.push(`#${dep}`);
@@ -148,11 +168,8 @@ writeFileSync(contractPath, markdown, 'utf8');
 
 if (source === 'issue' && repoInput && issueNumber > 0) {
   if (!contractOk) {
-    // Fail-closed: strip `factory:ready` so vague/incomplete issues cannot loop into factory-slice
-    runCmd(
-      ['gh', 'issue', 'edit', String(issueNumber), '--repo', repoInput, '--remove-label', 'factory:ready'],
-      { allowFail: true }
-    );
+    // Fail-closed: drop `factory:ready` so vague/incomplete issues cannot loop into factory-slice
+    setFactoryState(repoInput, { issueNumber }, FACTORY_LABELS.triage);
     postIssueComment(
       repoInput,
       issueNumber,
@@ -161,12 +178,14 @@ if (source === 'issue' && repoInput && issueNumber > 0) {
         '',
         `**Reason:** ${contractError}`,
         '',
-        'Removed `factory:ready` so this issue is not picked up without scope boundaries. Run `factory-refine` or add `**Owned / Allowed Paths:**` and verification criteria before re-queueing.',
+        'Removed `factory:ready` so this issue is not picked up without scope boundaries. Run `factory-refine` or add `**Owned / Allowed Paths:**` and `**Verification Command:**` before re-queueing.',
       ].join('\n'),
       artifactsDir
     );
   } else if (unmetBlockers.length === 0) {
-    setStageLabel(repoInput, { issueNumber }, 'stage:implement');
+    setFactoryState(repoInput, { issueNumber }, FACTORY_LABELS.inProgress);
+  } else {
+    setFactoryState(repoInput, { issueNumber }, FACTORY_LABELS.blocked);
   }
 }
 

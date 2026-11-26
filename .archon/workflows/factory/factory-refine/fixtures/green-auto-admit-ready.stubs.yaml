@@ -25,5 +25,5 @@ refine:
 publish-contract:
   published: true
   target: "https://github.com/owner/repo/issues/88"
-  labels: ["factory:refined", "risk:standard", "factory:ready"]
+  labels: ["factory:ready", "risk:standard"]
   summary: "Auto-published ready bugfix contract for #88."

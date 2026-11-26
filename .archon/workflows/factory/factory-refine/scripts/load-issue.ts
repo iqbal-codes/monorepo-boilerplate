@@ -5,6 +5,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectGitRepo, emit, runCmd, text } from '../../.shared/contract.ts';
+import { isMaintainer, loadMaintainers } from '../../.shared/maintainers.ts';
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 mkdirSync(artifactsDir, { recursive: true });
@@ -44,7 +45,9 @@ if (issueInput) {
     comments?: { author?: { login?: string }; body?: string }[];
   };
   title = data.title;
+  const maintainers = loadMaintainers();
   const commentText = (data.comments ?? [])
+    .filter((c) => maintainers.size === 0 || isMaintainer(c.author?.login, maintainers))
     .map((c) => `### Comment by @${c.author?.login || 'unknown'}\n${c.body || ''}`)
     .join('\n\n');
   body = `# ${data.title}\n\nSource: ${data.url}\n\n${data.body || ''}${commentText ? `\n\n## Comments\n\n${commentText}` : ''}`;

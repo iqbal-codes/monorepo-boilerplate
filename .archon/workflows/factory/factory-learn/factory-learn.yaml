@@ -30,7 +30,7 @@ nodes:
 
   - id: learn
     command: learn
-    model: ['@reviewer', medium]
+    model: medium
     depends_on: [collect-evidence]
     with:
       evidence_path: "$collect-evidence.output.evidence_path"
@@ -46,7 +46,7 @@ nodes:
 
   - id: review
     command: review
-    model: ['@reviewer', medium]
+    model: medium
     context: fresh
     mutates_checkout: false
     depends_on: [collect-evidence, learn]

@@ -1,6 +1,6 @@
 # Implement Slice (Initial TDD Pass Within Owned Paths)
 
-Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD inside this isolated worktree. After you finish, your changes will be pushed to a Draft PR and handed over to `stage:review` (Mechanical Gate + independent QA reviewers).
+Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD inside this isolated worktree. After you finish, your changes will be pushed to a Draft PR and handed over to `factory:review` (Mechanical Gate + independent QA reviewers).
 
 ## Rules
 

@@ -27,6 +27,13 @@ export function text(v: string | undefined): string {
   return s === 'null' || s === 'undefined' ? '' : s;
 }
 
+export function extractLinkedIssueNumber(prBody: string): number {
+  const match = prBody.match(/(?:Closes|Fixes|Resolves|Refs)\s+#(\d+)/i);
+  if (!match) return 0;
+  const num = Number.parseInt(match[1], 10);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
 export function resolvePreviewCommand(explicit: string, cwd = process.cwd()): string {
   if (explicit) return explicit;
   try {
@@ -167,6 +174,63 @@ export function auditBoundaries(
   };
 }
 
+function extractBlockedBy(markdown: string): number[] {
+  const nums: number[] = [];
+  const lines = markdown.split(/\r?\n/);
+  let inBlockedSection = false;
+
+  for (const line of lines) {
+    const inlineMatch = line.match(/^\s*(?:[-*]\s+)?(?:\*\*)?Blocked\s+By(?:\*\*)?:(?:\*\*)?([^\n]*)$/i);
+    if (inlineMatch) {
+      inBlockedSection = true;
+      for (const m of inlineMatch[1].matchAll(/#(\d+)/g)) {
+        nums.push(Number.parseInt(m[1], 10));
+      }
+      continue;
+    }
+
+    if (/^##\s+Blocked\s+By\b/i.test(line)) {
+      inBlockedSection = true;
+      continue;
+    }
+
+    if (inBlockedSection) {
+      if (/^#{1,6}\s/.test(line) || /^\s*[-*]?\s*\*\*/.test(line)) {
+        inBlockedSection = false;
+        continue;
+      }
+      if (/^\s*[-*]\s+/.test(line)) {
+        for (const m of line.matchAll(/#(\d+)/g)) {
+          nums.push(Number.parseInt(m[1], 10));
+        }
+      }
+    }
+  }
+
+  return [...new Set(nums.filter((n) => Number.isFinite(n) && n > 0))];
+}
+
+export function extractNativeBlockedByNumbers(rawBlockedBy: unknown): { open: number[]; all: number[] } {
+  const nodes = Array.isArray(rawBlockedBy)
+    ? rawBlockedBy
+    : rawBlockedBy && typeof rawBlockedBy === 'object' && Array.isArray((rawBlockedBy as { nodes?: unknown }).nodes)
+      ? (rawBlockedBy as { nodes: unknown[] }).nodes
+      : [];
+  const open: number[] = [];
+  const all: number[] = [];
+  for (const entry of nodes) {
+    if (!entry || typeof entry !== 'object') continue;
+    const item = entry as { number?: unknown; state?: unknown };
+    const num = typeof item.number === 'number' ? item.number : Number.parseInt(String(item.number ?? ''), 10);
+    if (!Number.isFinite(num) || num <= 0) continue;
+    all.push(num);
+    if (String(item.state ?? 'OPEN').toUpperCase() === 'OPEN') {
+      open.push(num);
+    }
+  }
+  return { open: [...new Set(open)], all: [...new Set(all)] };
+}
+
 function extractBacktickTokens(line: string): string[] {
   const matches = [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()).filter(Boolean);
   if (matches.length > 0) return matches;
@@ -245,7 +309,7 @@ export function parseSliceContract(
   let phase = (phaseMatch?.[1]?.toUpperCase() ?? '') as ParsedSliceContract['phase'];
   if (!phase) {
     for (const p of ['l0', 'l1', 'l2', 'l3'] as const) {
-      if (labels.includes(`phase:${p}`) || labels.includes(`egm:${p}`)) {
+      if (labels.includes(`phase:${p}`)) {
         phase = p.toUpperCase() as ParsedSliceContract['phase'];
       }
     }
@@ -284,10 +348,7 @@ export function parseSliceContract(
     }
   }
 
-  const blockedLine = markdown.match(/\*\*Blocked By:\*\*([^\n]*)/i)?.[1] ?? '';
-  const blockedBy = [...blockedLine.matchAll(/#(\d+)/g)]
-    .map((m) => Number.parseInt(m[1], 10))
-    .filter((n) => Number.isFinite(n) && n > 0);
+  const blockedBy = extractBlockedBy(markdown);
 
   const verifyMatch =
     markdown.match(/\*\*Verification Command:\*\*[^\S\r\n]*`([^`\r\n]+)`/i) ||

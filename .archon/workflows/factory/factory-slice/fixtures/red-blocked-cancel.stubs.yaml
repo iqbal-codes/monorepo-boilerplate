@@ -22,8 +22,8 @@ fetch-contract:
   base_branch: main
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-3-sl-l0-02
-  verification_command: "bun run ci"
-  owned_paths: ["packages/db/**"]
+  verification_command: "npm test"
+  owned_paths: ["src/db/**"]
   forbidden_paths: ["package.json"]
   blockers_ok: false
   unmet_blockers: ["#2"]

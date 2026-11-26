@@ -8,18 +8,43 @@ Standalone workflows for refining requests, delivering scoped changes, and impro
 | :--- | :--- |
 | **`factory-refine`** | Turn a raw request or GitHub issue into a repository-grounded slice contract; ask for approval or clarification when needed. |
 | **`factory-slice`** | Implement a slice contract, check owned paths and run repository verification, open a draft PR, run independent QA, and apply the selected merge policy. |
+| **`factory-pr-revise`** | Address maintainer `CHANGES_REQUESTED` reviews, inline comments, or `/fix` directives on an existing PR and re-run gates & QA. |
 | **`factory-learn`** | Audit the harness and recent run evidence. Recommend one addition, update, consolidation, or removal; optionally open a draft PR for human review. |
 
 ## Copying to Another Repository
 
-From the repository root, copy the whole pack so both workflows can resolve `.shared/`:
+Use the onboarding helper from the repository root (or pass a target directory):
+
+```bash
+bash ~/.archon/factory-pack/init-repo.sh /path/to/repo --labels
+```
+
+This idempotently installs/updates `.archon/workflows/factory/`, scaffolds missing starter files (`.archon/config.yaml`, `.archon/sdlc/policy/maintainers.json`, `.archon/ui-preview.sh.example`, `AGENTS.md`, `CODING_STANDARDS.md`) without overwriting existing files, and optionally creates the GitHub `factory:*`, `risk:*`, and `phase:*` labels plus legacy alias labels for inbound tools.
+
+To copy only the workflow pack manually without starter files:
 
 ```bash
 mkdir -p .archon/workflows/factory
-cp -a ~/.archon/factory-pack/. .archon/workflows/factory/
+cp -a ~/.archon/factory-pack/{.shared,factory-refine,factory-slice,factory-pr-revise,factory-learn,README.md} .archon/workflows/factory/
 ```
 
-Use Archon 0.14+, Bun, and Git. Live agent nodes need a configured Archon provider; model roles and tier fallbacks are resolved by Archon. GitHub issue and PR operations need authenticated `gh` with repository access. A local contract replaces the GitHub issue as the input; delivery to a GitHub PR still needs a GitHub remote. Install project dependencies and configure services in the worktree as documented by the repository.
+To enable autonomous GitHub issue/PR polling (`archon-factory-dispatch.timer`):
+
+```bash
+bash ~/.archon/factory-pack/init-repo.sh /path/to/repo --labels --dispatch
+```
+
+The dispatcher verifies every GitHub author against `.archon/sdlc/policy/maintainers.json` (fail-closed when empty) and drives the factory-owned `factory:*` state machine, defaulting to `refine_mode=labeled` so non-Archon issues (`factory:human`, `factory:wontfix`, `factory:spec`, `factory:epic`, `wayfinder:*`, `[Epic Spec]`) are never touched:
+- **Vague tickets (`factory:triage` / `factory:needs-info`)**: runs `factory-refine` (`approval_mode=github`), posts clarifying questions (`factory:needs-info`), and re-refines when a maintainer replies (or accepts `/approve` / `/reject`).
+- **Ready issues (`factory:ready`)**: checks both native GitHub `blockedBy` and Markdown `Blocked by` edges; if the contract has `Owned / Allowed Paths` + `Verification Command`, dispatches `factory-slice` directly—otherwise grounds it via `factory-refine` first.
+- **Blocked issues (`factory:blocked`)**: waits until every native or Markdown blocker is merged; reconciliation flips the issue back to `factory:ready` (or `factory:triage` when it still needs grounding).
+- **PR change requests**: dispatches `factory-pr-revise` on maintainer `CHANGES_REQUESTED` reviews, inline diff comments, or `/fix` / `/revise` comments.
+- **PR merge gates**: settles paused `merge-approval` gates when a maintainer comments `/approve` or `/merge` (or `/reject` / `/hold`).
+- **Claims (`factory:in-progress`)**: applied to the issue for the whole life of a dispatched run (including pauses), removed when the run ends, and excluded from further dispatch. Failed/cancelled `factory-refine` runs release the claim and are retried on the next pass.
+
+Matt Pocock's canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) and the old `stage:*` labels are accepted as **inbound aliases only**; the dispatcher normalizes them to `factory:*` and never emits them. See `.archon/workflows/factory/.shared/labels.ts`.
+
+Use Archon 0.15+, Bun, and Git. Live agent nodes use Archon's built-in model tiers (`medium` / `large`), so configure a default assistant or tiers once on the host (`archon setup` or `archon ai default <provider> [<model>]`). GitHub issue and PR operations need authenticated `gh` with repository access. A local contract replaces the GitHub issue as the input; delivery to a GitHub PR still needs a GitHub remote. Install project dependencies and configure services in the worktree as documented by the repository.
 
 Put the exact `Verification Command` in each new slice contract. Follow the repository’s worktree setup for dependencies, environment, and services. For existing contracts with an omitted command, the pack can resolve a declared `ci` or `test` script when the repository identifies its package manager in `package.json` or has an unambiguous lockfile.
 
@@ -34,7 +59,7 @@ A minimal Markdown contract can be written by hand; add acceptance criteria and 
 - [ ] A blank query returns a validation error without calling the search backend.
 ```
 
-Phase (`L0–L3`), slice ID, linked UI briefs, and blocker issues are optional. `factory-refine` marks ready GitHub issues with `factory:refined`, `risk:<tier>`, and `factory:ready` by default. Automatic issue admission, clarification replies, and `/approve` on GitHub require a dispatcher; without one, invoke the workflow manually and use Archon for approvals.
+Phase (`L0–L3`), slice ID, linked UI briefs, and blocker issues (native GitHub `--blocked-by` or Markdown `Blocked by: #N`) are optional. `factory-refine` marks ready GitHub issues with `factory:ready` (or `factory:blocked` while a blocker is open) and `risk:<tier>` by default. Automatic issue admission, clarification replies, and `/approve` on GitHub require a dispatcher; without one, invoke the workflow manually and use Archon for approvals.
 
 Use the smallest cohesive folders in `Owned / Allowed Paths`, including test locations. Use exact paths for genuinely file-specific work or necessary root configuration. `Forbidden Shared Files` overrides ownership when the two overlap.
 
@@ -73,10 +98,10 @@ When Before/After PNG screenshots exist in `$ARTIFACTS_DIR/evidence/`, `publish-
 
 ## Merge Modes (`factory-slice`)
 
-- `checkpoint` *(default)*: Pauses for `L0` UI, `L1`, `L3`, and unphased UI slices. Other green PRs, including unphased non-UI and `L2`, can auto-merge after QA and CI gates.
+- `ask` *(default)*: Always pauses before merge so the operator reviews the PR body first.
+- `checkpoint`: Pauses for `L0` UI, `L1`, `L3`, and unphased UI slices. Other green PRs, including unphased non-UI and `L2`, can auto-merge after QA and CI gates.
 - `auto`: Auto-merges all green PRs.
-- `ui-ask` pauses before merging every UI PR (`L0–L3`) and auto-merges green non-UI PRs.
-- `ask`: Always pauses before merge so the operator reviews the PR body first.
+- `ui-ask`: Pauses before merging every UI PR (`L0–L3`) and auto-merges green non-UI PRs.
 - `pr-only`: Opens the PR with full evidence and stops without merging.
 
 ## Usage
@@ -117,4 +142,4 @@ The publisher checks the default branch requires approval via GitHub's branch pr
 
 ## Existing Deployments
 
-Keep copies in active repositories and their bindings untouched until you can switch the installed workflow names and bindings together. Preserve the dispatcher registry and run history when switching; the dispatcher recognizes both generations of workflow names, labels, and branches. Existing Markdown contracts still work without a file rename.
+Keep copies in active repositories and their bindings untouched until you are ready to switch workflow definitions and merge defaults together. Existing Markdown contracts continue to work without renaming.

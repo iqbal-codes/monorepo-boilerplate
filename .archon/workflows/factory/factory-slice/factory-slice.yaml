@@ -1,13 +1,13 @@
 name: factory-slice
 description: |
   Delivers a scoped change from a GitHub issue or Markdown contract. Runs TDD
-  implementation (stage:implement), opens a draft PR (stage:review), executes
+  implementation (factory:in-progress), opens a draft PR (factory:review), executes
   deterministic Owned-Paths + Verification-Command gates, optional black-box
   browser UX verification, and independent fresh-context parallel
   QA review (2 axes on standard, 3 axes on risk:strict). When QA finds defects,
-  it posts round findings to the PR, moves to stage:changes-requested, and sends
+  it posts round findings to the PR, moves to factory:changes-requested, and sends
   back to the implementer resuming its prior session (`context: { resume: implement }`).
-  Once all gates & QA pass LGTM (stage:approved), finalizes the PR with
+  Once all gates & QA pass LGTM (factory:approved), finalizes the PR with
   Before/After evidence (`pr-evidence` branch) and runs policy-gated CI merge.
 
 inputs:
@@ -24,10 +24,11 @@ inputs:
     default: ""
     description: Optional target base branch (auto-detected from origin/HEAD or main when empty).
   merge_mode:
-    default: "checkpoint"
+    default: "ask"
     description: >-
-      Merge policy: checkpoint (pause on L0 UI, L1, L3, and unphased UI PRs; otherwise auto-merge green PRs),
-      auto (auto-merge all green PRs), ui-ask (pause on all UI PRs, auto-merge non-UI), ask (always pause before merge),
+      Merge policy: ask (default — always pause before merge),
+      checkpoint (pause on L0 UI, L1, L3, and unphased UI PRs; otherwise auto-merge green PRs),
+      auto (auto-merge all green PRs), ui-ask (pause on all UI PRs, auto-merge non-UI),
       or pr-only (open PR without merging).
   preview_cmd:
     default: ""
@@ -41,8 +42,9 @@ inputs:
 worktree:
   enabled: true
 
-returns: summary
-outcome_field: delivered
+returns:
+  node: summary
+  outcome: delivered
 
 nodes:
   - id: fetch-contract
@@ -121,7 +123,7 @@ nodes:
   # AND a preview runner (.archon/ui-preview.sh or preview_cmd) is available.
   - id: capture-before
     command: capture-before
-    model: ['@ux', medium]
+    model: medium
     context: fresh
     mutates_checkout: false
     depends_on: [fetch-contract]
@@ -138,10 +140,10 @@ nodes:
         summary: { type: string }
       required: [captured, screenshots, summary]
 
-  # Stage 1: Initial TDD implementation (`stage:implement`) whose session is resumed if QA sends changes back.
+  # Stage 1: Initial TDD implementation (`factory:in-progress`) whose session is resumed if QA sends changes back.
   - id: implement
     command: implement
-    model: ['@implementer', large]
+    model: large
     depends_on: [fetch-contract, capture-before]
     trigger_rule: none_failed_min_one_success
     when: "$fetch-contract.output.contract_ok == true && $fetch-contract.output.blockers_ok == true"
@@ -176,7 +178,7 @@ nodes:
     when: "$escalate-blocked.output.decision == 'reject'"
     cancel: "Cancelled after implementer block: $escalate-blocked.output.text"
 
-  # Stage 2: Open Draft PR and move Issue + PR to `stage:review` before QA begins.
+  # Stage 2: Open Draft PR and move Issue + PR to `factory:review` before QA begins.
   - id: publish-draft-pr
     script: publish-pr
     runtime: bun
@@ -229,8 +231,8 @@ nodes:
 
   # Stage 3: QA Review <-> Implementer Fix Loop.
   # Round 1 goes straight into Gate + UX + parallel fresh-context QA review.
-  # If findings exist, verdict posts a PR review comment, flips to `stage:changes-requested`,
-  # and Round 2+ resumes `implement`'s session in `fix`, pushes the fix commit, and returns to `stage:review`.
+  # If findings exist, verdict posts a PR review comment, flips to `factory:changes-requested`,
+  # and Round 2+ resumes `implement`'s session in `fix`, pushes the fix commit, and returns to `factory:review`.
   - id: rounds
     depends_on: [fetch-contract, capture-before, implement, escalate-blocked, publish-draft-pr]
     trigger_rule: none_failed_min_one_success
@@ -244,7 +246,7 @@ nodes:
       nodes:
         - id: fix
           command: fix
-          model: ['@implementer', large]
+          model: large
           context: { resume: implement }
           when: "$LOOP_PREV.verdict.output.done == false"
           with:
@@ -338,7 +340,7 @@ nodes:
 
         - id: ux-verify
           command: ux-verify
-          model: ['@ux', medium]
+          model: medium
           context: fresh
           mutates_checkout: false
           depends_on: [mechanical-gate]
@@ -358,7 +360,7 @@ nodes:
         # Parallel Independent QA Review (strictly fresh context & read-only)
         - id: review-spec
           command: review-spec
-          model: ['@reviewer', medium]
+          model: medium
           context: fresh
           mutates_checkout: false
           depends_on: [mechanical-gate, ux-verify]
@@ -378,7 +380,7 @@ nodes:
 
         - id: review-standards
           command: review-standards
-          model: ['@reviewer', medium]
+          model: medium
           context: fresh
           mutates_checkout: false
           depends_on: [mechanical-gate, ux-verify]
@@ -398,7 +400,7 @@ nodes:
 
         - id: review-seams-errors
           command: review-seams-errors
-          model: ['@reviewer', medium]
+          model: medium
           context: fresh
           mutates_checkout: false
           depends_on: [mechanical-gate, ux-verify]

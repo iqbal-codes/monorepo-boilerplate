@@ -9,7 +9,7 @@ fetch-contract:
   source: issue
   repo: owner/repo
   issue_number: 9
-  title: "Live Chef KDS Over SSE"
+  title: "Realtime Event Stream"
   slice_id: SL-L2-03
   phase: L2
   risk_tier: strict
@@ -23,8 +23,8 @@ fetch-contract:
   base_branch: main
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-9-sl-l2-03
-  verification_command: "bun run ci"
-  owned_paths: ["apps/kds/**"]
+  verification_command: "npm test"
+  owned_paths: ["src/stream/**"]
   forbidden_paths: ["package.json"]
   blockers_ok: true
   unmet_blockers: []
@@ -45,7 +45,7 @@ publish-draft-pr:
   merge_action: pr-only
   needs_human_merge_approval: false
   approval_message: ""
-  summary: "Draft PR #24 opened; moved to stage:review."
+  summary: "Draft PR #24 opened; moved to factory:review."
 
 mechanical-gate:
   passed: true
@@ -79,4 +79,4 @@ verdict:
   effective_has_ui: false
   reason: review_findings
   diff_stat: "4 files changed, 205 insertions(+)"
-  summary: "Round findings open in Seams+Errors; sent back to stage:changes-requested."
+  summary: "Round findings open in Seams+Errors; sent back to factory:changes-requested."

@@ -1,4 +1,4 @@
-# Green path: standard non-UI L2 slice -> Draft PR (stage:review) -> 2 independent QA axes (LGTM, stage:approved) -> Ready PR -> auto-merge.
+# Green path: standard non-UI L2 slice -> Draft PR (factory:review) -> 2 independent QA axes (LGTM, factory:approved) -> Ready PR -> auto-merge.
 fixture:
   expect: completed
   inputs:
@@ -23,8 +23,8 @@ fetch-contract:
   base_branch: main
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-7-sl-l2-01
-  verification_command: "bun run ci"
-  owned_paths: ["packages/db/src/repositories/catalog.repo.ts"]
+  verification_command: "npm test"
+  owned_paths: ["src/catalog/repository.ts"]
   forbidden_paths: ["package.json"]
   blockers_ok: true
   unmet_blockers: []
@@ -45,7 +45,7 @@ publish-draft-pr:
   merge_action: pr-only
   needs_human_merge_approval: false
   approval_message: ""
-  summary: "Draft PR #21 opened; moved to stage:review."
+  summary: "Draft PR #21 opened; moved to factory:review."
 
 mechanical-gate:
   passed: true

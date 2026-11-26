@@ -8,7 +8,7 @@ fetch-contract:
   source: issue
   repo: owner/repo
   issue_number: 4
-  title: "Hono API Backbone"
+  title: "API Backbone"
   slice_id: SL-L0-03
   phase: L0
   risk_tier: strict
@@ -22,8 +22,8 @@ fetch-contract:
   base_branch: main
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-4-sl-l0-03
-  verification_command: "bun run ci"
-  owned_paths: ["apps/api/**"]
+  verification_command: "npm test"
+  owned_paths: ["src/api/**"]
   forbidden_paths: ["package.json"]
   blockers_ok: true
   unmet_blockers: []

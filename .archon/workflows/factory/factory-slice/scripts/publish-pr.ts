@@ -2,9 +2,9 @@
  * Deterministic PR & stage publisher (0 LLM tokens) supporting 3 lifecycle modes:
  *   - `draft`    : Commit initial work, push branch, upload any `before-*.png` / `impl-*.png`
  *                  UI evidence to `pr-evidence`, open Draft PR with compact `/pr`-style body
- *                  (`## Summary`, `## Evidence`, `## Merge Danger`), and set `stage:review`.
+ *                  (`## Summary`, `## Evidence`, `## Merge Danger`), and set `factory:review`.
  *   - `sync`     : Commit & push QA fix delta from resumed implementer, upload refreshed
- *                  evidence PNGs, post Round N update comment (never overwrites PR body), flip to `stage:review`.
+ *                  evidence PNGs, post Round N update comment (never overwrites PR body), flip to `factory:review`.
  *   - `finalize` : Upload all evidence PNGs to `pr-evidence`, mark PR Ready when
  *                  `rounds_ready=true`, post Before/After QA evidence & merge prompt as a PR
  *                  comment when updating an existing PR (never overwrites original PR body).
@@ -24,9 +24,10 @@ import { emit, runCmd, text } from '../../.shared/contract.ts';
 import {
   findOpenPr,
   postPrComment,
-  setStageLabel,
+  setFactoryState,
   syncBranchChanges,
 } from '../../.shared/github.ts';
+import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import {
   extractVerificationEvidenceLine,
   parsePrSummarySections,
@@ -70,7 +71,7 @@ const roundsSummary = text(process.env.INPUTS_ROUNDS_SUMMARY);
 const implSummary = text(process.env.INPUTS_IMPL_SUMMARY);
 const roundNum = Number.parseInt(text(process.env.INPUTS_ROUND) || '1', 10) || 1;
 const diffStatInput = text(process.env.INPUTS_DIFF_STAT);
-const mergeMode = text(process.env.INPUTS_MERGE_MODE) || 'checkpoint';
+const mergeMode = text(process.env.INPUTS_MERGE_MODE) || 'ask';
 
 function readSnippet(filePath: string, maxChars = 3000): string {
   if (!existsSync(filePath)) return '';
@@ -282,8 +283,8 @@ const uploadedEvidence = uploadEvidenceImages(shortSha);
 if (mode === 'draft' || mode === 'sync') {
   const stageBadge =
     mode === 'draft'
-      ? `Draft · \`stage:review\` · \`${baseBranch}\` -> \`${shortSha}\``
-      : `Draft · \`stage:review\` · Round ${roundNum + 1} fix (\`${shortSha}\`)`;
+      ? `Draft · \`factory:review\` · \`${baseBranch}\` -> \`${shortSha}\``
+      : `Draft · \`factory:review\` · Round ${roundNum + 1} fix (\`${shortSha}\`)`;
 
   const draftLines: string[] = [
     `${issueNumber > 0 ? `Closes #${issueNumber} · ` : ''}${stageBadge} · \`${sliceId || title}\` (\`${phase || 'ad-hoc'}\`, \`${riskTier}\`)`,
@@ -317,14 +318,15 @@ if (mode === 'draft' || mode === 'sync') {
 
   if (mode === 'sync' && repo && prNumber > 0) {
     const fixCommentLines = [
+      '<!-- archon-factory-revise-done -->',
       `### 🔄 Implementer Update — Round ${roundNum + 1} Fix (\`${shortSha}\`)`,
       '',
-      implSummary || 'Resumed `@implementer` session and pushed QA fixes (`stage:review`).',
+      implSummary || 'Resumed implementer session and pushed QA fixes (`factory:review`).',
     ];
     postPrComment(repo, prNumber, fixCommentLines.join('\n'), artifactsDir);
   }
 
-  setStageLabel(repo, { issueNumber, prNumber }, 'stage:review');
+  setFactoryState(repo, { issueNumber, prNumber }, FACTORY_LABELS.review);
 
   emit({
     pr_number: prNumber,
@@ -337,8 +339,8 @@ if (mode === 'draft' || mode === 'sync') {
     approval_message: '',
     summary:
       mode === 'draft'
-        ? `Draft PR #${prNumber} opened at ${prUrl} (${shortSha}); moved to stage:review.`
-        : `Pushed QA fix commit ${shortSha} to PR #${prNumber}; returned to stage:review.`,
+        ? `Draft PR #${prNumber} opened at ${prUrl} (${shortSha}); moved to factory:review.`
+        : `Pushed QA fix commit ${shortSha} to PR #${prNumber}; returned to factory:review.`,
   });
   process.exit(0);
 }
@@ -416,7 +418,7 @@ prUrl = ensured.prUrl;
 
 if (!isDraft && prNumber > 0) {
   runCmd(['gh', 'pr', 'ready', String(prNumber), '--repo', repo], { allowFail: true });
-  setStageLabel(repo, { issueNumber, prNumber }, 'stage:approved');
+  setFactoryState(repo, { issueNumber, prNumber }, FACTORY_LABELS.approved);
 }
 
 const needsHumanMergeApproval = mergeAction === 'ask';

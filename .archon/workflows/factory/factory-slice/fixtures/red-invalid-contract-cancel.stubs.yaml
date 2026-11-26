@@ -1,4 +1,4 @@
-# Red path: incomplete/vague issue marked factory:ready fails readiness gate before implement with 0 LLM tokens.
+# Red path: incomplete/vague ready ticket (`factory:ready`) fails readiness gate before implement with 0 LLM tokens.
 fixture:
   expect: cancelled
   inputs:

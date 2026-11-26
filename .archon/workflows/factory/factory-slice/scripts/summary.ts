@@ -1,5 +1,5 @@
 /**
- * Terminal run summary for factory-slice (`returns: summary`, `outcome_field: delivered`).
+ * Terminal run summary for factory-slice (`returns: { node: summary, outcome: delivered }`).
  */
 
 import { emit, text } from '../../.shared/contract.ts';

@@ -23,8 +23,8 @@ fetch-contract:
   base_branch: main
   base_sha: "1111111111111111111111111111111111111111"
   branch_name: factory/issue-8-sl-l2-02
-  verification_command: "bun run ci"
-  owned_paths: ["packages/db/src/repositories/inventory.repo.ts"]
+  verification_command: "npm test"
+  owned_paths: ["src/inventory/repository.ts"]
   forbidden_paths: ["package.json"]
   blockers_ok: true
   unmet_blockers: []
