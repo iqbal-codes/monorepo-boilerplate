@@ -35,7 +35,7 @@ function createCustomerTestContext(url: string) {
 
 describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () => {
   if (!databaseUrl) return;
-  const { db, adminSession, staff } = createCustomerTestContext(databaseUrl);
+  const { db, session, adminSession, staff } = createCustomerTestContext(databaseUrl);
   const fixtureIds: string[] = [];
   afterAll(async () => {
     try {

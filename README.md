@@ -21,11 +21,11 @@ TypeScript monorepo: React + TanStack Router web app, Hono + tRPC server, Drizzl
 
 The template is aimed at internal tools, so it ships a shell, reusable blocks, and one working reference flow rather than a pile of components:
 
-| Tier       | Where                        | Contents                                                                                                                                                                         |
-| :--------- | :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Primitives | `packages/ui/src/components` | 60+ shadcn/ui atoms (base-sera style)                                                                                                                                            |
+| Tier       | Where                        | Contents                                                                                                                                                                           |
+| :--------- | :--------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primitives | `packages/ui/src/components` | 60+ shadcn/ui atoms (base-sera style)                                                                                                                                              |
 | Blocks     | `packages/ui/src/components` | `data-table`, `list-toolbar`, `bulk-action-bar`, `export-button`, `import-block`, `confirmation-dialog`, `page-header`, `kpi-card`, `chart-card`, `form-fields`, `upload-dropzone` |
-| Screens    | `apps/web/src/routes`        | Dashboard, Customers, Customer detail, Settings, login                                                                                                                           |
+| Screens    | `apps/web/src/routes`        | Dashboard, Customers, Customer detail, Settings, login                                                                                                                             |
 
 The App Shell follows shadcn's official `sidebar-07` block (collapsible sidebar with sub-items, header breadcrumbs, user menu), adapted for a single-tenant app with real sessions and typed router links.
 
