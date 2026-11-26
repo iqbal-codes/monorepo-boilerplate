@@ -150,14 +150,20 @@ function toProcedureRows(records: readonly ImportRecord[]) {
 
 export function CustomerImport({
   onImported,
+  size,
+  className,
 }: {
   /** Called with the created count once the batch is stored. */
   onImported: (created: number) => void;
+  size?: "default" | "sm";
+  className?: string;
 }) {
   return (
     <ImportBlock
       contract={{ columns: CUSTOMER_IMPORT_COLUMNS, filename: CUSTOMER_IMPORT_FILENAME }}
       defaults={CUSTOMER_IMPORT_DEFAULTS}
+      size={size}
+      className={className}
       validate={async (records) => {
         // Field rules are local, so a broken row is reported without a request.
         // Only a locally clean file asks the API about saved Customers, which

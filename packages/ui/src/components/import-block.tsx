@@ -82,6 +82,8 @@ export type ImportBlockProps = {
   parse?: CsvParser;
   sampleLimit?: number;
   triggerLabel?: string;
+  size?: "default" | "sm";
+  className?: string;
   disabled?: boolean;
 };
 
@@ -161,6 +163,8 @@ export function ImportBlock({
   parse = parseInWorker,
   sampleLimit = PREVIEW_SAMPLE_ROWS,
   triggerLabel = "Import",
+  size = "default",
+  className,
   disabled = false,
 }: ImportBlockProps) {
   const [open, setOpen] = React.useState(false);
@@ -380,15 +384,17 @@ export function ImportBlock({
       <Button
         type="button"
         variant="outline"
+        size={size}
         data-slot="import-trigger"
         aria-haspopup="dialog"
+        className={className}
         disabled={disabled || busy}
         onClick={() => {
           reset();
           setOpen(true);
         }}
       >
-        <UploadIcon aria-hidden />
+        <UploadIcon data-icon="inline-start" aria-hidden />
         {triggerLabel}
       </Button>
 

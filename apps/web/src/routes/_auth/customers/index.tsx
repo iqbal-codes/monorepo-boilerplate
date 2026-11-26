@@ -24,12 +24,15 @@ import { formatDate, formatMoney } from "@monorepo-boilerplate/ui/lib/format";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { PlusIcon, UsersIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
 import { CustomerImport } from "@/components/customers/customer-import";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
-import { ExportButton } from "@monorepo-boilerplate/ui/components/export-button";
+import {
+  ExportButton,
+  type ExportFeedback,
+} from "@monorepo-boilerplate/ui/components/export-button";
 import {
   customerExportFilename,
   customerExportRequest,
@@ -140,6 +143,12 @@ function CustomersScreen() {
   // Ends a running export the moment navigation away from this list begins, not
   // only when the toolbar unmounts.
   const exportCancelSignal = useCustomerExportCancel();
+  const exportHintId = useId();
+  const [exportFeedback, setExportFeedback] = useState<ExportFeedback>({
+    busy: false,
+    message: "",
+    error: null,
+  });
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [dialogError, setDialogError] = useState<string>();
 
@@ -224,21 +233,68 @@ function CustomersScreen() {
         title="Customers"
         description="Server-driven table: sorting, filtering, and paging all run in the API."
         actions={
-          <Button
-            onClick={() => {
-              setEditingId(null);
-              setDrawerOpen(true);
-            }}
-          >
-            <PlusIcon aria-hidden />
-            New customer
-          </Button>
+          <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:items-end">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <CustomerImport
+                size="sm"
+                className="flex-1 sm:flex-none"
+                onImported={(created) => {
+                  setNotice({
+                    text: created === 1 ? "1 customer imported." : `${created} customers imported.`,
+                  });
+                  void queryClient.invalidateQueries(trpc.customers.pathFilter());
+                }}
+              />
+              <ExportButton
+                label="Export CSV"
+                buttonClassName="flex-1 sm:flex-none"
+                describedById={exportHintId}
+                onFeedbackChange={setExportFeedback}
+                getFilename={customerExportFilename}
+                cancelSignal={exportCancelSignal}
+                fetchExport={customerExportRequest({
+                  search: list.search,
+                  status: list.status,
+                  sortBy: list.sortBy,
+                  sortDir: list.sortDir,
+                })}
+              />
+              <Button
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setEditingId(null);
+                  setDrawerOpen(true);
+                }}
+              >
+                <PlusIcon data-icon="inline-start" aria-hidden />
+                New customer
+              </Button>
+            </div>
+            <p id={exportHintId} className="text-xs text-muted-foreground sm:text-end">
+              CSV escaping may change literal text.
+            </p>
+            <p
+              role="status"
+              className={
+                exportFeedback.busy || exportFeedback.message
+                  ? "text-xs text-muted-foreground sm:text-end"
+                  : "sr-only"
+              }
+            >
+              {exportFeedback.message}
+            </p>
+            <p
+              role="alert"
+              className={exportFeedback.error ? "text-xs text-destructive sm:text-end" : "sr-only"}
+            >
+              {exportFeedback.error ?? ""}
+            </p>
+          </div>
         }
       />
 
       <div className="flex min-w-0 flex-col gap-2">
-        {/* `actions` captures the committed scope when the button is activated, so
-            a pending search or a new page cannot change what was downloaded. */}
         <ListToolbar
           search={{
             inputRef: searchRef,
@@ -269,30 +325,6 @@ function CustomersScreen() {
                 </SelectGroup>
               </SelectContent>
             </Select>
-          }
-          actions={
-            <>
-              <CustomerImport
-                onImported={(created) => {
-                  setNotice({
-                    text: created === 1 ? "1 customer imported." : `${created} customers imported.`,
-                  });
-                  void queryClient.invalidateQueries(trpc.customers.pathFilter());
-                }}
-              />
-              <ExportButton
-                label="Export CSV"
-                hint="CSV escaping may change literal text."
-                getFilename={customerExportFilename}
-                cancelSignal={exportCancelSignal}
-                fetchExport={customerExportRequest({
-                  search: list.search,
-                  status: list.status,
-                  sortBy: list.sortBy,
-                  sortDir: list.sortDir,
-                })}
-              />
-            </>
           }
         />
         <p role="status" className={notice && !notice.error ? "text-sm" : "sr-only"}>
