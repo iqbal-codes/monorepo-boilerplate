@@ -11,6 +11,7 @@ import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
 export function ListToolbar({
   search,
   filters,
+  actions,
   resultLabel,
   isFetching,
 }: {
@@ -22,6 +23,8 @@ export function ListToolbar({
     inputRef?: Ref<HTMLInputElement>;
   };
   filters?: ReactNode;
+  /** Trailing controls, rendered after the result label. */
+  actions?: ReactNode;
   resultLabel?: string;
   isFetching?: boolean;
 }) {
@@ -45,6 +48,11 @@ export function ListToolbar({
         {isFetching && <Spinner aria-hidden />}
         {resultLabel}
       </span>
+      {actions && (
+        <div data-slot="list-toolbar-actions" className="flex min-w-0 flex-wrap items-center gap-2">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }

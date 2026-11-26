@@ -28,6 +28,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
+import { ExportButton } from "@monorepo-boilerplate/ui/components/export-button";
+import {
+  customerExportFilename,
+  customerExportRequest,
+  useCustomerExportCancel,
+} from "@/lib/customer-export";
 import { useUiPrefs } from "@/lib/ui-prefs-store";
 import { useListSearchParams, type CustomerStatusFilter } from "@/lib/use-data-table-search-params";
 import { trpc } from "@/utils/trpc";
@@ -130,6 +136,9 @@ function CustomersScreen() {
   const queryClient = useQueryClient();
   const searchRef = useRef<HTMLInputElement>(null);
   const archiveRef = useRef<HTMLButtonElement>(null);
+  // Ends a running export the moment navigation away from this list begins, not
+  // only when the toolbar unmounts.
+  const exportCancelSignal = useCustomerExportCancel();
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [dialogError, setDialogError] = useState<string>();
 
@@ -227,6 +236,8 @@ function CustomersScreen() {
       />
 
       <div className="flex min-w-0 flex-col gap-2">
+        {/* `actions` captures the committed scope when the button is activated, so
+            a pending search or a new page cannot change what was downloaded. */}
         <ListToolbar
           search={{
             inputRef: searchRef,
@@ -257,6 +268,20 @@ function CustomersScreen() {
                 </SelectGroup>
               </SelectContent>
             </Select>
+          }
+          actions={
+            <ExportButton
+              label="Export CSV"
+              hint="CSV escaping may change literal text."
+              getFilename={customerExportFilename}
+              cancelSignal={exportCancelSignal}
+              fetchExport={customerExportRequest({
+                search: list.search,
+                status: list.status,
+                sortBy: list.sortBy,
+                sortDir: list.sortDir,
+              })}
+            />
           }
         />
         <p role="status" className={notice && !notice.error ? "text-sm" : "sr-only"}>
@@ -327,36 +352,43 @@ function CustomersScreen() {
             setDrawerOpen(true);
           }}
           emptyState={
-            <Empty className="border-0 py-12">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <UsersIcon />
-                </EmptyMedia>
-                <EmptyTitle>No customers found</EmptyTitle>
-                <EmptyDescription>
-                  {list.search || list.status !== "all"
-                    ? "Nothing matches these filters. Clear them to see everything."
-                    : "Create the first customer to populate the reference flow."}
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                {list.search || list.status !== "all" ? (
-                  <Button variant="outline" size="sm" onClick={list.reset}>
-                    Clear filters
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setEditingId(null);
-                      setDrawerOpen(true);
-                    }}
-                  >
-                    New customer
-                  </Button>
-                )}
-              </EmptyContent>
-            </Empty>
+            // `DataTable` renders this inside its non-scrolling table box, so the
+            // table's min-content width would push the copy out of view on narrow
+            // screens. The sticky wrapper pins it to the visible leading edge and
+            // the viewport-bound inner width stops the oversized cell from
+            // stretching it, without widening the page.
+            <div className="sticky start-0 w-full min-w-0">
+              <Empty className="w-[min(100%,100vw-2rem)] max-w-full border-0 py-12">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <UsersIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>No customers found</EmptyTitle>
+                  <EmptyDescription>
+                    {list.search || list.status !== "all"
+                      ? "Nothing matches these filters. Clear them to see everything."
+                      : "Create the first customer to populate the reference flow."}
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  {list.search || list.status !== "all" ? (
+                    <Button variant="outline" size="sm" onClick={list.reset}>
+                      Clear filters
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setEditingId(null);
+                        setDrawerOpen(true);
+                      }}
+                    >
+                      New customer
+                    </Button>
+                  )}
+                </EmptyContent>
+              </Empty>
+            </div>
           }
         />
       )}
