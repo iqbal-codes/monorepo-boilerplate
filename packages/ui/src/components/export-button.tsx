@@ -39,6 +39,7 @@ export function ExportButton({
   fetchExport,
   hint,
   disabled = false,
+  cancelSignal,
   onExported,
   className,
 }: {
@@ -50,6 +51,16 @@ export function ExportButton({
   /** Visible caveat, associated with the button. */
   hint?: React.ReactNode;
   disabled?: boolean;
+  /**
+   * Screen-owned signal for "this view is no longer current".
+   *
+   * Unmount alone is too late to cancel an export: a route change mounts the new
+   * Screen before the old one is detached, so a worker resolving in that window
+   * could still download a file for a Screen the user already left. The Screen
+   * aborts this signal the moment navigation begins, and the block treats that
+   * exactly like teardown: fetch aborted, worker terminated, no download.
+   */
+  cancelSignal?: AbortSignal;
   onExported?: (file: File, rowCount: number) => void;
   className?: string;
 }) {
@@ -68,6 +79,10 @@ export function ExportButton({
    */
   const urlsRef = React.useRef(new Set<string>());
   const mounted = React.useRef(true);
+  // Read through a ref so an activation always sees the latest signal even
+  // though `start` closes over the render it began in.
+  const cancelSignalRef = React.useRef(cancelSignal);
+  cancelSignalRef.current = cancelSignal;
 
   const releaseWorker = React.useCallback(() => {
     const worker = workerRef.current;
@@ -114,13 +129,16 @@ export function ExportButton({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    /** True when this run may still deliver a file for the Screen. */
+    const resumed = () =>
+      !controller.signal.aborted && mounted.current && !(cancelSignalRef.current?.aborted ?? false);
 
     try {
       // The Screen owns the filename policy, so a throwing provider is a normal
       // failure: it must settle the control and offer a retry, not strand it.
       const filename = getFilename(new Date());
       const payload = await fetchExport(controller.signal);
-      if (controller.signal.aborted || !mounted.current) return;
+      if (!resumed()) return;
 
       setMessage("Generating the CSV file.");
       const worker: ExportWorker = new Worker(new URL("./export/worker.ts", import.meta.url), {
@@ -132,7 +150,7 @@ export function ExportButton({
         if (workerRef.current !== worker) return;
         releaseWorker();
         settle();
-        if (!mounted.current) return;
+        if (!resumed()) return;
         const response = event.data;
         if (response.type === "done") {
           downloadFile(response.file);
@@ -147,7 +165,7 @@ export function ExportButton({
         if (workerRef.current !== worker) return;
         releaseWorker();
         settle();
-        if (!mounted.current) return;
+        if (!resumed()) return;
         setMessage("");
         setError(FALLBACK_ERROR);
       };
@@ -164,6 +182,25 @@ export function ExportButton({
       if (abortRef.current === controller) abortRef.current = null;
     }
   }
+
+  /**
+   * A Screen cancel (navigation beginning) ends the run immediately: the fetch is
+   * aborted and the worker is terminated, so a generation finishing later can
+   * never deliver a download for a view the user has left.
+   */
+  React.useEffect(() => {
+    if (!cancelSignal) return;
+    const onCancel = () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      releaseWorker();
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
+    };
+    if (cancelSignal.aborted) onCancel();
+    else cancelSignal.addEventListener("abort", onCancel, { once: true });
+    return () => cancelSignal.removeEventListener("abort", onCancel);
+  }, [cancelSignal, releaseWorker]);
 
   function downloadFile(file: File) {
     const url = URL.createObjectURL(file);

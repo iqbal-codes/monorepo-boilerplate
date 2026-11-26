@@ -99,6 +99,7 @@ async function mountExportButton(
     onExported?: (file: File, rowCount: number) => void;
     hint?: string;
     disabled?: boolean;
+    cancelSignal?: AbortSignal;
   },
 ): Promise<Harness> {
   const container = win.document.createElement("div");
@@ -177,6 +178,7 @@ async function mountExportButton(
         disabled={props.disabled}
         getFilename={props.getFilename ?? (() => "customers-2026-11-26.csv")}
         fetchExport={capture}
+        cancelSignal={props.cancelSignal}
         onExported={props.onExported}
       />,
     );
@@ -565,6 +567,78 @@ describe("ExportButton guards", () => {
 
       expect(harness.downloads).toEqual([]);
     });
+  });
+
+  test("a Screen cancel mid-generation terminates the worker and downloads nothing", async () => {
+    // The navigation race: the Screen aborts as soon as it starts leaving, while
+    // the worker is already generating and the old toolbar is still mounted.
+    const cancel = new AbortController();
+
+    await withHarness(
+      { fetchExport: async () => payload(), cancelSignal: cancel.signal },
+      async (harness) => {
+        await harness.click();
+        expect(harness.workers).toHaveLength(1);
+
+        await act(async () => {
+          cancel.abort();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(harness.workers[0]?.terminated).toBe(true);
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+
+        // A generation that resolves after the cancel must not download.
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+        });
+
+        expect(harness.downloads).toEqual([]);
+        expect(harness.createdUrls).toEqual([]);
+        expect(harness.revokedUrls).toEqual([]);
+        expect(harness.status()).not.toContain("Exported");
+      },
+    );
+  });
+
+  test("a Screen cancel before generation still spawns no worker", async () => {
+    const cancel = new AbortController();
+
+    await withHarness(
+      {
+        fetchExport: (signal) =>
+          new Promise<string>((resolve) => {
+            signal.addEventListener("abort", () => resolve(payload()), { once: true });
+          }),
+        cancelSignal: cancel.signal,
+      },
+      async (harness) => {
+        await harness.click();
+        await act(async () => {
+          cancel.abort();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(harness.signals[0]?.aborted).toBe(true);
+        expect(harness.workers).toEqual([]);
+        expect(harness.downloads).toEqual([]);
+      },
+    );
+  });
+
+  test("a run that resolves while the Screen is already gone never downloads", async () => {
+    const cancel = new AbortController();
+    cancel.abort();
+
+    await withHarness(
+      { fetchExport: async () => payload(), cancelSignal: cancel.signal },
+      async (harness) => {
+        await harness.click();
+
+        expect(harness.workers).toEqual([]);
+        expect(harness.downloads).toEqual([]);
+      },
+    );
   });
 
   test("unmount revokes a created object URL even when the deferred task never runs", async () => {

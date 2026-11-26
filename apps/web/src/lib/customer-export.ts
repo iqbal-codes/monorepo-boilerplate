@@ -1,6 +1,8 @@
 import type { CustomerScopeInput } from "@monorepo-boilerplate/api/routers/customers";
 import type { AppRouter } from "@monorepo-boilerplate/api/routers/index";
+import { useRouter } from "@tanstack/react-router";
 import { createTRPCClient, httpLink, TRPCClientError } from "@trpc/client";
+import { useEffect, useRef } from "react";
 
 import { serverUrl } from "@/lib/server-url";
 
@@ -37,13 +39,50 @@ const exportClient = createTRPCClient<AppRouter>({
   ],
 });
 
-/** The list criteria an export is taken at activation. Paging and selection are excluded. */
+/**
+ * The list criteria an export is taken at activation. Paging and selection are excluded.
+ */
 export type CustomerExportScope = {
   search?: string | undefined;
   status: NonNullable<CustomerScopeInput["status"]>;
   sortBy: NonNullable<CustomerScopeInput["sortBy"]>;
   sortDir: NonNullable<CustomerScopeInput["sortDir"]>;
 };
+
+/**
+ * Cancels whatever export is running the moment navigation away from the Screen
+ * begins.
+ *
+ * React unmount is not enough: TanStack Router mounts the destination route before
+ * it detaches the current one, so a worker that resolves in that window would
+ * still download a CSV for a list the user has left. `onBeforeNavigate` fires
+ * before the URL commits, so aborting there invalidates the run while the toolbar
+ * is still on screen.
+ *
+ * Only `pathChanged` counts. Search, sort, paging, and filter changes keep the same
+ * path and are not departures — and an export already captured its scope, so it
+ * must survive them. A path change leaves this Screen, so the signal is aborted
+ * for good; the next visit mounts a fresh one.
+ */
+export function useCustomerExportCancel(): AbortSignal {
+  const router = useRouter();
+  const controllerRef = useRef<AbortController | null>(null);
+  if (!controllerRef.current) controllerRef.current = new AbortController();
+  const signal = controllerRef.current.signal;
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    const unsubscribe = router.subscribe("onBeforeNavigate", (event) => {
+      if (event.pathChanged) controller?.abort();
+    });
+    return () => {
+      unsubscribe();
+      controller?.abort();
+    };
+  }, [router]);
+
+  return signal;
+}
 
 /** UTC date of the activation, so the name cannot drift mid-run. */
 export function customerExportFilename(activatedAt: Date): string {
