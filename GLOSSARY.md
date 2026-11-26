@@ -100,6 +100,14 @@ _Avoid_: user setting, app state, global state
 One operation applied to multiple records the user has selected.
 _Avoid_: mass edit, batch job
 
+**Customer Import**:
+Creation of new Customers from a file as a single batch. It never updates existing Customers.
+_Avoid_: spreadsheet sync, bulk update
+
+**Customer Export**:
+A copy of the Customers matching the current list filters, regardless of pagination or selection.
+_Avoid_: page download, selection export
+
 **Deployment Operator**:
 A person responsible for setting up and running an instance of the tool. This responsibility is separate from managing staff access inside the tool.
 _Avoid_: admin, superuser
