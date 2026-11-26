@@ -12,6 +12,14 @@ import { adminProcedure } from "../procedures";
 
 const MAX_CUSTOMER_PAGE_SIZE = 100;
 
+/** Mirrors `MAX_IMPORT_ROWS` in `packages/ui/src/lib/csv.ts`. */
+const MAX_IMPORT_ROWS = 1000;
+
+/** Mirrors `PREVIEW_SAMPLE_ROWS` in `packages/ui/src/lib/csv.ts`. */
+const PREVIEW_SAMPLE_ROWS = 50;
+
+const MAX_BALANCE_MINOR = 9_007_199_254_740_991;
+
 export const customerScopeInput = z.object({
   search: z.string().trim().max(200).optional(),
   status: z.enum(["all", "active", "inactive", "archived"]).default("all"),
@@ -76,7 +84,7 @@ export const customerCreateInput = z.object({
   phone: z.string().trim().max(40).optional(),
   company: z.string().trim().max(200).optional(),
   status: z.enum(customerStatus.enumValues).default("active"),
-  balanceMinor: z.number().int().min(-9_007_199_254_740_991).max(9_007_199_254_740_991),
+  balanceMinor: z.number().int().min(-MAX_BALANCE_MINOR).max(MAX_BALANCE_MINOR),
   currency: z.string().length(3).default("USD"),
   notes: z.string().max(2000).optional(),
   avatarUrl: z.string().max(2048).optional(),
@@ -85,6 +93,198 @@ export const customerCreateInput = z.object({
 export const customerUpdateInput = customerCreateInput.partial().extend({
   id: z.string().min(1),
 });
+
+/**
+ * A CSV row as the Import block sends it: the original 1-based line plus the
+ * raw cell text. Blank cells arrive as `""` so the row rules can default them,
+ * and every field is bounded here so a direct caller cannot bypass the CSV
+ * parser's limits.
+ */
+export const customerImportRowInput = z.object({
+  lineNumber: z.number().int().min(1),
+  values: z
+    .object({
+      name: z.string().max(10_000),
+      email: z.string().max(10_000),
+      phone: z.string().max(10_000),
+      company: z.string().max(10_000),
+      status: z.string().max(10_000),
+      balanceMinor: z.string().max(10_000),
+      currency: z.string().max(10_000),
+      notes: z.string().max(10_000),
+    })
+    .strict(),
+});
+
+export const customerImportInput = z.object({
+  rows: z.array(customerImportRowInput).max(MAX_IMPORT_ROWS),
+});
+
+type ImportRowInput = z.infer<typeof customerImportRowInput>;
+
+export type CustomerImportIssue = {
+  lineNumber: number;
+  field: string;
+  message: string;
+};
+
+export type CustomerImportDraft = Omit<z.infer<typeof customerCreateInput>, "avatarUrl"> & {
+  lineNumber: number;
+};
+
+const IMPORTABLE_STATUSES = ["active", "inactive"] as const;
+
+/** Optional `-` followed by digits; no separators, decimals, or exponents. */
+const BALANCE_PATTERN = /^-?\d+$/;
+
+const DEFAULTS = {
+  status: "active",
+  balanceMinor: "0",
+  currency: "USD",
+} as const;
+
+function optionalText(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * Turns one CSV row into the exact shape `customerCreateInput` accepts, or
+ * reports every problem it found. No value is coerced or rounded: an ambiguous
+ * balance is rejected instead of guessed at.
+ */
+export function readImportRow(row: ImportRowInput): {
+  draft?: CustomerImportDraft;
+  issues: CustomerImportIssue[];
+} {
+  const { lineNumber } = row;
+  const raw = row.values;
+  const issues: CustomerImportIssue[] = [];
+  const fail = (field: string, message: string) => issues.push({ lineNumber, field, message });
+
+  const name = raw.name.trim();
+  if (name === "") fail("name", "Name is required.");
+  else if (name.length > 200) fail("name", "Name must be 200 characters or fewer.");
+
+  const email = raw.email.trim();
+  if (email === "") fail("email", "Email is required.");
+  else if (email.length > 320) fail("email", "Email must be 320 characters or fewer.");
+  else if (!z.email().safeParse(email).success) fail("email", "Enter a valid email address.");
+
+  const phone = optionalText(raw.phone);
+  if (phone !== undefined && phone.length > 40) {
+    fail("phone", "Phone must be 40 characters or fewer.");
+  }
+
+  const company = optionalText(raw.company);
+  if (company !== undefined && company.length > 200) {
+    fail("company", "Company must be 200 characters or fewer.");
+  }
+
+  const statusText = raw.status.trim() === "" ? DEFAULTS.status : raw.status.trim();
+  if (!IMPORTABLE_STATUSES.includes(statusText as (typeof IMPORTABLE_STATUSES)[number])) {
+    fail("status", "Status must be active or inactive.");
+  }
+
+  const balanceText =
+    raw.balanceMinor.trim() === "" ? DEFAULTS.balanceMinor : raw.balanceMinor.trim();
+  if (!BALANCE_PATTERN.test(balanceText)) {
+    fail(
+      "balanceMinor",
+      "Balance must be a whole number in minor units, with an optional leading minus sign.",
+    );
+  }
+  const balanceMinor = Number(balanceText);
+  if (
+    BALANCE_PATTERN.test(balanceText) &&
+    (!Number.isSafeInteger(balanceMinor) || Math.abs(balanceMinor) > MAX_BALANCE_MINOR)
+  ) {
+    fail(
+      "balanceMinor",
+      `Balance must be between -${MAX_BALANCE_MINOR} and ${MAX_BALANCE_MINOR} minor units.`,
+    );
+  }
+
+  const currencyText = raw.currency.trim() === "" ? DEFAULTS.currency : raw.currency.trim();
+  if (currencyText.length !== 3) fail("currency", "Currency must be exactly three characters.");
+
+  const notes = raw.notes;
+  if (notes.length > 2000) fail("notes", "Notes must be 2000 characters or fewer.");
+
+  if (issues.length > 0) return { issues };
+
+  const draft: CustomerImportDraft = {
+    lineNumber,
+    name,
+    email,
+    ...(phone === undefined ? {} : { phone }),
+    ...(company === undefined ? {} : { company }),
+    status: statusText as CustomerImportDraft["status"],
+    balanceMinor,
+    currency: currencyText,
+    ...(notes.trim() === "" ? {} : { notes }),
+  };
+  return { draft, issues };
+}
+
+/** Within-file duplicates, reported on every row after the first occurrence. */
+function withinFileIssues(rows: readonly ImportRowInput[]): CustomerImportIssue[] {
+  const seen = new Map<string, number>();
+  const issues: CustomerImportIssue[] = [];
+  for (const row of rows) {
+    const email = row.values.email.trim();
+    if (email === "") continue;
+    const first = seen.get(email);
+    if (first === undefined) {
+      seen.set(email, row.lineNumber);
+      continue;
+    }
+    issues.push({
+      lineNumber: row.lineNumber,
+      field: "email",
+      message: `Email duplicates line ${first} in this file.`,
+    });
+  }
+  return issues;
+}
+
+/** Validates every row, then reports emails that already exist in the database. */
+async function validateImport(
+  db: Parameters<typeof customerQueries>[0],
+  rows: readonly ImportRowInput[],
+): Promise<{
+  drafts: CustomerImportDraft[];
+  issues: CustomerImportIssue[];
+  existingEmails: Set<string>;
+}> {
+  const issues = withinFileIssues(rows);
+  const drafts: CustomerImportDraft[] = [];
+  for (const row of rows) {
+    const result = readImportRow(row);
+    issues.push(...result.issues);
+    if (result.draft) drafts.push(result.draft);
+  }
+
+  const candidates = [...new Set(drafts.map((draft) => draft.email))];
+  const existingEmails = await customerQueries(db).existingEmails(candidates);
+  for (const draft of drafts) {
+    if (existingEmails.has(draft.email)) {
+      issues.push({
+        lineNumber: draft.lineNumber,
+        field: "email",
+        message: "Email already belongs to an existing Customer.",
+      });
+    }
+  }
+
+  issues.sort((a, b) => a.lineNumber - b.lineNumber);
+  return { drafts, issues, existingEmails };
+}
+
+function toCustomerInsert(draft: CustomerImportDraft) {
+  const { lineNumber: _lineNumber, ...values } = draft;
+  return { ...values, id: crypto.randomUUID() };
+}
 
 export const customersRouter = router({
   list: protectedProcedure.input(customerListInput).query(({ ctx, input }) => {
@@ -148,6 +348,61 @@ export const customersRouter = router({
       }
       return archived;
     }),
+
+  /**
+   * Validates every row and returns the bounded sample plus every issue by its
+   * original line number. Writes nothing.
+   */
+  importPreview: protectedProcedure.input(customerImportInput).mutation(async ({ ctx, input }) => {
+    const { drafts, issues } = await validateImport(ctx.db, input.rows);
+    return {
+      total: input.rows.length,
+      sample: drafts.slice(0, PREVIEW_SAMPLE_ROWS),
+      issues,
+    };
+  }),
+
+  /**
+   * Revalidates server-side and inserts only new Customers. A conflict that
+   * appeared after preview (or a concurrent unique violation) returns the
+   * affected line numbers with zero rows written.
+   */
+  importConfirm: protectedProcedure.input(customerImportInput).mutation(async ({ ctx, input }) => {
+    const { drafts, issues, existingEmails } = await validateImport(ctx.db, input.rows);
+
+    // Every issue already carries a line, so a row that failed validation is a
+    // conflict line too. `existingEmails` is the pre-check view used for the
+    // preview; it can be stale by the time the write runs.
+    const conflictingLines = new Set(issues.map((issue) => issue.lineNumber));
+    for (const draft of drafts) {
+      if (existingEmails.has(draft.email)) conflictingLines.add(draft.lineNumber);
+    }
+
+    const linesFor = (emails: Iterable<string>) => {
+      const wanted = new Set(emails);
+      for (const draft of drafts) {
+        if (wanted.has(draft.email)) conflictingLines.add(draft.lineNumber);
+      }
+      return [...conflictingLines].sort((a, b) => a - b);
+    };
+
+    if (issues.length === 0) {
+      const { created, conflictEmails } = await customerQueries(ctx.db).importMany(
+        drafts.map(toCustomerInsert),
+      );
+      if (conflictEmails.length === 0 && created.length === drafts.length) {
+        return { ok: true as const, created: created.length };
+      }
+      // Either the transaction's re-read or the unique index saw a conflict the
+      // pre-check could not, and the batch rolled back in full.
+      return { ok: false as const, conflictLineNumbers: linesFor(conflictEmails) };
+    }
+
+    return {
+      ok: false as const,
+      conflictLineNumbers: [...conflictingLines].sort((a, b) => a - b),
+    };
+  }),
 
   // Destructive: administrators only. Proves the role gate end to end (docs/adr/0003).
   remove: adminProcedure

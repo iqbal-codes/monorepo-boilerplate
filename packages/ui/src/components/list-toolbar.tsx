@@ -44,7 +44,7 @@ export function ListToolbar({
         </InputGroupAddon>
       </InputGroup>
       {filters && <div className="flex flex-wrap items-center gap-2">{filters}</div>}
-      <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
         {isFetching && <Spinner aria-hidden />}
         {resultLabel}
       </span>

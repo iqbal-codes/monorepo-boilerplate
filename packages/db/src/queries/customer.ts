@@ -35,6 +35,16 @@ export type CustomerListQuery = CustomerScopeQuery & {
  */
 export const CUSTOMER_EXPORT_LIMIT = 10_000;
 
+export interface ImportManyResult {
+  /** Inserted Customers, in input order. Empty whenever `conflictEmails` is non-empty. */
+  created: Customer[];
+  /**
+   * Emails that were already stored (any status) when the transaction re-read
+   * them, byte-exact. When this is non-empty the batch was a no-op.
+   */
+  conflictEmails: string[];
+}
+
 export interface CustomerQueries {
   list(query: CustomerListQuery): Promise<{ rows: Customer[]; rowCount: number }>;
   /**
@@ -49,6 +59,36 @@ export interface CustomerQueries {
   archiveMany(ids: readonly string[]): Promise<{ count: number } | null>;
   remove(id: string): Promise<{ id: string }>;
   stats(): Promise<{ total: number; active: number; balanceMinor: number }>;
+  /**
+   * Every stored email that matches `emails` byte-for-byte. Archived Customers
+   * are included: the unique index behind them still blocks a re-import.
+   */
+  existingEmails(emails: readonly string[]): Promise<Set<string>>;
+  /**
+   * Revalidates and inserts inside one transaction. All-or-nothing: if any input
+   * email is already stored the transaction inserts nothing and names every
+   * conflicting email, so an existing Customer is never updated and a partial
+   * batch can never be committed.
+   */
+  importMany(rows: readonly NewCustomer[]): Promise<ImportManyResult>;
+}
+
+/** Postgres unique-violation, raised by the `customer_email_unique` index. */
+export const UNIQUE_VIOLATION = "23505";
+
+/**
+ * True for a Postgres unique violation. Drizzle wraps driver errors in a
+ * `DrizzleQueryError`, so the SQLSTATE lives on `cause` (and can be nested more
+ * than one level), not on the error the caller catches.
+ */
+export function isUniqueViolation(error: unknown): boolean {
+  for (let current = error, depth = 0; current && depth < 5; depth += 1) {
+    if (typeof current === "object" && "code" in current) {
+      if ((current as { code?: unknown }).code === UNIQUE_VIOLATION) return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 export type CustomerExportRow = {
@@ -206,6 +246,62 @@ export function customerQueries(db: Database): CustomerQueries {
         active: totals?.active ?? 0,
         balanceMinor: Number(totals?.balanceMinor ?? 0),
       };
+    },
+
+    async existingEmails(emails) {
+      if (emails.length === 0) return new Set<string>();
+      const rows = await db
+        .select({ email: customer.email })
+        .from(customer)
+        .where(inArray(customer.email, [...emails]));
+      return new Set(rows.map((row) => row.email));
+    },
+
+    async importMany(rows) {
+      if (rows.length === 0) return { created: [], conflictEmails: [] };
+
+      const emails = [...new Set(rows.map((row) => row.email))];
+      const duplicatedInBatch = new Set(
+        rows.map((row) => row.email).filter((email, index, all) => all.indexOf(email) !== index),
+      );
+
+      try {
+        // One transaction: re-read the stored emails for this batch, then insert
+        // all of it. Any conflict aborts before the INSERT runs, so the batch is
+        // all-or-nothing and no existing Customer is touched.
+        return await db.transaction(async (tx) => {
+          const stored = await tx
+            .select({ email: customer.email })
+            .from(customer)
+            .where(inArray(customer.email, emails))
+            .orderBy(asc(customer.email))
+            .for("update");
+          if (stored.length > 0) {
+            return { created: [], conflictEmails: stored.map((row) => row.email) };
+          }
+
+          const created = await tx
+            .insert(customer)
+            .values([...rows])
+            .returning();
+          return { created, conflictEmails: [] };
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        // The unique index is the final race check: a competing writer committed
+        // between the re-read and the INSERT, or the batch itself repeats an
+        // email. The transaction rolled back, so report what is now stored plus
+        // any email this batch repeated.
+        const nowStored = await db
+          .select({ email: customer.email })
+          .from(customer)
+          .where(inArray(customer.email, emails));
+        const conflictEmails = new Set([
+          ...duplicatedInBatch,
+          ...nowStored.map((row) => row.email),
+        ]);
+        return { created: [], conflictEmails: [...conflictEmails] };
+      }
     },
   };
 }

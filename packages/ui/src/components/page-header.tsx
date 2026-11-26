@@ -22,12 +22,16 @@ export function PageHeader({
     <div data-slot="page-header" className={cn("flex flex-col gap-3", className)}>
       {breadcrumbs}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
-          {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+        <div className="flex min-w-[min(100%,14rem)] flex-1 flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-balance">{title}</h1>
+          {description ? (
+            <p className="text-sm text-pretty text-muted-foreground">{description}</p>
+          ) : null}
         </div>
         {actions ? (
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto">
+            {actions}
+          </div>
         ) : null}
       </div>
     </div>

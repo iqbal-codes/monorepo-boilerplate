@@ -6,6 +6,7 @@ import { logger } from "hono/logger";
 
 import { createContext } from "./context";
 import { ENV } from "./env.server";
+import { importBodyLimit } from "./lib/import-body-limit";
 import { assistant } from "./routes/assistant";
 import { uploads } from "./routes/uploads";
 import { auth } from "./services";
@@ -28,6 +29,10 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => auth.handler(c.req.raw));
 app.route("/api/chat", assistant);
 
 app.route("/uploads", uploads);
+
+// Before the tRPC handler: an oversized Customers import is rejected before
+// the JSON body is decoded. Every other request passes through untouched.
+app.use("/trpc/*", importBodyLimit());
 
 app.use(
   "/trpc/*",

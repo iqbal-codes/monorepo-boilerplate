@@ -39,6 +39,12 @@ type ExportWorker = {
 
 type WorkerPhase = "idle" | "loading" | "fetching" | "generating";
 
+export type ExportFeedback = {
+  busy: boolean;
+  message: string;
+  error: string | null;
+};
+
 /**
  * A worker script error has no useful technical detail to show staff, so it gets
  * the same actionable retry copy as any other failure.
@@ -50,10 +56,13 @@ export function ExportButton({
   getFilename,
   fetchExport,
   hint,
+  describedById,
+  onFeedbackChange,
   disabled = false,
   cancelSignal,
   onExported,
   className,
+  buttonClassName,
 }: {
   label: React.ReactNode;
   /** Called once per activation; the returned name is never recomputed mid-run. */
@@ -66,6 +75,10 @@ export function ExportButton({
   fetchExport: (signal: AbortSignal) => Promise<ExportSource>;
   /** Visible caveat, associated with the button. */
   hint?: React.ReactNode;
+  /** External description element ID when the Screen renders the hint outside this block. */
+  describedById?: string;
+  /** External feedback listener when the Screen renders export status/errors outside this block. */
+  onFeedbackChange?: (feedback: ExportFeedback) => void;
   disabled?: boolean;
   /**
    * Screen-owned signal for "this view is no longer current".
@@ -79,6 +92,7 @@ export function ExportButton({
   cancelSignal?: AbortSignal;
   onExported?: (file: File, rowCount: number) => void;
   className?: string;
+  buttonClassName?: string;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
@@ -304,30 +318,53 @@ export function ExportButton({
   }
 
   const busyLabel = message || "Preparing the export.";
+  const onFeedbackChangeRef = React.useRef(onFeedbackChange);
+  onFeedbackChangeRef.current = onFeedbackChange;
+
+  React.useEffect(() => {
+    onFeedbackChangeRef.current?.({
+      busy,
+      message: busy ? busyLabel : message,
+      error,
+    });
+  }, [busy, busyLabel, message, error]);
+
+  const button = (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      className={buttonClassName}
+      // Busy is a disabled state for assistive tech and for the click handler,
+      // but the control stays focusable so a keyboard user lands back on the
+      // Export action for an immediate retry. The guarded click handler above
+      // is what actually prevents overlapping exports. A Screen-set `disabled`
+      // is a real disabled state and does drop out of the tab order.
+      disabled={disabled || busy}
+      focusableWhenDisabled={busy && !disabled}
+      aria-busy={busy || undefined}
+      aria-describedby={hint ? hintId : describedById}
+      onClick={() => void start()}
+    >
+      {busy ? (
+        <Spinner data-icon="inline-start" aria-hidden />
+      ) : (
+        <DownloadIcon data-icon="inline-start" aria-hidden />
+      )}
+      {label}
+    </Button>
+  );
+
+  if (onFeedbackChange) {
+    return button;
+  }
 
   return (
     <div
       data-slot="export-button"
       className={cn("flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1", className)}
     >
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        // Busy is a disabled state for assistive tech and for the click handler,
-        // but the control stays focusable so a keyboard user lands back on the
-        // Export action for an immediate retry. The guarded click handler above
-        // is what actually prevents overlapping exports. A Screen-set `disabled`
-        // is a real disabled state and does drop out of the tab order.
-        disabled={disabled || busy}
-        focusableWhenDisabled={busy && !disabled}
-        aria-busy={busy || undefined}
-        aria-describedby={hint ? hintId : undefined}
-        onClick={() => void start()}
-      >
-        {busy ? <Spinner aria-hidden /> : <DownloadIcon aria-hidden />}
-        {label}
-      </Button>
+      {button}
       {hint ? (
         <p id={hintId} className="min-w-0 text-xs text-muted-foreground">
           {hint}
