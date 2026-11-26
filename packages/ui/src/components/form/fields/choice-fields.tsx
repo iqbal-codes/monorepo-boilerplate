@@ -89,6 +89,7 @@ export function SelectField({
   const { messages, invalid } = useFieldFeedback(showError);
 
   const value = field.state.value ? field.state.value : null;
+  const showClear = clearable && value !== null && !disabled;
   const items = React.useMemo(
     () => [
       { value: null, label: placeholder },
@@ -111,7 +112,7 @@ export function SelectField({
       className={className}
       ids={ids}
     >
-      <div className="flex w-full items-center gap-1">
+      <div className="relative flex w-full items-center">
         <Select
           items={items}
           value={value}
@@ -132,7 +133,7 @@ export function SelectField({
               ids,
             })}
             onBlur={field.handleBlur}
-            className={cn("w-full", triggerClassName)}
+            className={cn("w-full", showClear && "pr-8", triggerClassName)}
           >
             <SelectValue />
           </SelectTrigger>
@@ -158,11 +159,12 @@ export function SelectField({
             ))}
           </SelectContent>
         </Select>
-        {clearable && value !== null && !disabled ? (
+        {showClear ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
+            className="absolute end-0 inset-y-0 my-auto"
             aria-label={`Clear ${typeof label === "string" ? label : "selection"}`}
             onClick={() => {
               field.handleChange(undefined);

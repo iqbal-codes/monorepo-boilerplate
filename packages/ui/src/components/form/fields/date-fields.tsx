@@ -66,6 +66,7 @@ export function DateField({
   const [open, setOpen] = React.useState(false);
 
   const selected = React.useMemo(() => parseIsoDate(field.state.value), [field.state.value]);
+  const showClear = clearable && Boolean(selected) && !disabled;
 
   return (
     <FieldFrame
@@ -80,7 +81,7 @@ export function DateField({
       className={className}
       ids={ids}
     >
-      <div className="flex w-full items-center gap-1">
+      <div className="relative flex w-full items-center">
         <Popover
           open={open}
           onOpenChange={(nextOpen) => {
@@ -103,6 +104,7 @@ export function DateField({
                 })}
                 className={cn(
                   "h-10 w-full justify-start border-transparent border-b-input px-0 font-normal tracking-normal normal-case hover:bg-transparent",
+                  showClear && "pr-8",
                   !selected && "text-muted-foreground",
                   invalid && "border-b-destructive",
                 )}
@@ -130,11 +132,12 @@ export function DateField({
             />
           </PopoverContent>
         </Popover>
-        {clearable && selected && !disabled ? (
+        {showClear ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
+            className="absolute end-0 inset-y-0 my-auto"
             aria-label={`Clear ${typeof label === "string" ? label : "date"}`}
             onClick={() => {
               field.handleChange("");
@@ -193,6 +196,7 @@ export function DateRangeField({
       ? `${format(selected.from, displayFormat)} – ${format(selected.to, displayFormat)}`
       : format(selected.from, displayFormat)
     : placeholder;
+  const showClear = clearable && Boolean(selected?.from || selected?.to) && !disabled;
 
   return (
     <FieldFrame
@@ -207,7 +211,7 @@ export function DateRangeField({
       className={className}
       ids={ids}
     >
-      <div className="flex w-full items-center gap-1">
+      <div className="relative flex w-full items-center">
         <Popover
           open={open}
           onOpenChange={(nextOpen) => {
@@ -230,6 +234,7 @@ export function DateRangeField({
                 })}
                 className={cn(
                   "h-10 w-full justify-start border-transparent border-b-input px-0 font-normal tracking-normal normal-case hover:bg-transparent",
+                  showClear && "pr-8",
                   !selected?.from && "text-muted-foreground",
                   invalid && "border-b-destructive",
                 )}
@@ -255,11 +260,12 @@ export function DateRangeField({
             />
           </PopoverContent>
         </Popover>
-        {clearable && (selected?.from || selected?.to) && !disabled ? (
+        {showClear ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
+            className="absolute end-0 inset-y-0 my-auto"
             aria-label={`Clear ${typeof label === "string" ? label : "date range"}`}
             onClick={() => {
               field.handleChange({ from: undefined, to: undefined });
@@ -319,6 +325,7 @@ export function DateTimeField({
 
   const timeZone = React.useMemo(() => getLocalTimeZone(), []);
   const selected = React.useMemo(() => parseIsoDateTime(field.state.value), [field.state.value]);
+  const showClear = clearable && Boolean(selected) && !disabled;
 
   const hours24 = selected ? selected.getHours() : 9;
   const minutes = selected ? selected.getMinutes() : 0;
@@ -354,7 +361,7 @@ export function DateTimeField({
       className={className}
       ids={ids}
     >
-      <div className="flex w-full items-center gap-1">
+      <div className="relative flex w-full items-center">
         <Popover
           open={open}
           onOpenChange={(nextOpen) => {
@@ -377,6 +384,7 @@ export function DateTimeField({
                 })}
                 className={cn(
                   "h-10 w-full justify-start border-transparent border-b-input px-0 font-normal tracking-normal normal-case hover:bg-transparent",
+                  showClear && "pr-8",
                   !selected && "text-muted-foreground",
                   invalid && "border-b-destructive",
                 )}
@@ -509,11 +517,12 @@ export function DateTimeField({
             </div>
           </PopoverContent>
         </Popover>
-        {clearable && selected && !disabled ? (
+        {showClear ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
+            className="absolute end-0 inset-y-0 my-auto"
             aria-label={`Clear ${typeof label === "string" ? label : "date and time"}`}
             onClick={() => {
               field.handleChange("");

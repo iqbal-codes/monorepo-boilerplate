@@ -174,7 +174,7 @@ export function FieldSetFrame({
       <FieldLegend
         id={ids.labelId}
         variant="label"
-        className={cn("mb-0", hideLabel && "sr-only", invalid && "text-destructive")}
+        className={cn("mb-1.5", hideLabel && "sr-only", invalid && "text-destructive")}
       >
         {label}
         {required ? (
