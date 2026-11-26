@@ -245,6 +245,21 @@ describe("KanbanBoard", () => {
     expect(html).not.toContain("Unmatched");
   });
 
+  test("column card wrapper scopes overscroll containment to vertical axis so horizontal scrolling chains to the board", () => {
+    const html = renderToStaticMarkup(
+      <KanbanBoard
+        columns={COLUMNS}
+        cards={CARDS}
+        getCardId={(card) => card.id}
+        getCardColumnId={(card) => card.columnId}
+        renderCard={({ card }) => <KanbanCardSurface>{card.title}</KanbanCardSurface>}
+      />,
+    );
+
+    expect(html).toContain("overflow-x-clip overflow-y-auto overscroll-y-contain");
+    expect(html).not.toContain("overscroll-contain");
+  });
+
   test("marks a column exceeding its WIP limit with an accessible text cue", () => {
     const overloadedCards: TaskCard[] = [
       { id: "c1", columnId: "doing", title: "A" },

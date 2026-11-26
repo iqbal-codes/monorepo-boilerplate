@@ -365,7 +365,7 @@ function KanbanColumnView<TCard, TColumn extends KanbanColumnDef>({
         </div>
       )}
 
-      <div className="kanban-scroll flex min-h-32 max-h-[min(65vh,36rem)] flex-1 flex-col overflow-y-auto overscroll-contain p-2.5">
+      <div className="kanban-scroll flex min-h-32 max-h-[min(65vh,36rem)] flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-y-contain p-2.5">
         {cards.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center py-6">
             {renderEmptyColumn ? (
