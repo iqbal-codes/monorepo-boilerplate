@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Optional UI preview hook for factory-slice UX verification.
+# Copy to .archon/ui-preview.sh and chmod +x once your repository has a runnable web UI.
+# Contract:
+#   - Start an isolated preview server on an unused port (using ephemeral test DB/seed if needed).
+#   - Wait until the server responds to HTTP requests.
+#   - Print these two lines on stdout:
+#       URL=http://127.0.0.1:<port>
+#       PID=<server_pid>
+set -euo pipefail
+
+echo "Wire .archon/ui-preview.sh to start your app's dev/preview server and print URL= and PID=." >&2
+exit 1

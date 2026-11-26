@@ -57,6 +57,7 @@
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
+    "setup": "bun scripts/setup.ts",
     "env:init": "bun scripts/env-init.ts",
     "rename": "bun scripts/rename.ts",
     "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/",

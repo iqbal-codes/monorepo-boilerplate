@@ -63,9 +63,7 @@ To run the Customers archive integration tests, apply the schema to a disposable
 bun create iqbal-codes/monorepo-boilerplate my-app
 cd my-app
 bun run rename my-app   # optional: replace the template scope and name
-bun run db:start        # Postgres in Docker
-bun run db:push
-bun run db:seed         # 53 deterministic customers for the reference flow
+bun run setup           # env files, Postgres in Docker, schema push, 53 seed customers
 bun run dev
 ```
 
@@ -77,13 +75,17 @@ bun run dev
 
 ```bash
 bun install
+bun run setup   # idempotent: safe to re-run after schema changes
+bun run dev
 ```
+
+`bun run setup` is the one-shot local bootstrap: it creates missing env files, starts the bundled Postgres, waits for its healthcheck, applies the Drizzle schema, and seeds the reference flow. Nothing is interactive on a fresh database.
 
 ## Database Setup
 
 This project uses PostgreSQL with Drizzle ORM.
 
-1. Start the bundled Postgres: `bun run db:start` (or point `DATABASE_URL` in `apps/server/.env` at your own database).
+1. Start the bundled Postgres: `bun run setup` does this and the remaining steps in one go (or point `DATABASE_URL` in `apps/server/.env` at your own database and run the steps below manually).
 2. Apply the schema to your database:
 
 ```bash

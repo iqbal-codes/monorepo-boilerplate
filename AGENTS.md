@@ -4,6 +4,7 @@ TypeScript monorepo on Bun workspaces (`@monorepo-boilerplate`). Root scripts li
 
 ## Environment & Codegen Gotchas
 
+- `bun run setup` is the one-shot local bootstrap: env files, Postgres via Compose (waits for healthy), `db:push`, `db:seed`. Idempotent; re-run after schema changes.
 - `bun install` runs `env-init` (never overwrites existing `.env`) and `varlock codegen`. After editing `.env.schema`, run `bun run env:generate`.
 - Varlock owns env loading (`bunfig.toml` sets `env = false`). Run standalone Bun/Node tools from the owning app directory so they load that app's schema.
 - `docker-compose.yml` publishes Postgres 18 on fixed port `5432` (one checkout per host). `packages/db/src/migrations/` starts empty, so `bun run db:push` applies schema changes until migration files exist.
@@ -26,6 +27,16 @@ TypeScript monorepo on Bun workspaces (`@monorepo-boilerplate`). Root scripts li
 - `.archon/workflows/factory/` is copied from `~/.archon/factory-pack/`; upsert from that pack rather than hand-editing.
 - Branch from `master`. State only checks you executed in PRs and summaries.
 
-## Domain docs
+## Agent skills
+
+### Issue tracker
+
+GitHub issues in `iqbal-codes/monorepo-boilerplate`, owned by the Archon Factory pack (`factory:*` labels). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five triage roles map to `factory:triage`, `factory:needs-info`, `factory:ready`, `factory:human`, and `factory:wontfix`; legacy Matt labels are inbound aliases only. See `docs/agents/triage-labels.md`.
+
+### Domain docs
 
 Single-context layout (`GLOSSARY.md` and `docs/adr/` at the repo root). See `docs/agents/domain.md`.
