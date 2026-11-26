@@ -44,6 +44,32 @@ export const CUSTOMER_EXPORT_COLUMNS = [
 export const CUSTOMER_EXPORT_TOO_LARGE_MESSAGE =
   "This export matches more than 10,000 customers. Narrow the search or status filter and try again.";
 
+/**
+ * The widest integer a JSON number can carry without losing precision. The DB
+ * column is a SQL `bigint`, so a row outside this range cannot be represented
+ * as a number in the payload.
+ */
+const MAX_SAFE_BALANCE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_BALANCE_MINOR = -MAX_SAFE_BALANCE_MINOR;
+
+/**
+ * Converts the exact decimal text from the query into the payload's JSON number.
+ *
+ * Throws instead of rounding: a wrong balance in a downloaded file is worse than
+ * a failed export, and the CSV cannot express "unsafe" by any other means.
+ */
+function toExportBalanceMinor(balanceMinor: string): number {
+  const exact = BigInt(balanceMinor);
+  if (exact > MAX_SAFE_BALANCE_MINOR || exact < MIN_SAFE_BALANCE_MINOR) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "This export includes a balance too large to write exactly. Narrow the search or status filter and try again.",
+    });
+  }
+  return Number(exact);
+}
+
 export const customerCreateInput = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.email().max(320),
@@ -74,6 +100,10 @@ export const customersRouter = router({
    * `balanceMinor` stays a JSON number so the worker never mistakes a negative
    * balance for formula-like text. The client generates the file in a worker so
    * neither the rows nor their stringification touch the main thread.
+   *
+   * The query projects the balance as exact decimal text and this procedure
+   * range-checks it before any number conversion, so a stored value outside
+   * JavaScript's safe integer range fails the export instead of rounding.
    */
   export: protectedProcedure.input(customerScopeInput).query(async ({ ctx, input }) => {
     const rows = await customerQueries(ctx.db).exportRows(input);
@@ -85,7 +115,11 @@ export const customersRouter = router({
     }
     return JSON.stringify({
       headers: CUSTOMER_EXPORT_COLUMNS,
-      rows: rows.map((row) => CUSTOMER_EXPORT_COLUMNS.map((column) => row[column])),
+      rows: rows.map((row) =>
+        CUSTOMER_EXPORT_COLUMNS.map((column) =>
+          column === "balanceMinor" ? toExportBalanceMinor(row.balanceMinor) : row[column],
+        ),
+      ),
     });
   }),
 

@@ -7,22 +7,20 @@
  * and produces no partial output: a malformed payload returns
  * `{ type: "error" }` and no file.
  */
-import { runCsvExport, type CsvExportResponse } from "./csv";
+import { runCsvExport, type CsvExportRequest, type CsvExportResponse } from "./csv";
 
 type CsvExportWorkerScope = {
   addEventListener(
     type: "message",
-    listener: (event: MessageEvent<CsvExportRequestMessage>) => void,
+    listener: (event: MessageEvent<CsvExportRequest>) => void,
   ): void;
   postMessage(message: CsvExportResponse): void;
 };
 
-export type CsvExportRequestMessage = { payload: string; filename: string };
-
 /** One-shot listener: a duplicate message can never produce a second file. */
 export function handleCsvExportRequest(
   scope: CsvExportWorkerScope,
-  message: CsvExportRequestMessage,
+  message: CsvExportRequest,
 ): CsvExportResponse {
   const response = runCsvExport(message);
   scope.postMessage(response);
@@ -35,7 +33,7 @@ export function handleCsvExportRequest(
  */
 export function registerCsvExportWorker(scope: CsvExportWorkerScope): void {
   let handled = false;
-  scope.addEventListener("message", (event: MessageEvent<CsvExportRequestMessage>) => {
+  scope.addEventListener("message", (event: MessageEvent<CsvExportRequest>) => {
     if (handled) return;
     handled = true;
     handleCsvExportRequest(scope, event.data);

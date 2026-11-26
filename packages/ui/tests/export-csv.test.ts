@@ -160,6 +160,24 @@ describe("decodeCsvExportPayload", () => {
       ),
     ).toThrow(/unsupported cell/);
   });
+
+  test("rejects an unsafe-integer cell instead of rounding it", () => {
+    // JSON.parse yields 9007199254740992 for this literal, so the guard is what
+    // stops a rounded balance from reaching the CSV.
+    expect(() => decodeCsvExportPayload('{"headers":["a"],"rows":[[9007199254740993]]}')).toThrow(
+      /cannot be written exactly/,
+    );
+
+    expect(() => decodeCsvExportPayload(JSON.stringify({ headers: ["a"], rows: [[1.5]] }))).toThrow(
+      /cannot be written exactly/,
+    );
+
+    expect(() =>
+      decodeCsvExportPayload(
+        JSON.stringify({ headers: ["a"], rows: [[Number.MAX_SAFE_INTEGER + 2]] }),
+      ),
+    ).toThrow(/cannot be written exactly/);
+  });
 });
 
 describe("runCsvExport", () => {

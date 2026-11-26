@@ -57,7 +57,15 @@ export type CustomerExportRow = {
   phone: string | null;
   company: string | null;
   status: Customer["status"];
-  balanceMinor: number;
+  /**
+   * Exact decimal text from the database, not a JS number.
+   *
+   * `customer.balanceMinor` is a SQL `bigint`, which is wider than JavaScript's
+   * safe integer range, and the number-mode codec would silently round anything
+   * outside it. Projecting the column as text keeps the stored value exact, and
+   * the API converts it only after a range check.
+   */
+  balanceMinor: string;
   currency: string;
   notes: string | null;
 };
@@ -131,7 +139,7 @@ export function customerQueries(db: Database): CustomerQueries {
           phone: customer.phone,
           company: customer.company,
           status: customer.status,
-          balanceMinor: customer.balanceMinor,
+          balanceMinor: sql<string>`${customer.balanceMinor}::text`,
           currency: customer.currency,
           notes: customer.notes,
         })

@@ -64,6 +64,174 @@ async function withDom(run: (win: Window) => Promise<void>) {
   }
 }
 
+type FakeWorkerInstance = {
+  posted: unknown[];
+  terminated: boolean;
+  deliver(message: unknown): void;
+  fail(message: string): void;
+};
+
+/**
+ * One fixture for every lifecycle case: a mounted `ExportButton` in a fake DOM,
+ * with the fake `Worker`, object-URL registry, and download capture the block
+ * actually uses. Scenarios only supply `fetchExport`, `getFilename`, and
+ * assertions, so adding a case never re-invents the environment.
+ */
+type Harness = {
+  workers: FakeWorkerInstance[];
+  createdUrls: string[];
+  revokedUrls: string[];
+  downloads: string[];
+  signals: AbortSignal[];
+  click(): Promise<void>;
+  unmount(): Promise<void>;
+  button(): HTMLButtonElement | null;
+  text(): string;
+  alert(): string;
+  status(): string;
+};
+
+async function mountExportButton(
+  win: Window,
+  props: {
+    fetchExport: (signal: AbortSignal) => Promise<string>;
+    getFilename?: (activatedAt: Date) => string;
+    onExported?: (file: File, rowCount: number) => void;
+    hint?: string;
+    disabled?: boolean;
+  },
+): Promise<Harness> {
+  const container = win.document.createElement("div");
+  win.document.body.appendChild(container);
+  const root = createRoot(container);
+
+  const workers: FakeWorkerInstance[] = [];
+  const createdUrls: string[] = [];
+  const revokedUrls: string[] = [];
+  const downloads: string[] = [];
+  const signals: AbortSignal[] = [];
+
+  class FakeWorker implements FakeWorkerInstance {
+    posted: unknown[] = [];
+    terminated = false;
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onerror: ((event: { message?: string }) => void) | null = null;
+
+    constructor() {
+      workers.push(this);
+    }
+
+    postMessage(message: unknown) {
+      this.posted.push(message);
+    }
+
+    terminate() {
+      this.terminated = true;
+    }
+
+    deliver(message: unknown) {
+      this.onmessage?.({ data: message });
+    }
+
+    fail(message: string) {
+      this.onerror?.({ message });
+    }
+  }
+
+  const RealURL = globalThis.URL;
+  class FakeURL extends RealURL {
+    static override createObjectURL() {
+      const url = `blob:fake/${createdUrls.length + 1}`;
+      createdUrls.push(url);
+      return url;
+    }
+
+    static override revokeObjectURL(url: string) {
+      revokedUrls.push(url);
+    }
+  }
+
+  const createElement = win.document.createElement.bind(win.document);
+  (win.document as unknown as { createElement: typeof createElement }).createElement = ((
+    tag: string,
+    ...rest: unknown[]
+  ) => {
+    const element = createElement(tag, ...rest) as HTMLElement & { click: () => void };
+    if (tag === "a") element.click = () => downloads.push(element.getAttribute("download") ?? "");
+    return element;
+  }) as typeof createElement;
+
+  const previous = { Worker: globalThis.Worker, URL: RealURL };
+  Object.assign(globalThis, { Worker: FakeWorker, URL: FakeURL });
+
+  const capture = (signal: AbortSignal) => {
+    signals.push(signal);
+    return props.fetchExport(signal);
+  };
+
+  await act(async () => {
+    root.render(
+      <ExportButton
+        label="Export CSV"
+        hint={props.hint ?? "CSV escaping may change literal text."}
+        disabled={props.disabled}
+        getFilename={props.getFilename ?? (() => "customers-2026-11-26.csv")}
+        fetchExport={capture}
+        onExported={props.onExported}
+      />,
+    );
+  });
+
+  const harness: Harness = {
+    workers,
+    createdUrls,
+    revokedUrls,
+    downloads,
+    signals,
+    async click() {
+      await act(async () => {
+        container.querySelector("button")?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    },
+    async unmount() {
+      await act(async () => {
+        root.unmount();
+      });
+      Object.assign(globalThis, previous);
+    },
+    button: () => container.querySelector("button"),
+    text: () => container.textContent ?? "",
+    alert: () => container.querySelector('[role="alert"]')?.textContent ?? "",
+    status: () => container.querySelector('[role="status"]')?.textContent ?? "",
+  };
+
+  return harness;
+}
+
+/** Runs `body` with a mounted harness and always unmounts it afterwards. */
+async function withHarness(
+  props: Parameters<typeof mountExportButton>[1],
+  body: (harness: Harness, win: Window) => Promise<void>,
+) {
+  await withDom(async (win) => {
+    const harness = await mountExportButton(win, props);
+    try {
+      await body(harness, win);
+    } finally {
+      await harness.unmount();
+    }
+  });
+}
+
+function csvFile(name = "customers-2026-11-26.csv", body = "name\r\nAda\r\n"): File {
+  return new File([body], name, { type: "text/csv;charset=utf-8" });
+}
+
+function payload(rows: (string | number | null)[][] = [["Ada"]]) {
+  return JSON.stringify({ headers: ["name"], rows });
+}
+
 describe("ExportButton idle markup", () => {
   test("renders an enabled button described by the visible hint", () => {
     const html = renderToStaticMarkup(
@@ -75,8 +243,8 @@ describe("ExportButton idle markup", () => {
       />,
     );
 
-    const buttonTag = buttonAttributes(html);
-    const describedBy = /aria-describedby="([^"]+)"/.exec(buttonTag)?.[1];
+    const button = buttonAttributes(html);
+    const describedBy = /aria-describedby="([^"]+)"/.exec(button)?.[1];
     const hintId = /<p id="([^"]+)"[^>]*>CSV escaping may change literal text\./.exec(html)?.[1];
 
     expect(html).toContain(">Export CSV<");
@@ -84,8 +252,8 @@ describe("ExportButton idle markup", () => {
     expect(describedBy).toBeDefined();
     expect(hintId).toBeDefined();
     expect(describedBy).toBe(hintId);
-    expect(buttonTag).not.toContain("disabled");
-    expect(buttonTag).not.toContain("aria-busy");
+    expect(button).not.toContain("disabled");
+    expect(button).not.toContain("aria-busy");
   });
 
   test("renders a disabled button that keeps the hint visible", () => {
@@ -99,462 +267,327 @@ describe("ExportButton idle markup", () => {
       />,
     );
 
-    const buttonTag = buttonAttributes(html);
+    const button = buttonAttributes(html);
 
-    expect(buttonTag).toContain('aria-describedby="');
-    expect(buttonTag).toContain("disabled");
+    expect(button).toContain('aria-describedby="');
+    expect(button).toContain("disabled");
     expect(html).toContain("CSV escaping may change literal text.");
   });
 });
 
 describe("ExportButton activation", () => {
   test("announces preparation, sends the abort signal, and releases the worker", async () => {
-    await withDom(async (win) => {
-      const container = win.document.createElement("div");
-      win.document.body.appendChild(container);
-      const root = createRoot(container);
+    let resolvePayload: ((value: string) => void) | undefined;
 
-      const signals: AbortSignal[] = [];
-      const downloaded: string[] = [];
-      const workers: FakeWorker[] = [];
-      const revoked: string[] = [];
-      const created: Blob[] = [];
+    await withHarness(
+      {
+        fetchExport: () =>
+          new Promise<string>((resolve) => {
+            resolvePayload = resolve;
+          }),
+      },
+      async (harness) => {
+        await harness.click();
 
-      class FakeWorker {
-        posted: unknown[] = [];
-        terminated = false;
-        onmessage: ((event: { data: unknown }) => void) | null = null;
-        onerror: ((event: { message?: string }) => void) | null = null;
-        constructor() {
-          workers.push(this);
-        }
-        postMessage(message: unknown) {
-          this.posted.push(message);
-        }
-        terminate() {
-          this.terminated = true;
-        }
-      }
-
-      const RealURL = globalThis.URL;
-      class FakeURL extends RealURL {
-        static createObjectURL = (blob: Blob) => {
-          created.push(blob);
-          return `blob:fake/${created.length}`;
-        };
-        static revokeObjectURL = (url: string) => revoked.push(url);
-      }
-      const previous = { Worker: globalThis.Worker, URL: RealURL };
-      Object.assign(globalThis, { Worker: FakeWorker, URL: FakeURL });
-
-      const createElement = win.document.createElement.bind(win.document);
-      (win.document as unknown as { createElement: typeof createElement }).createElement = ((
-        tag: string,
-        ...rest: unknown[]
-      ) => {
-        const element = createElement(tag, ...rest) as HTMLElement & {
-          click: () => void;
-        };
-        if (tag === "a") {
-          element.click = () => downloaded.push(element.getAttribute("download") ?? "");
-        }
-        return element;
-      }) as typeof createElement;
-
-      const exported: Array<{ rows: number; name: string }> = [];
-      let resolvePayload: ((payload: string) => void) | undefined;
-      try {
-        await act(async () => {
-          root.render(
-            <ExportButton
-              label="Export CSV"
-              hint="CSV escaping may change literal text."
-              getFilename={() => "customers-2026-11-26.csv"}
-              fetchExport={(signal) => {
-                signals.push(signal);
-                return new Promise<string>((resolve) => {
-                  resolvePayload = resolve;
-                });
-              }}
-              onExported={(file, rowCount) => exported.push({ rows: rowCount, name: file.name })}
-            />,
-          );
-        });
-
-        const button = container.querySelector("button");
-        expect(button?.getAttribute("aria-busy")).toBeNull();
+        expect(harness.signals).toHaveLength(1);
+        expect(harness.workers).toHaveLength(0);
+        // Busy keeps focus: `aria-disabled` instead of the native attribute, so
+        // the control stays in the tab order and the guard blocks activation.
+        expect(harness.button()?.getAttribute("aria-disabled")).toBe("true");
+        expect(harness.button()?.getAttribute("aria-busy")).toBe("true");
+        expect(harness.text()).toContain("Preparing the export.");
 
         await act(async () => {
-          button?.click();
+          resolvePayload?.(payload([["Ada"], ["Grace"]]));
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
 
-        expect(signals).toHaveLength(1);
-        expect(workers).toHaveLength(0);
-        expect(container.querySelector("button")?.disabled).toBe(true);
-        expect(container.querySelector("button")?.getAttribute("aria-busy")).toBe("true");
-        expect(container.textContent).toContain("Preparing the export.");
-
-        await act(async () => {
-          resolvePayload?.(JSON.stringify({ headers: ["name"], rows: [["Ada"], ["Grace"]] }));
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-
-        expect(workers).toHaveLength(1);
-        expect(container.textContent).toContain("Generating the CSV file.");
-        expect(workers[0]?.posted).toEqual([
+        expect(harness.workers).toHaveLength(1);
+        expect(harness.text()).toContain("Generating the CSV file.");
+        expect(harness.workers[0]?.posted).toEqual([
           {
-            payload: JSON.stringify({ headers: ["name"], rows: [["Ada"], ["Grace"]] }),
+            payload: payload([["Ada"], ["Grace"]]),
             filename: "customers-2026-11-26.csv",
           },
         ]);
-        expect(container.querySelector("button")?.disabled).toBe(true);
+      },
+    );
+  });
 
-        const file = new (globalThis.File as typeof File)(
-          ["name\r\n"],
-          "customers-2026-11-26.csv",
-          {
-            type: "text/csv;charset=utf-8",
-          },
-        );
+  test("downloads once, reports the row count, and re-enables the control", async () => {
+    const exported: Array<{ rows: number; name: string }> = [];
+
+    await withHarness(
+      {
+        fetchExport: async () => payload([["Ada"], ["Grace"]]),
+        onExported: (file, rowCount) => exported.push({ rows: rowCount, name: file.name }),
+      },
+      async (harness) => {
+        await harness.click();
         await act(async () => {
-          workers[0]?.onmessage?.({ data: { type: "done", file, rowCount: 2 } });
-          await new Promise((resolve) => setTimeout(resolve, 0));
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 2 });
         });
 
-        expect(workers[0]?.terminated).toBe(true);
-        expect(downloaded).toEqual(["customers-2026-11-26.csv"]);
-        expect(revoked).toEqual(["blob:fake/1"]);
+        expect(harness.workers[0]?.terminated).toBe(true);
+        expect(harness.downloads).toEqual(["customers-2026-11-26.csv"]);
+        expect(harness.createdUrls).toEqual(["blob:fake/1"]);
         expect(exported).toEqual([{ rows: 2, name: "customers-2026-11-26.csv" }]);
-        expect(container.querySelector("button")?.disabled).toBe(false);
-        expect(container.querySelector("button")?.getAttribute("aria-busy")).toBeNull();
-        expect(container.querySelector('[role="status"]')?.textContent).toBe("Exported 2 rows.");
-      } finally {
-        await act(async () => {
-          root.unmount();
-        });
-        Object.assign(globalThis, previous);
-      }
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+        expect(harness.button()?.getAttribute("aria-busy")).toBeNull();
+        expect(harness.status()).toBe("Exported 2 rows.");
+      },
+    );
+  });
+
+  test("revokes the object URL on the next task after it has served the click", async () => {
+    await withHarness({ fetchExport: async () => payload() }, async (harness) => {
+      await harness.click();
+      await act(async () => {
+        harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+      });
+
+      // Not revoked synchronously: the browser still needs the URL to start
+      // the download.
+      expect(harness.revokedUrls).toEqual([]);
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+
+      expect(harness.revokedUrls).toEqual(["blob:fake/1"]);
     });
   });
 
   test("surfaces a fetch failure as an assertive retry message without a download", async () => {
-    await withDom(async (win) => {
-      const container = win.document.createElement("div");
-      win.document.body.appendChild(container);
-      const root = createRoot(container);
+    await withHarness(
+      {
+        fetchExport: async () => {
+          throw new Error("Could not export customers. Check your connection and try again.");
+        },
+      },
+      async (harness) => {
+        await harness.click();
 
-      const workers: unknown[] = [];
-      const downloaded: string[] = [];
-      const previous = { Worker: globalThis.Worker };
-      class FakeWorker {
-        onmessage: unknown = null;
-        onerror: unknown = null;
-        postMessage() {}
-        terminate() {}
-        constructor() {
-          workers.push(this);
-        }
-      }
-      Object.assign(globalThis, { Worker: FakeWorker });
+        expect(harness.alert()).toContain("Could not export customers");
+        expect(harness.alert()).toContain("try again");
+        expect(harness.workers).toHaveLength(0);
+        expect(harness.downloads).toEqual([]);
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+      },
+    );
+  });
 
-      const createElement = win.document.createElement.bind(win.document);
-      (win.document as unknown as { createElement: typeof createElement }).createElement = ((
-        tag: string,
-        ...rest: unknown[]
-      ) => {
-        const element = createElement(tag, ...rest) as HTMLElement & { click: () => void };
-        if (tag === "a") element.click = () => downloaded.push("clicked");
-        return element;
-      }) as typeof createElement;
+  test("a worker generation failure is assertive, leaves no download, and re-enables the control", async () => {
+    const exported: number[] = [];
 
-      try {
+    await withHarness(
+      { fetchExport: async () => "{}", onExported: (_file, rowCount) => exported.push(rowCount) },
+      async (harness) => {
+        await harness.click();
         await act(async () => {
-          root.render(
-            <ExportButton
-              label="Export CSV"
-              hint="CSV escaping may change literal text."
-              getFilename={() => "customers.csv"}
-              fetchExport={async () => {
-                throw new Error("Could not export customers. Check your connection and try again.");
-              }}
-            />,
-          );
+          harness.workers[0]?.deliver({
+            type: "error",
+            message: "Export payload is not valid JSON.",
+          });
         });
 
-        await act(async () => {
-          container.querySelector("button")?.click();
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
+        expect(harness.workers[0]?.terminated).toBe(true);
+        expect(harness.downloads).toEqual([]);
+        expect(exported).toEqual([]);
+        expect(harness.alert()).toContain("Export payload is not valid JSON.");
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+      },
+    );
+  });
 
-        const alert = container.querySelector('[role="alert"]');
-        expect(alert?.textContent).toContain("Could not export customers");
-        expect(alert?.textContent).toContain("try again");
-        expect(workers).toHaveLength(0);
-        expect(downloaded).toEqual([]);
-        expect(container.querySelector("button")?.disabled).toBe(false);
-      } finally {
-        await act(async () => {
-          root.unmount();
-        });
-        Object.assign(globalThis, previous);
-      }
+  test("a worker script error keeps the retry wording actionable", async () => {
+    await withHarness({ fetchExport: async () => payload() }, async (harness) => {
+      await harness.click();
+      await act(async () => {
+        harness.workers[0]?.fail("ChunkLoadError: Failed to fetch dynamically imported module");
+      });
+
+      expect(harness.workers[0]?.terminated).toBe(true);
+      expect(harness.downloads).toEqual([]);
+      expect(harness.alert()).toBe(
+        "Could not prepare the export. Check your connection and try again.",
+      );
+      // The technical worker message must not leak into staff-facing copy.
+      expect(harness.alert()).not.toContain("ChunkLoadError");
+      expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
     });
+  });
+});
+
+describe("ExportButton failure recovery", () => {
+  test("a throwing filename provider settles the control and offers a retry", async () => {
+    let calls = 0;
+
+    await withHarness(
+      {
+        getFilename: () => {
+          calls += 1;
+          if (calls === 1) throw new Error("Filename unavailable.");
+          return "customers-2026-11-26.csv";
+        },
+        fetchExport: async () => payload(),
+      },
+      async (harness) => {
+        await harness.click();
+
+        expect(harness.alert()).toContain("Filename unavailable.");
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+        expect(harness.button()?.getAttribute("aria-busy")).toBeNull();
+        expect(harness.signals).toHaveLength(0);
+        expect(harness.workers).toHaveLength(0);
+        expect(harness.downloads).toEqual([]);
+
+        // Retry works without remounting the block.
+        await harness.click();
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+        });
+
+        expect(harness.downloads).toEqual(["customers-2026-11-26.csv"]);
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+      },
+    );
+  });
+
+  test("a filename provider that throws a non-Error still uses the fallback copy", async () => {
+    await withHarness(
+      {
+        getFilename: () => {
+          throw "nope";
+        },
+        fetchExport: async () => payload(),
+      },
+      async (harness) => {
+        await harness.click();
+
+        expect(harness.alert()).toBe(
+          "Could not prepare the export. Check your connection and try again.",
+        );
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+      },
+    );
+  });
+
+  test("a retry after a failure clears the previous alert", async () => {
+    let calls = 0;
+
+    await withHarness(
+      {
+        fetchExport: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("Could not export customers. Try again.");
+          return payload();
+        },
+      },
+      async (harness) => {
+        await harness.click();
+        expect(harness.alert()).toContain("Could not export customers");
+
+        await harness.click();
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
+        });
+
+        expect(harness.alert()).toBe("");
+        expect(harness.status()).toBe("Exported 1 row.");
+      },
+    );
   });
 });
 
 describe("ExportButton guards", () => {
   test("a double activation starts exactly one export", async () => {
-    await withDom(async (win) => {
-      const container = win.document.createElement("div");
-      win.document.body.appendChild(container);
-      const root = createRoot(container);
+    await withHarness({ fetchExport: () => new Promise<string>(() => {}) }, async (harness) => {
+      await act(async () => {
+        harness.button()?.click();
+        harness.button()?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
 
-      const signals: AbortSignal[] = [];
-      const previous = { Worker: globalThis.Worker };
-      class FakeWorker {
-        onmessage: unknown = null;
-        onerror: unknown = null;
-        postMessage() {}
-        terminate() {}
-      }
-      Object.assign(globalThis, { Worker: FakeWorker });
+      expect(harness.signals).toHaveLength(1);
+    });
+  });
 
-      try {
+  test("stays focusable while busy so keyboard users can retry in place", async () => {
+    await withHarness(
+      { fetchExport: () => new Promise<string>(() => {}) },
+      async (harness, win) => {
         await act(async () => {
-          root.render(
-            <ExportButton
-              label="Export CSV"
-              getFilename={() => "customers.csv"}
-              fetchExport={(signal) => {
-                signals.push(signal);
-                return new Promise<string>(() => {});
-              }}
-            />,
-          );
-        });
-
-        const button = container.querySelector("button");
-        await act(async () => {
-          button?.click();
-          button?.click();
+          harness.button()?.focus();
+          harness.button()?.click();
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
 
-        expect(signals).toHaveLength(1);
-      } finally {
-        await act(async () => {
-          root.unmount();
-        });
-        Object.assign(globalThis, previous);
-      }
-    });
+        const button = harness.button();
+        expect(button?.getAttribute("aria-disabled")).toBe("true");
+        expect(win.document.activeElement).toBe(button);
+      },
+    );
   });
 
   test("unmount aborts an in-flight fetch so nothing is generated", async () => {
     await withDom(async (win) => {
-      const container = win.document.createElement("div");
-      win.document.body.appendChild(container);
-      const root = createRoot(container);
+      const harness = await mountExportButton(win, {
+        fetchExport: () => new Promise<string>(() => {}),
+      });
 
-      const signals: AbortSignal[] = [];
-      const workers: unknown[] = [];
-      const previous = { Worker: globalThis.Worker };
-      class CountingWorker {
-        onmessage: unknown = null;
-        onerror: unknown = null;
-        postMessage() {}
-        terminate() {}
-        constructor() {
-          workers.push(this);
-        }
-      }
-      Object.assign(globalThis, { Worker: CountingWorker });
+      await harness.click();
+      expect(harness.signals).toHaveLength(1);
 
-      try {
-        await act(async () => {
-          root.render(
-            <ExportButton
-              label="Export CSV"
-              getFilename={() => "customers.csv"}
-              fetchExport={(signal) => {
-                signals.push(signal);
-                return new Promise<string>(() => {});
-              }}
-            />,
-          );
-        });
+      await harness.unmount();
 
-        await act(async () => {
-          container.querySelector("button")?.click();
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-
-        expect(signals).toHaveLength(1);
-
-        await act(async () => {
-          root.unmount();
-        });
-
-        expect(signals[0]?.aborted).toBe(true);
-        expect(workers).toEqual([]);
-      } finally {
-        Object.assign(globalThis, previous);
-      }
+      expect(harness.signals[0]?.aborted).toBe(true);
+      expect(harness.workers).toEqual([]);
     });
   });
 
   test("unmount terminates a running worker and delivers no stale download", async () => {
     await withDom(async (win) => {
-      const container = win.document.createElement("div");
-      win.document.body.appendChild(container);
-      const root = createRoot(container);
+      const harness = await mountExportButton(win, { fetchExport: async () => payload() });
 
-      const signals: AbortSignal[] = [];
-      const workers: FakeWorker[] = [];
-      const downloaded: string[] = [];
-      class FakeWorker {
-        onmessage: ((event: { data: unknown }) => void) | null = null;
-        onerror: unknown = null;
-        terminated = false;
-        posted = 0;
-        constructor() {
-          workers.push(this);
-        }
-        postMessage() {
-          this.posted += 1;
-        }
-        terminate() {
-          this.terminated = true;
-        }
-      }
-      const previous = { Worker: globalThis.Worker };
-      Object.assign(globalThis, { Worker: FakeWorker });
+      await harness.click();
+      expect(harness.workers[0]?.posted).toBeDefined();
 
-      const createElement = win.document.createElement.bind(win.document);
-      (win.document as unknown as { createElement: typeof createElement }).createElement = ((
-        tag: string,
-        ...rest: unknown[]
-      ) => {
-        const element = createElement(tag, ...rest) as HTMLElement & { click: () => void };
-        if (tag === "a") element.click = () => downloaded.push("clicked");
-        return element;
-      }) as typeof createElement;
+      await harness.unmount();
 
-      try {
-        await act(async () => {
-          root.render(
-            <ExportButton
-              label="Export CSV"
-              getFilename={() => "customers.csv"}
-              fetchExport={(signal) => {
-                signals.push(signal);
-                return Promise.resolve(JSON.stringify({ headers: ["name"], rows: [] }));
-              }}
-            />,
-          );
-        });
+      expect(harness.workers[0]?.terminated).toBe(true);
 
-        await act(async () => {
-          container.querySelector("button")?.click();
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
+      // A late worker message must not download anything after teardown.
+      await act(async () => {
+        harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 0 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
 
-        expect(workers).toHaveLength(1);
-        expect(workers[0]?.posted).toBe(1);
-
-        await act(async () => {
-          root.unmount();
-        });
-
-        expect(workers[0]?.terminated).toBe(true);
-
-        // A late worker message must not download anything after teardown.
-        await act(async () => {
-          const file = new (globalThis.File as typeof File)(["name\r\n"], "customers.csv", {
-            type: "text/csv;charset=utf-8",
-          });
-          workers[0]?.onmessage?.({ data: { type: "done", file, rowCount: 0 } });
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-
-        expect(downloaded).toEqual([]);
-      } finally {
-        Object.assign(globalThis, previous);
-      }
+      expect(harness.downloads).toEqual([]);
     });
   });
 
-  test("a worker generation failure is assertive, leaves no download, and re-enables the control", async () => {
+  test("unmount revokes a created object URL even when the deferred task never runs", async () => {
     await withDom(async (win) => {
-      const container = win.document.createElement("div");
-      win.document.body.appendChild(container);
-      const root = createRoot(container);
+      // The callback runs before the deferred revocation task, so unmounting from
+      // it is exactly the race that used to leak the URL.
+      const holder: { unmount?: () => Promise<void> } = {};
+      const harness = await mountExportButton(win, {
+        fetchExport: async () => payload(),
+        onExported: () => void holder.unmount?.(),
+      });
+      holder.unmount = harness.unmount;
 
-      const workers: FakeWorker[] = [];
-      const downloaded: string[] = [];
-      class FakeWorker {
-        onmessage: ((event: { data: unknown }) => void) | null = null;
-        onerror: unknown = null;
-        terminated = false;
-        constructor() {
-          workers.push(this);
-        }
-        postMessage() {}
-        terminate() {
-          this.terminated = true;
-        }
-      }
-      const previous = { Worker: globalThis.Worker };
-      Object.assign(globalThis, { Worker: FakeWorker });
-
-      const createElement = win.document.createElement.bind(win.document);
-      (win.document as unknown as { createElement: typeof createElement }).createElement = ((
-        tag: string,
-        ...rest: unknown[]
-      ) => {
-        const element = createElement(tag, ...rest) as HTMLElement & { click: () => void };
-        if (tag === "a") element.click = () => downloaded.push("clicked");
-        return element;
-      }) as typeof createElement;
-
-      const exported: number[] = [];
       try {
+        await harness.click();
         await act(async () => {
-          root.render(
-            <ExportButton
-              label="Export CSV"
-              getFilename={() => "customers.csv"}
-              fetchExport={async () => "{}"}
-              onExported={(_file, rowCount) => exported.push(rowCount)}
-            />,
-          );
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 1 });
         });
 
-        await act(async () => {
-          container.querySelector("button")?.click();
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-
-        await act(async () => {
-          workers[0]?.onmessage?.({
-            data: { type: "error", message: "Export payload is not valid JSON." },
-          });
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-
-        expect(workers[0]?.terminated).toBe(true);
-        expect(downloaded).toEqual([]);
-        expect(exported).toEqual([]);
-        expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-          "Export payload is not valid JSON.",
-        );
-        expect(container.querySelector("button")?.disabled).toBe(false);
+        expect(harness.createdUrls).toEqual(["blob:fake/1"]);
+        expect(harness.revokedUrls).toEqual(["blob:fake/1"]);
       } finally {
-        await act(async () => {
-          root.unmount();
-        });
-        Object.assign(globalThis, previous);
+        holder.unmount = undefined;
       }
     });
   });

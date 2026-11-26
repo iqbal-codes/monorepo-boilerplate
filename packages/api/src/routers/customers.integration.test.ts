@@ -177,12 +177,12 @@ describe.skipIf(!databaseUrl)("Customers export with disposable Postgres", () =>
   };
 
   /** Raw insert for cases that need a fixed primary key (the id tie-break). */
-  const insertWithId = async (id: string, name: string) => {
+  const insertWithId = async (id: string, name: string, balanceMinor = "0") => {
     emailPrefixes.push(`${id}@`);
     await db.$client.query(
       `insert into customer (id, name, email, status, balance_minor, currency)
-       values ($1, $2, $3, 'active', 0, 'USD')`,
-      [id, name, `${id}@tiebreak.example.test`],
+       values ($1, $2, $3, 'active', $4::bigint, 'USD')`,
+      [id, name, `${id}@tiebreak.example.test`, balanceMinor],
     );
   };
 
@@ -318,6 +318,32 @@ describe.skipIf(!databaseUrl)("Customers export with disposable Postgres", () =>
     await staff.export({ search: scope });
 
     expect(await staff.byId({ id: fixture.id })).toEqual(before);
+  });
+
+  test("an exact balance well inside the safe range round-trips unchanged", async () => {
+    const scope = token();
+    await insertWithId(`${scope}-exact`, "Exact Balance", "9007199254740991");
+
+    const decoded = decode(await staff.export({ search: scope }));
+
+    expect(decoded.rows[0]?.[5]).toBe(9_007_199_254_740_991);
+  });
+
+  test("a balance outside the safe integer range fails instead of rounding", async () => {
+    const scope = token();
+    // 2^53 + 1 cannot be represented as a JS number: the number-mode codec would
+    // silently produce 9007199254740992, so the export must refuse instead.
+    await insertWithId(`${scope}-unsafe`, "Unsafe Balance", "9007199254740993");
+
+    await expect(staff.export({ search: scope })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message:
+        "This export includes a balance too large to write exactly. Narrow the search or status filter and try again.",
+    });
+
+    // The same row must still be readable through the list, so the guard is
+    // scoped to the export rather than breaking the Screen.
+    expect(await staff.list({ search: scope })).toMatchObject({ rowCount: 1 });
   });
 
   test("exactly 10,000 matches export and 10,001 are rejected as too large", async () => {

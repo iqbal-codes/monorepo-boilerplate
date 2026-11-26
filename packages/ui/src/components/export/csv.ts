@@ -64,7 +64,12 @@ export function decodeCsvExportPayload(payload: string): CsvExportPayload {
     const cells: unknown[] = row;
     return cells.map((cell) => {
       if (cell === null || typeof cell === "string") return cell;
-      if (typeof cell === "number" && Number.isFinite(cell)) return cell;
+      if (typeof cell === "number" && Number.isSafeInteger(cell)) return cell;
+      if (typeof cell === "number") {
+        throw new Error(
+          `Export row ${index + 1} has a numeric cell that cannot be written exactly.`,
+        );
+      }
       throw new Error(`Export row ${index + 1} has an unsupported cell value.`);
     });
   });
