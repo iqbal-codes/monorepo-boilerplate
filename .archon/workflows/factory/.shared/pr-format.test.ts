@@ -4,6 +4,7 @@ import {
   extractMechanicalFailureSummary,
   extractUxBlockingFindings,
   extractVerificationEvidenceLine,
+  pairEvidenceImages,
   parsePrSummarySections,
 } from './pr-format.ts';
 
@@ -92,5 +93,58 @@ describe('PR formatting & review comment extraction', () => {
 
     const mech = '- **Verification Command:** `bun run ci` -> PASS';
     expect(extractVerificationEvidenceLine(mech)).toBe('`bun run ci` -> PASS');
+  });
+
+  test('pairEvidenceImages pairs matching viewports instead of alphabetical index', () => {
+    const before = [
+      { name: 'before-customers-desktop.png', url: 'https://example.com/b-desk.png' },
+      { name: 'before-customers-mobile-320.png', url: 'https://example.com/b-mob.png' },
+    ];
+    const impl = [
+      { name: 'impl-desktop.png', url: 'https://example.com/i-desk.png' },
+      { name: 'impl-dialog.png', url: 'https://example.com/i-dlg.png' },
+      { name: 'impl-error.png', url: 'https://example.com/i-err.png' },
+      { name: 'impl-mobile.png', url: 'https://example.com/i-mob.png' },
+    ];
+
+    const rows = pairEvidenceImages(before, impl);
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toMatchObject({
+      view: 'Desktop · Customers',
+      before: { name: 'before-customers-desktop.png' },
+      after: { name: 'impl-desktop.png' },
+    });
+    expect(rows[1]).toMatchObject({
+      view: 'Mobile (320px) · Customers',
+      before: { name: 'before-customers-mobile-320.png' },
+      after: { name: 'impl-mobile.png' },
+    });
+    expect(rows[2]).toEqual({
+      view: 'Dialog',
+      after: { name: 'impl-dialog.png', url: 'https://example.com/i-dlg.png' },
+    });
+    expect(rows[3]).toEqual({
+      view: 'Error',
+      after: { name: 'impl-error.png', url: 'https://example.com/i-err.png' },
+    });
+  });
+
+  test('pairEvidenceImages never pairs mobile Before with desktop or untagged After', () => {
+    const before = [
+      { name: 'before-customers-mobile-320.png', url: 'https://example.com/b-mob.png' },
+    ];
+    const after = [
+      { name: 'after-desktop-menu.png', url: 'https://example.com/a-desk.png' },
+      { name: 'after-dialog.png', url: 'https://example.com/a-dlg.png' },
+    ];
+
+    const rows = pairEvidenceImages(before, after);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual({
+      view: 'Mobile (320px) · Customers',
+      before: { name: 'before-customers-mobile-320.png', url: 'https://example.com/b-mob.png' },
+    });
+    expect(rows[1]?.before).toBeUndefined();
+    expect(rows[2]?.before).toBeUndefined();
   });
 });

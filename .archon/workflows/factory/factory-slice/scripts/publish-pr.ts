@@ -31,6 +31,7 @@ import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import { assertReservation, deliveryPaths, parseDeliveryClaim } from '../../.shared/ownership.ts';
 import {
   extractVerificationEvidenceLine,
+  pairEvidenceImages,
   parsePrSummarySections,
 } from '../../.shared/pr-format.ts';
 
@@ -195,18 +196,19 @@ function renderEvidenceSection(
   const afterColumnTitle = evidence.after.length > 0 ? 'After (QA)' : 'After (Implementer)';
 
   if (evidence.before.length > 0 || primaryAfter.length > 0) {
-    lines.push(`| Before | ${afterColumnTitle} |`, '| :---: | :---: |');
-    const rows = Math.max(evidence.before.length, primaryAfter.length, 1);
-    for (let i = 0; i < rows; i++) {
-      const b = evidence.before[i]
-        ? `![${evidence.before[i].name}](${evidence.before[i].url})<br/><sub>${evidence.before[i].name}</sub>`
-        : i === 0
+    const rows = pairEvidenceImages(evidence.before, primaryAfter);
+    lines.push(`| View | Before | ${afterColumnTitle} |`, '| :--- | :---: | :---: |');
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!;
+      const b = row.before
+        ? `![${row.before.name}](${row.before.url})<br/><sub>${row.before.name}</sub>`
+        : i === 0 && evidence.before.length === 0
           ? `_${resolvedBeforeSummary}_`
           : '—';
-      const a = primaryAfter[i]
-        ? `![${primaryAfter[i].name}](${primaryAfter[i].url})<br/><sub>${primaryAfter[i].name}</sub>`
+      const a = row.after
+        ? `![${row.after.name}](${row.after.url})<br/><sub>${row.after.name}</sub>`
         : '—';
-      lines.push(`| ${b} | ${a} |`);
+      lines.push(`| **${row.view}** | ${b} | ${a} |`);
     }
     lines.push('');
     return lines;

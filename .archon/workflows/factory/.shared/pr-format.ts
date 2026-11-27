@@ -169,3 +169,172 @@ export function extractVerificationEvidenceLine(mechMarkdown: string): string {
   const match = mechMarkdown.match(/^\s*-\s*\*\*Verification Command:\*\*\s*(.+)$/m);
   return match ? match[1].trim() : '';
 }
+
+export interface EvidenceImage {
+  name: string;
+  url: string;
+}
+
+export interface EvidenceRow {
+  view: string;
+  before?: EvidenceImage;
+  after?: EvidenceImage;
+}
+
+type ViewportKind = 'desktop' | 'mobile' | 'tablet' | 'none';
+
+interface ParsedEvidenceName {
+  rawSlug: string;
+  viewport: ViewportKind;
+  widthHint: string;
+  stateTokens: string[];
+}
+
+const VIEWPORT_TOKEN_MAP = new Map<string, ViewportKind>([
+  ['desktop', 'desktop'],
+  ['wide', 'desktop'],
+  ['1280', 'desktop'],
+  ['1440', 'desktop'],
+  ['lg', 'desktop'],
+  ['mobile', 'mobile'],
+  ['narrow', 'mobile'],
+  ['phone', 'mobile'],
+  ['320', 'mobile'],
+  ['375', 'mobile'],
+  ['390', 'mobile'],
+  ['sm', 'mobile'],
+  ['tablet', 'tablet'],
+  ['768', 'tablet'],
+  ['md', 'tablet'],
+]);
+
+function parseEvidenceName(fileName: string): ParsedEvidenceName {
+  const rawSlug = fileName
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/^(before|impl|after)[-_]+/i, '')
+    .toLowerCase();
+  const tokens = rawSlug.split(/[-_\s]+/).filter(Boolean);
+
+  let viewport: ViewportKind = 'none';
+  let widthHint = '';
+  const stateTokens: string[] = [];
+
+  for (const tok of tokens) {
+    const cleanTok = tok.replace(/px$/i, '');
+    const vp = VIEWPORT_TOKEN_MAP.get(cleanTok);
+    if (vp) {
+      if (viewport === 'none') viewport = vp;
+      if (/^\d{3,4}$/.test(cleanTok)) widthHint = `${cleanTok}px`;
+      continue;
+    }
+    stateTokens.push(tok);
+  }
+
+  return { rawSlug, viewport, widthHint, stateTokens };
+}
+
+function scoreEvidencePair(b: ParsedEvidenceName, a: ParsedEvidenceName): number {
+  if (b.rawSlug && b.rawSlug === a.rawSlug) return 1000;
+
+  if (b.viewport !== 'none' && a.viewport !== 'none' && b.viewport !== a.viewport) {
+    return -1;
+  }
+  if (b.viewport !== a.viewport && (b.viewport === 'none' || a.viewport === 'none')) {
+    const overlap = b.stateTokens.filter((t) => a.stateTokens.includes(t));
+    if (overlap.length === 0) return -1;
+  }
+
+  let score = 0;
+  if (b.viewport !== 'none' && b.viewport === a.viewport) {
+    score += 100;
+    if (a.stateTokens.length === 0) score += 20;
+    if (a.stateTokens.includes('default') || a.stateTokens.includes('idle')) score += 15;
+  }
+
+  const overlap = b.stateTokens.filter((t) => a.stateTokens.includes(t)).length;
+  score += overlap * 30;
+
+  if (score === 0) return -1;
+  score -= Math.abs(b.stateTokens.length - a.stateTokens.length) * 5;
+  return score;
+}
+
+function titleToken(tok: string): string {
+  if (/^\d+px$/i.test(tok)) return tok.toLowerCase();
+  return tok.charAt(0).toUpperCase() + tok.slice(1);
+}
+
+function formatEvidenceView(before?: EvidenceImage, after?: EvidenceImage): string {
+  const primary = parseEvidenceName((after ?? before)!.name);
+  const secondary = before && after ? parseEvidenceName(before.name) : undefined;
+  const viewport = primary.viewport !== 'none' ? primary.viewport : secondary?.viewport ?? 'none';
+  const widthHint = primary.widthHint || secondary?.widthHint || '';
+  const stateTokens = primary.stateTokens.length > 0 ? primary.stateTokens : secondary?.stateTokens ?? [];
+
+  const parts: string[] = [];
+  if (viewport !== 'none') {
+    const vpLabel = titleToken(viewport);
+    parts.push(widthHint ? `${vpLabel} (${widthHint})` : vpLabel);
+  }
+  if (stateTokens.length > 0) {
+    parts.push(stateTokens.map(titleToken).join(' '));
+  }
+  return parts.join(' · ') || 'Screenshot';
+}
+
+/**
+ * Pairs Before and After screenshots by viewport/state semantics rather than alphabetical index,
+ * preventing mismatched pairs (e.g. mobile Before next to desktop modal After).
+ */
+export function pairEvidenceImages(
+  beforeImages: EvidenceImage[],
+  afterImages: EvidenceImage[]
+): EvidenceRow[] {
+  const beforeMeta = beforeImages.map((img) => parseEvidenceName(img.name));
+  const afterMeta = afterImages.map((img) => parseEvidenceName(img.name));
+
+  const candidates: Array<{ bIdx: number; aIdx: number; score: number }> = [];
+  for (let bIdx = 0; bIdx < beforeMeta.length; bIdx++) {
+    for (let aIdx = 0; aIdx < afterMeta.length; aIdx++) {
+      const score = scoreEvidencePair(beforeMeta[bIdx]!, afterMeta[aIdx]!);
+      if (score > 0) {
+        candidates.push({ bIdx, aIdx, score });
+      }
+    }
+  }
+
+  candidates.sort((x, y) => y.score - x.score || x.bIdx - y.bIdx || x.aIdx - y.aIdx);
+
+  const usedBefore = new Set<number>();
+  const usedAfter = new Set<number>();
+  const paired: Array<{ bIdx: number; aIdx: number }> = [];
+
+  for (const c of candidates) {
+    if (usedBefore.has(c.bIdx) || usedAfter.has(c.aIdx)) continue;
+    usedBefore.add(c.bIdx);
+    usedAfter.add(c.aIdx);
+    paired.push({ bIdx: c.bIdx, aIdx: c.aIdx });
+  }
+
+  paired.sort((x, y) => x.bIdx - y.bIdx || x.aIdx - y.aIdx);
+
+  const rows: EvidenceRow[] = paired.map(({ bIdx, aIdx }) => {
+    const before = beforeImages[bIdx]!;
+    const after = afterImages[aIdx]!;
+    return { view: formatEvidenceView(before, after), before, after };
+  });
+
+  for (let bIdx = 0; bIdx < beforeImages.length; bIdx++) {
+    if (usedBefore.has(bIdx)) continue;
+    const before = beforeImages[bIdx]!;
+    rows.push({ view: formatEvidenceView(before, undefined), before });
+  }
+
+  for (let aIdx = 0; aIdx < afterImages.length; aIdx++) {
+    if (usedAfter.has(aIdx)) continue;
+    const after = afterImages[aIdx]!;
+    rows.push({ view: formatEvidenceView(undefined, after), after });
+  }
+
+  return rows;
+}
