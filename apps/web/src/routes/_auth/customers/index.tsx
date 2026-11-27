@@ -23,21 +23,12 @@ import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { formatDate, formatMoney } from "@monorepo-boilerplate/ui/lib/format";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { PlusIcon, UsersIcon } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { UsersIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
-import { CustomerImport } from "@/components/customers/customer-import";
+import { CustomerPageActions } from "@/components/customers/customer-page-actions";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
-import {
-  ExportButton,
-  type ExportFeedback,
-} from "@monorepo-boilerplate/ui/components/export-button";
-import {
-  customerExportFilename,
-  customerExportRequest,
-  useCustomerExportCancel,
-} from "@/lib/customer-export";
 import { useUiPrefs } from "@/lib/ui-prefs-store";
 import { useListSearchParams, type CustomerStatusFilter } from "@/lib/use-data-table-search-params";
 import { trpc } from "@/utils/trpc";
@@ -140,17 +131,23 @@ function CustomersScreen() {
   const queryClient = useQueryClient();
   const searchRef = useRef<HTMLInputElement>(null);
   const archiveRef = useRef<HTMLButtonElement>(null);
-  // Ends a running export the moment navigation away from this list begins, not
-  // only when the toolbar unmounts.
-  const exportCancelSignal = useCustomerExportCancel();
-  const exportHintId = useId();
-  const [exportFeedback, setExportFeedback] = useState<ExportFeedback>({
-    busy: false,
-    message: "",
-    error: null,
-  });
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [dialogError, setDialogError] = useState<string>();
+
+  const handleImported = useCallback(
+    (created: number) => {
+      setNotice({
+        text: created === 1 ? "1 customer imported." : `${created} customers imported.`,
+      });
+      void queryClient.invalidateQueries(trpc.customers.pathFilter());
+    },
+    [queryClient],
+  );
+
+  const handleNewCustomer = useCallback(() => {
+    setEditingId(null);
+    setDrawerOpen(true);
+  }, []);
 
   const input = {
     pageIndex: list.pagination.pageIndex,
@@ -233,64 +230,14 @@ function CustomersScreen() {
         title="Customers"
         description="Server-driven table: sorting, filtering, and paging all run in the API."
         actions={
-          <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:items-end">
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <CustomerImport
-                size="sm"
-                className="flex-1 sm:flex-none"
-                onImported={(created) => {
-                  setNotice({
-                    text: created === 1 ? "1 customer imported." : `${created} customers imported.`,
-                  });
-                  void queryClient.invalidateQueries(trpc.customers.pathFilter());
-                }}
-              />
-              <ExportButton
-                label="Export CSV"
-                buttonClassName="flex-1 sm:flex-none"
-                describedById={exportHintId}
-                onFeedbackChange={setExportFeedback}
-                getFilename={customerExportFilename}
-                cancelSignal={exportCancelSignal}
-                fetchExport={customerExportRequest({
-                  search: list.search,
-                  status: list.status,
-                  sortBy: list.sortBy,
-                  sortDir: list.sortDir,
-                })}
-              />
-              <Button
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  setEditingId(null);
-                  setDrawerOpen(true);
-                }}
-              >
-                <PlusIcon data-icon="inline-start" aria-hidden />
-                New customer
-              </Button>
-            </div>
-            <p id={exportHintId} className="text-xs text-muted-foreground sm:text-end">
-              CSV escaping may change literal text.
-            </p>
-            <p
-              role="status"
-              className={
-                exportFeedback.busy || exportFeedback.message
-                  ? "text-xs text-muted-foreground sm:text-end"
-                  : "sr-only"
-              }
-            >
-              {exportFeedback.message}
-            </p>
-            <p
-              role="alert"
-              className={exportFeedback.error ? "text-xs text-destructive sm:text-end" : "sr-only"}
-            >
-              {exportFeedback.error ?? ""}
-            </p>
-          </div>
+          <CustomerPageActions
+            search={list.search}
+            status={list.status}
+            sortBy={list.sortBy}
+            sortDir={list.sortDir}
+            onImported={handleImported}
+            onNewCustomer={handleNewCustomer}
+          />
         }
       />
 
@@ -303,7 +250,13 @@ function CustomersScreen() {
             value: list.searchInput,
             onChange: list.onSearchInputChange,
           }}
-          resultLabel={query.data && !query.isPlaceholderData ? `${rowCount} customers` : undefined}
+          resultLabel={
+            query.data && !query.isPlaceholderData
+              ? rowCount === 1
+                ? "1 customer"
+                : `${rowCount} customers`
+              : undefined
+          }
           isFetching={query.isFetching}
           filters={
             <Select

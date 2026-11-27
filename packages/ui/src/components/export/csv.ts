@@ -16,6 +16,8 @@
 
 export const CSV_MIME_TYPE = "text/csv;charset=utf-8";
 
+export type ExportFormat = "csv" | "xlsx";
+
 const RECORD_SEPARATOR = "\r\n";
 const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);
 
@@ -38,11 +40,12 @@ export type CsvExportPayloadRequest = {
   type?: "payload";
   payload: string;
   filename: string;
+  format?: ExportFormat;
 };
 
 export type CsvExportRequest =
   | CsvExportPayloadRequest
-  | { type: "http"; request: CsvExportHttpRequest; filename: string }
+  | { type: "http"; request: CsvExportHttpRequest; filename: string; format?: ExportFormat }
   | { type: "abort" };
 
 export type CsvExportResponse =

@@ -1,6 +1,9 @@
 import type { CustomerScopeInput } from "@monorepo-boilerplate/api/routers/customers";
 import type { AppRouter } from "@monorepo-boilerplate/api/routers/index";
-import type { ExportHttpSource } from "@monorepo-boilerplate/ui/components/export-button";
+import type {
+  ExportFormat,
+  ExportHttpSource,
+} from "@monorepo-boilerplate/ui/components/export-button";
 import { useRouter } from "@tanstack/react-router";
 import type { TRPCClient } from "@trpc/client";
 import { useEffect, useState } from "react";
@@ -73,8 +76,8 @@ export function useCustomerExportCancel(): AbortSignal {
 }
 
 /** UTC date of the activation, so the name cannot drift mid-run. */
-export function customerExportFilename(activatedAt: Date): string {
-  return `customers-${activatedAt.toISOString().slice(0, 10)}.csv`;
+export function customerExportFilename(activatedAt: Date, format: ExportFormat = "csv"): string {
+  return `customers-${activatedAt.toISOString().slice(0, 10)}.${format}`;
 }
 
 /**

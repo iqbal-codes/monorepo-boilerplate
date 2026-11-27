@@ -13,7 +13,9 @@ import {
   type CsvExportHttpRequest,
   type CsvExportRequest,
   type CsvExportResponse,
+  type ExportFormat,
 } from "./csv";
+import { runXlsxExport } from "./xlsx";
 
 type CsvExportWorkerScope = {
   addEventListener(
@@ -26,8 +28,14 @@ type CsvExportWorkerScope = {
 /** One-shot listener: a duplicate message can never produce a second file. */
 export function handleCsvExportRequest(
   scope: CsvExportWorkerScope,
-  message: { payload: string; filename: string },
-): CsvExportResponse {
+  message: { payload: string; filename: string; format?: ExportFormat },
+): CsvExportResponse | Promise<CsvExportResponse> {
+  if (message.format === "xlsx") {
+    return runXlsxExport(message).then((response) => {
+      scope.postMessage(response);
+      return response;
+    });
+  }
   const response = runCsvExport(message);
   scope.postMessage(response);
   return response;
@@ -45,6 +53,7 @@ async function handleHttpCsvExport(
   scope: CsvExportWorkerScope,
   request: CsvExportHttpRequest,
   filename: string,
+  format: ExportFormat,
   signal: AbortSignal,
   fetchFn: typeof fetch,
 ): Promise<void> {
@@ -90,11 +99,24 @@ async function handleHttpCsvExport(
   scope.postMessage({ type: "stage", stage: "generating" });
   try {
     const payload = unwrapCsvExportPayload(rawText, request.payloadPath);
-    scope.postMessage(runCsvExport({ payload, filename }));
+    const response =
+      format === "xlsx"
+        ? await runXlsxExport({ payload, filename })
+        : runCsvExport({ payload, filename });
+    if (signal.aborted) {
+      scope.postMessage({ type: "aborted" });
+      return;
+    }
+    scope.postMessage(response);
   } catch (cause) {
     scope.postMessage({
       type: "error",
-      message: cause instanceof Error ? cause.message : "Could not build the CSV file.",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : format === "xlsx"
+            ? "Could not build the Excel file."
+            : "Could not build the CSV file.",
     });
   }
 }
@@ -126,13 +148,14 @@ export function registerCsvExportWorker(
         scope,
         message.request,
         message.filename,
+        message.format ?? "csv",
         controller.signal,
         fetchFn,
       );
       return;
     }
 
-    handleCsvExportRequest(scope, message);
+    void handleCsvExportRequest(scope, message);
   });
 }
 

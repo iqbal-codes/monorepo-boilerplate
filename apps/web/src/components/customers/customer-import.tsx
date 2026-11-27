@@ -150,11 +150,13 @@ function toProcedureRows(records: readonly ImportRecord[]) {
 
 export function CustomerImport({
   onImported,
+  triggerLabel = "Import CSV",
   size,
   className,
 }: {
   /** Called with the created count once the batch is stored. */
   onImported: (created: number) => void;
+  triggerLabel?: string;
   size?: "default" | "sm";
   className?: string;
 }) {
@@ -162,6 +164,7 @@ export function CustomerImport({
     <ImportBlock
       contract={{ columns: CUSTOMER_IMPORT_COLUMNS, filename: CUSTOMER_IMPORT_FILENAME }}
       defaults={CUSTOMER_IMPORT_DEFAULTS}
+      triggerLabel={triggerLabel}
       size={size}
       className={className}
       validate={async (records) => {

@@ -1,11 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import { dirname } from "node:path";
 import { Window } from "happy-dom";
-import { StrictMode } from "react";
+import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ExportButton, type ExportSource } from "../src/components/export-button";
+const baseUiRoot = dirname(dirname(Bun.resolveSync("@base-ui/react/menu", import.meta.dir)));
+
+mock.module(Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", baseUiRoot), () => ({
+  useIsoLayoutEffect: React.useLayoutEffect,
+}));
+
+const { ExportButton } = await import("../src/components/export-button");
+type ExportFormatOption = import("../src/components/export-button").ExportFormatOption;
+type ExportSource = import("../src/components/export-button").ExportSource;
 import { ListToolbar } from "../src/components/list-toolbar";
 
 /** Button attributes with `class` removed, so utility names cannot match. */
@@ -85,8 +94,10 @@ type Harness = {
   downloads: string[];
   signals: AbortSignal[];
   click(): Promise<void>;
+  clickMenuItem(text: string): Promise<void>;
   unmount(): Promise<void>;
   button(): HTMLButtonElement | null;
+  menuItems(): HTMLElement[];
   text(): string;
   alert(): string;
   status(): string;
@@ -95,8 +106,10 @@ type Harness = {
 async function mountExportButton(
   win: Window,
   props: {
+    label?: string;
+    formats?: readonly ExportFormatOption[];
     fetchExport: (signal: AbortSignal) => Promise<ExportSource>;
-    getFilename?: (activatedAt: Date) => string;
+    getFilename?: (activatedAt: Date, format: "csv" | "xlsx") => string;
     onExported?: (file: File, rowCount: number) => void;
     hint?: string;
     disabled?: boolean;
@@ -175,16 +188,19 @@ async function mountExportButton(
   await act(async () => {
     const node = (
       <ExportButton
-        label="Export CSV"
+        label={props.label ?? "Export CSV"}
+        formats={props.formats}
         hint={props.hint ?? "CSV escaping may change literal text."}
         disabled={props.disabled}
-        getFilename={props.getFilename ?? (() => "customers-2026-11-26.csv")}
+        getFilename={
+          props.getFilename ?? ((_at, format = "csv") => `customers-2026-11-26.${format}`)
+        }
         fetchExport={capture}
         cancelSignal={props.cancelSignal}
         onExported={props.onExported}
       />
     );
-    root.render(props.strict ? <StrictMode>{node}</StrictMode> : node);
+    root.render(props.strict ? <React.StrictMode>{node}</React.StrictMode> : node);
   });
 
   const harness: Harness = {
@@ -195,7 +211,22 @@ async function mountExportButton(
     signals,
     async click() {
       await act(async () => {
-        container.querySelector("button")?.click();
+        const button = container.querySelector("button");
+        if (button?.getAttribute("aria-haspopup") === "menu") {
+          button.dispatchEvent(
+            new win.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+          );
+        }
+        button?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    },
+    async clickMenuItem(text: string) {
+      await act(async () => {
+        const items = [...win.document.querySelectorAll('[role="menuitem"]')] as HTMLElement[];
+        const target = items.find((item) => item.textContent?.includes(text));
+        if (!target) throw new Error(`Menu item "${text}" not found`);
+        target.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     },
@@ -206,6 +237,7 @@ async function mountExportButton(
       Object.assign(globalThis, previous);
     },
     button: () => container.querySelector("button"),
+    menuItems: () => [...win.document.querySelectorAll('[role="menuitem"]')] as HTMLElement[],
     text: () => container.textContent ?? "",
     alert: () => container.querySelector('[role="alert"]')?.textContent ?? "",
     status: () => container.querySelector('p[role="status"]')?.textContent ?? "",
@@ -792,6 +824,195 @@ describe("ExportButton guards", () => {
         holder.unmount = undefined;
       }
     });
+  });
+});
+
+describe("ExportButton format menu", () => {
+  const FORMATS: readonly ExportFormatOption[] = [
+    { format: "xlsx", label: "Excel (.xlsx)" },
+    { format: "csv", label: "CSV (.csv)" },
+  ];
+
+  test("renders a menu trigger with aria-haspopup=menu and aria-describedby", () => {
+    const html = renderToStaticMarkup(
+      <ExportButton
+        label="Export"
+        formats={FORMATS}
+        hint="Excel preserves literal values."
+        getFilename={(_at, format = "csv") => `customers-2026-11-27.${format}`}
+        fetchExport={async () => "{}"}
+      />,
+    );
+
+    const button = buttonAttributes(html);
+    expect(html).toContain(">Export<");
+    expect(button).toContain('aria-haspopup="menu"');
+    expect(button).toContain('aria-describedby="');
+    expect(button).not.toContain("disabled");
+  });
+
+  test("selecting Excel (.xlsx) posts format=xlsx, announces Excel status, downloads .xlsx, and revokes URL", async () => {
+    let resolvePayload: ((value: string) => void) | undefined;
+
+    await withHarness(
+      {
+        label: "Export",
+        formats: FORMATS,
+        fetchExport: () =>
+          new Promise<string>((resolve) => {
+            resolvePayload = resolve;
+          }),
+      },
+      async (harness, win) => {
+        await harness.click();
+        expect(harness.menuItems().map((el) => el.textContent?.trim())).toEqual([
+          "Excel (.xlsx)",
+          "CSV (.csv)",
+        ]);
+        for (const item of harness.menuItems()) {
+          expect(item.className).toContain("focus-visible:ring-2");
+          expect(item.className).toContain("focus-visible:ring-inset");
+          expect(item.className).toContain("focus-visible:ring-foreground");
+        }
+
+        await harness.clickMenuItem("Excel (.xlsx)");
+        expect(harness.button()?.getAttribute("aria-disabled")).toBe("true");
+        expect(harness.button()?.getAttribute("aria-busy")).toBe("true");
+        expect(harness.button()?.hasAttribute("disabled")).toBe(false);
+        expect(harness.status()).toBe("Preparing the export.");
+
+        // Clicking the trigger while busy keeps focus and does not open the menu or start a second export.
+        await act(async () => {
+          harness.button()?.focus();
+          harness
+            .button()
+            ?.dispatchEvent(new win.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+          harness.button()?.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(harness.signals).toHaveLength(1);
+        expect(harness.menuItems()).toEqual([]);
+        expect(win.document.activeElement).toBe(harness.button());
+
+        await act(async () => {
+          resolvePayload?.(payload([["Ada"], ["Grace"]]));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(harness.status()).toBe("Generating the Excel file.");
+        expect(harness.workers[0]?.posted).toEqual([
+          {
+            payload: payload([["Ada"], ["Grace"]]),
+            filename: "customers-2026-11-26.xlsx",
+            format: "xlsx",
+          },
+        ]);
+
+        await act(async () => {
+          harness.workers[0]?.deliver({
+            type: "done",
+            file: new File(["pk"], "customers-2026-11-26.xlsx", {
+              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }),
+            rowCount: 2,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+
+        expect(harness.downloads).toEqual(["customers-2026-11-26.xlsx"]);
+        expect(harness.status()).toBe("Exported 2 rows.");
+        expect(harness.revokedUrls).toEqual(["blob:fake/1"]);
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+        expect(harness.button()?.getAttribute("aria-busy")).toBeNull();
+      },
+    );
+  });
+
+  test("selecting CSV (.csv) in the menu runs CSV export and surfaces Excel errors with format context", async () => {
+    await withHarness(
+      {
+        label: "Export",
+        formats: FORMATS,
+        fetchExport: async () => payload(),
+      },
+      async (harness) => {
+        await harness.click();
+        await harness.clickMenuItem("CSV (.csv)");
+
+        expect(harness.workers[0]?.posted).toEqual([
+          {
+            payload: payload(),
+            filename: "customers-2026-11-26.csv",
+          },
+        ]);
+        expect(harness.status()).toBe("Generating the CSV file.");
+
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "done", file: csvFile(), rowCount: 0 });
+        });
+        expect(harness.status()).toBe("Exported 0 rows.");
+
+        // Next run in Excel mode fails in worker and announces Excel error without download.
+        await harness.click();
+        await harness.clickMenuItem("Excel (.xlsx)");
+        await act(async () => {
+          harness.workers[1]?.deliver({
+            type: "error",
+            message: "Export payload is not valid JSON.",
+          });
+        });
+        expect(harness.downloads).toEqual(["customers-2026-11-26.csv"]);
+        expect(harness.alert()).toBe(
+          "Could not prepare the Excel file. Export payload is not valid JSON. Try again.",
+        );
+        expect(harness.button()?.getAttribute("aria-disabled")).toBeNull();
+      },
+    );
+  });
+
+  test("cancelSignal aborts an Excel HTTP worker run cleanly without downloading", async () => {
+    const cancel = new AbortController();
+
+    await withHarness(
+      {
+        label: "Export",
+        formats: FORMATS,
+        cancelSignal: cancel.signal,
+        fetchExport: async () => ({
+          kind: "http",
+          url: "http://localhost:3000/trpc/customers.export",
+          credentials: "include",
+          payloadPath: ["result", "data"],
+        }),
+      },
+      async (harness) => {
+        await harness.click();
+        await harness.clickMenuItem("Excel (.xlsx)");
+        expect(harness.workers[0]?.posted[0]).toEqual({
+          type: "http",
+          request: {
+            url: "http://localhost:3000/trpc/customers.export",
+            credentials: "include",
+            headers: undefined,
+            payloadPath: ["result", "data"],
+          },
+          filename: "customers-2026-11-26.xlsx",
+          format: "xlsx",
+        });
+
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "stage", stage: "fetching" });
+          cancel.abort();
+        });
+
+        expect(harness.workers[0]?.posted).toContainEqual({ type: "abort" });
+        await act(async () => {
+          harness.workers[0]?.deliver({ type: "aborted" });
+        });
+        expect(harness.workers[0]?.terminated).toBe(true);
+        expect(harness.downloads).toEqual([]);
+      },
+    );
   });
 });
 
