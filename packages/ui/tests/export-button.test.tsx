@@ -869,6 +869,11 @@ describe("ExportButton format menu", () => {
           "Excel (.xlsx)",
           "CSV (.csv)",
         ]);
+        for (const item of harness.menuItems()) {
+          expect(item.className).toContain("focus-visible:ring-2");
+          expect(item.className).toContain("focus-visible:ring-inset");
+          expect(item.className).toContain("focus-visible:ring-foreground");
+        }
 
         await harness.clickMenuItem("Excel (.xlsx)");
         expect(harness.button()?.getAttribute("aria-disabled")).toBe("true");
