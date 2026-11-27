@@ -10,12 +10,24 @@ import {
   BreadcrumbSeparator,
 } from "@monorepo-boilerplate/ui/components/breadcrumb";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
+import {
+  NotificationCenter,
+  type NotificationItem,
+} from "@monorepo-boilerplate/ui/components/notification-center";
 import { Separator } from "@monorepo-boilerplate/ui/components/separator";
 import { SidebarTrigger } from "@monorepo-boilerplate/ui/components/sidebar";
 
 import { usePageTitleOverride } from "@/components/page-title";
 import { activeMainItem } from "@/lib/nav";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
+
+export type AppTopbarProps = {
+  onOpenCommandCenter: () => void;
+  notifications?: readonly NotificationItem[];
+  notificationsLoading?: boolean;
+  onMarkNotificationRead?: (id: string) => void;
+  onMarkAllNotificationsRead?: () => void;
+};
 
 /**
  * Top bar from shadcn's `sidebar-07`: sidebar trigger, vertical separator, then
@@ -29,7 +41,13 @@ import { useThemeToggle } from "@/lib/use-theme-toggle";
  * Below `md` the sidebar is a Sheet, so the top bar carries an icon-only
  * Command Center trigger; above `md` the trigger lives in the sidebar header.
  */
-export function AppTopbar({ onOpenCommandCenter }: { onOpenCommandCenter: () => void }) {
+export function AppTopbar({
+  onOpenCommandCenter,
+  notifications = [],
+  notificationsLoading = false,
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
+}: AppTopbarProps) {
   const { toggleTheme } = useThemeToggle();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const pageTitle = useRouterState({
@@ -86,6 +104,17 @@ export function AppTopbar({ onOpenCommandCenter }: { onOpenCommandCenter: () => 
         >
           <SearchIcon aria-hidden />
         </Button>
+        <NotificationCenter
+          items={notifications}
+          isLoading={notificationsLoading}
+          onMarkRead={onMarkNotificationRead}
+          onMarkAllRead={onMarkAllNotificationsRead}
+          renderLink={({ item, className, children, onNavigate }) => (
+            <Link to={item.href as never} className={className} onClick={onNavigate}>
+              {children}
+            </Link>
+          )}
+        />
         <Button variant="ghost" size="icon-sm" aria-label="Toggle theme" onClick={toggleTheme}>
           <SunIcon className="dark:hidden" aria-hidden />
           <MoonIcon className="hidden dark:block" aria-hidden />

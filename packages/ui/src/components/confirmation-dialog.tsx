@@ -17,7 +17,9 @@ export function ConfirmationDialog({
   onOpenChange,
   title,
   description,
+  cancelLabel = "Cancel",
   confirmLabel,
+  confirmVariant = "default",
   pendingLabel,
   pending = false,
   error,
@@ -28,7 +30,9 @@ export function ConfirmationDialog({
   onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
-  confirmLabel: string;
+  cancelLabel?: string;
+  confirmLabel?: string;
+  confirmVariant?: ComponentProps<typeof AlertDialogAction>["variant"];
   pendingLabel: string;
   pending?: boolean;
   error?: string;
@@ -59,10 +63,11 @@ export function ConfirmationDialog({
         )}
         <AlertDialogFooter>
           <AlertDialogCancel ref={cancelRef} disabled={pending}>
-            Cancel
+            {cancelLabel}
           </AlertDialogCancel>
           <AlertDialogAction
             type="button"
+            variant={confirmVariant}
             aria-disabled={pending}
             onClick={() => {
               if (!pending) onConfirm();

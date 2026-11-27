@@ -1,6 +1,11 @@
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
-import { Form, useAppForm, type FieldOption } from "@monorepo-boilerplate/ui/components/form";
+import {
+  Form,
+  UnsavedChangesGuard,
+  useAppForm,
+  type FieldOption,
+} from "@monorepo-boilerplate/ui/components/form";
 import {
   Sheet,
   SheetContent,
@@ -11,7 +16,9 @@ import {
 } from "@monorepo-boilerplate/ui/components/sheet";
 import { DEFAULT_CURRENCY } from "@monorepo-boilerplate/ui/lib/format";
 import { isValidPhoneNumber } from "@monorepo-boilerplate/ui/lib/phone";
+import { useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBlocker } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import z from "zod";
@@ -76,6 +83,7 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     trpc.customers.create.mutationOptions({
       onSuccess: () => {
         toast.success("Customer created");
+        form.reset();
         void queryClient.invalidateQueries(trpc.customers.pathFilter());
         onOpenChange(false);
       },
@@ -87,6 +95,7 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     trpc.customers.update.mutationOptions({
       onSuccess: () => {
         toast.success("Customer updated");
+        form.reset();
         void queryClient.invalidateQueries(trpc.customers.pathFilter());
         onOpenChange(false);
       },
@@ -144,95 +153,120 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   }, [open, isEditing, customerId, detail.data]);
 
   const submitting = create.isPending || update.isPending;
+  const isDirty = useStore(form.store, (state) => state.isDirty);
   const currency = form.getFieldValue("currency") || DEFAULT_CURRENCY;
 
+  const blocker = useBlocker({
+    shouldBlockFn: () => open && isDirty,
+    enableBeforeUnload: () => open && isDirty,
+    disabled: !(open && isDirty),
+    withResolver: true,
+  });
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="gap-0 overflow-y-auto overscroll-contain">
-        <SheetHeader>
-          <SheetTitle>{isEditing ? "Edit customer" : "New customer"}</SheetTitle>
-          <SheetDescription>
-            {isEditing
-              ? "Update the record. Money is edited in major units and stored in minor units."
-              : "Creates a row through the reference-flow tRPC mutation."}
-          </SheetDescription>
-        </SheetHeader>
+    <UnsavedChangesGuard
+      form={form}
+      enabled={open && !submitting}
+      blocker={blocker}
+      onOpenChange={onOpenChange}
+      onDiscard={() => form.reset()}
+      title="Discard unsaved changes?"
+      description="You have unsaved changes to this customer. Leaving now will discard them."
+    >
+      {({ requestClose, guardOpenChange }) => (
+        <Sheet open={open} onOpenChange={guardOpenChange}>
+          <SheetContent className="gap-0 overflow-y-auto overscroll-contain">
+            <SheetHeader>
+              <SheetTitle>{isEditing ? "Edit customer" : "New customer"}</SheetTitle>
+              <SheetDescription>
+                {isEditing
+                  ? "Update the record. Money is edited in major units and stored in minor units."
+                  : "Creates a row through the reference-flow tRPC mutation."}
+              </SheetDescription>
+            </SheetHeader>
 
-        <Form form={form} className="flex-1 gap-4 px-5 pb-5 sm:px-6 sm:pb-6">
-          <form.FormError error={create.error ?? update.error} title="Could not save customer" />
+            <Form form={form} className="flex-1 gap-4 px-5 pb-5 sm:px-6 sm:pb-6">
+              <form.FormError
+                error={create.error ?? update.error}
+                title="Could not save customer"
+              />
 
-          <FieldGroup className="gap-5">
-            <form.AppField name="name">
-              {(field) => <field.TextField label="Name" autoComplete="name" required />}
-            </form.AppField>
+              <FieldGroup className="gap-5">
+                <form.AppField name="name">
+                  {(field) => <field.TextField label="Name" autoComplete="name" required />}
+                </form.AppField>
 
-            <form.AppField name="email">
-              {(field) => (
-                <field.TextField label="Email" type="email" autoComplete="email" required />
-              )}
-            </form.AppField>
+                <form.AppField name="email">
+                  {(field) => (
+                    <field.TextField label="Email" type="email" autoComplete="email" required />
+                  )}
+                </form.AppField>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <form.AppField name="company">
-                {(field) => <field.TextField label="Company" autoComplete="organization" />}
-              </form.AppField>
-              <form.AppField name="phone">
-                {(field) => <field.PhoneField label="Phone" defaultCountry="US" />}
-              </form.AppField>
-            </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <form.AppField name="company">
+                    {(field) => <field.TextField label="Company" autoComplete="organization" />}
+                  </form.AppField>
+                  <form.AppField name="phone">
+                    {(field) => <field.PhoneField label="Phone" defaultCountry="US" />}
+                  </form.AppField>
+                </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <form.AppField name="status">
-                {(field) => <field.SelectField label="Status" options={STATUS_OPTIONS} required />}
-              </form.AppField>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <form.AppField name="status">
+                    {(field) => (
+                      <field.SelectField label="Status" options={STATUS_OPTIONS} required />
+                    )}
+                  </form.AppField>
 
-              <form.AppField name="balanceMinor">
-                {(field) => (
-                  <field.CurrencyField
-                    label="Balance"
-                    currency={currency}
-                    description="Can be negative; stored in minor units."
-                  />
-                )}
-              </form.AppField>
-            </div>
+                  <form.AppField name="balanceMinor">
+                    {(field) => (
+                      <field.CurrencyField
+                        label="Balance"
+                        currency={currency}
+                        description="Can be negative; stored in minor units."
+                      />
+                    )}
+                  </form.AppField>
+                </div>
 
-            <form.AppField name="avatarUrl">
-              {(field) => (
-                <field.UploadField
-                  label="Avatar"
-                  hint="PNG, JPEG, WebP, or GIF up to 5 MB"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  upload={uploadFile}
-                  resolvePreviewUrl={assetUrl}
-                  onError={(error) => toast.error(error.message)}
-                />
-              )}
-            </form.AppField>
+                <form.AppField name="avatarUrl">
+                  {(field) => (
+                    <field.UploadField
+                      label="Avatar"
+                      hint="PNG, JPEG, WebP, or GIF up to 5 MB"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      upload={uploadFile}
+                      resolvePreviewUrl={assetUrl}
+                      onError={(error) => toast.error(error.message)}
+                    />
+                  )}
+                </form.AppField>
 
-            <form.AppField name="notes">
-              {(field) => <field.TextareaField label="Notes" rows={3} maxLength={2000} />}
-            </form.AppField>
-          </FieldGroup>
+                <form.AppField name="notes">
+                  {(field) => <field.TextareaField label="Notes" rows={3} maxLength={2000} />}
+                </form.AppField>
+              </FieldGroup>
 
-          <SheetFooter className="mt-auto px-0">
-            <form.SubmitButton
-              disabled={submitting}
-              loadingLabel={isEditing ? "Saving…" : "Creating…"}
-            >
-              {isEditing ? "Save changes" : "Create customer"}
-            </form.SubmitButton>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
-          </SheetFooter>
-        </Form>
-      </SheetContent>
-    </Sheet>
+              <SheetFooter className="mt-auto px-0">
+                <form.SubmitButton
+                  disabled={submitting}
+                  loadingLabel={isEditing ? "Saving…" : "Creating…"}
+                >
+                  {isEditing ? "Save changes" : "Create customer"}
+                </form.SubmitButton>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={requestClose}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+              </SheetFooter>
+            </Form>
+          </SheetContent>
+        </Sheet>
+      )}
+    </UnsavedChangesGuard>
   );
 }

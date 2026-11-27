@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowRightIcon,
+  KeyboardIcon,
   MoonIcon,
   SettingsIcon,
   SunIcon,
@@ -17,7 +18,9 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from "@monorepo-boilerplate/ui/components/command";
+import { Kbd } from "@monorepo-boilerplate/ui/components/kbd";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
 
 import { isCommandCenterEnterKey, isCommandCenterKey } from "@/lib/command-shortcut";
@@ -75,10 +78,12 @@ export function CommandCenter({
   open,
   onOpenChange,
   onOpenSettings,
+  onOpenShortcuts,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenSettings?: () => void;
+  onOpenShortcuts?: () => void;
 }) {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useThemeToggle();
@@ -155,17 +160,26 @@ export function CommandCenter({
     onOpenSettings?.();
   }
 
+  function openShortcutsAndClose() {
+    close();
+    onOpenShortcuts?.();
+  }
+
   const themeLabel = isDark ? "Switch to light theme" : "Switch to dark theme";
   const showThemeAction = matchesQuery(terms, themeLabel, "theme", "appearance", "dark", "light");
   const showSettingsAction =
     Boolean(onOpenSettings) &&
     matchesQuery(terms, "Open settings", "preferences", "appearance", "profile", "password");
+  const showShortcutsAction =
+    Boolean(onOpenShortcuts) &&
+    matchesQuery(terms, "Keyboard shortcuts", "shortcuts", "hotkeys", "help", "?");
   const ThemeIcon = isDark ? SunIcon : MoonIcon;
 
   const screens = COMMAND_SCREENS.filter((screen) =>
     matchesQuery(terms, screen.title, ...(screen.keywords ?? [])),
   );
-  const hasStaticResults = screens.length > 0 || showThemeAction || showSettingsAction;
+  const hasStaticResults =
+    screens.length > 0 || showThemeAction || showSettingsAction || showShortcutsAction;
 
   const customerRows = customers.data?.rows ?? [];
   const visibleCustomerRows = customerSearchPending ? [] : customerRows;
@@ -237,12 +251,21 @@ export function CommandCenter({
             </CommandGroup>
           ) : null}
 
-          {showThemeAction || showSettingsAction ? (
+          {showThemeAction || showSettingsAction || showShortcutsAction ? (
             <CommandGroup heading="Actions">
               {showSettingsAction ? (
                 <CommandItem value="action-open-settings" onSelect={openSettingsAndClose}>
                   <SettingsIcon />
                   <span>Open settings</span>
+                </CommandItem>
+              ) : null}
+              {showShortcutsAction ? (
+                <CommandItem value="action-keyboard-shortcuts" onSelect={openShortcutsAndClose}>
+                  <KeyboardIcon />
+                  <span>Keyboard shortcuts</span>
+                  <CommandShortcut>
+                    <Kbd>?</Kbd>
+                  </CommandShortcut>
                 </CommandItem>
               ) : null}
               {showThemeAction ? (
