@@ -490,6 +490,9 @@ export function ImportBlock({
   const total = state.records.length;
   const sample = state.records.slice(0, sampleLimit);
   const hasPreview = state.phase === "preview" || state.phase === "pending";
+  const hasIssues = state.issues.length > 0;
+  const hasConflicts = Boolean(state.conflictLineNumbers && state.conflictLineNumbers.length > 0);
+  const canConfirm = state.phase === "preview" && !hasIssues;
 
   return (
     <>
@@ -599,7 +602,11 @@ export function ImportBlock({
             {hasPreview && total > 0 && (
               <div className="flex min-w-0 flex-col gap-2">
                 <p role="status" className="text-sm">
-                  {formatNumber(total)} {plural(total, "record", "records")} ready to import.
+                  {hasIssues
+                    ? `Import blocked: ${formatNumber(state.issues.length)} ${plural(state.issues.length, "issue", "issues")} to fix across ${formatNumber(total)} ${plural(total, "record", "records")}. Nothing has been saved.`
+                    : hasConflicts
+                      ? `${formatNumber(total)} ${plural(total, "record", "records")} checked. Review the conflict below before importing.`
+                      : `${formatNumber(total)} ${plural(total, "record", "records")} ready to import.`}
                 </p>
                 <div className="flex min-w-0 flex-col gap-2 rounded-none border">
                   <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3">
@@ -623,12 +630,14 @@ export function ImportBlock({
                     <TableBody>
                       {sample.map((record) => (
                         <TableRow key={record.lineNumber}>
-                          <TableCell className="tabular-nums text-muted-foreground">
+                          <TableCell className="align-top tabular-nums text-muted-foreground">
                             {record.lineNumber}
                           </TableCell>
                           {contract.columns.map((column) => (
-                            <TableCell key={column} className="max-w-56 truncate">
-                              {record.values[column] ?? ""}
+                            <TableCell key={column} className="align-top whitespace-normal">
+                              <div className="w-max max-w-60 break-words">
+                                {record.values[column] ?? ""}
+                              </div>
                             </TableCell>
                           ))}
                         </TableRow>
@@ -639,7 +648,7 @@ export function ImportBlock({
               </div>
             )}
 
-            {hasPreview && state.conflictLineNumbers && state.conflictLineNumbers.length > 0 && (
+            {hasPreview && state.conflictLineNumbers && hasConflicts && (
               <Alert variant="destructive">
                 <AlertTitle>Nothing was saved</AlertTitle>
                 <AlertDescription>
@@ -650,7 +659,7 @@ export function ImportBlock({
               </Alert>
             )}
 
-            {hasPreview && state.issues.length > 0 && (
+            {hasPreview && hasIssues && (
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium">
@@ -678,7 +687,7 @@ export function ImportBlock({
               </div>
             )}
 
-            {hasPreview && state.issues.length === 0 && !state.conflictLineNumbers && (
+            {hasPreview && !hasIssues && !hasConflicts && (
               <p className="text-sm text-muted-foreground">
                 Every row passes validation. Nothing has been saved yet.
               </p>
@@ -704,17 +713,17 @@ export function ImportBlock({
             <Button
               type="button"
               data-slot="import-confirm"
-              disabled={state.phase !== "preview" || state.issues.length > 0}
+              disabled={!canConfirm}
               aria-busy={state.phase === "pending"}
               onClick={() => {
-                if (state.phase !== "preview") return;
+                if (!canConfirm) return;
                 void handleConfirm();
               }}
             >
               {state.phase === "pending" && <Spinner aria-hidden />}
               {state.phase === "pending"
                 ? "Importing…"
-                : state.phase === "preview"
+                : canConfirm
                   ? `Import ${formatNumber(total)} ${plural(total, "record", "records")}`
                   : "Import"}
             </Button>

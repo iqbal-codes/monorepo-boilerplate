@@ -323,7 +323,10 @@ describe("ImportBlock", () => {
       await settle();
 
       const text = dialogText();
-      expect(text).toContain("3 records");
+      expect(text).toContain(
+        "Import blocked: 2 issues to fix across 3 records. Nothing has been saved.",
+      );
+      expect(text).not.toContain("ready to import");
       expect(text).toContain("Showing 1 of 3");
       expect(text).toContain("Line 2");
       expect(text).toContain("Line 5");
@@ -331,6 +334,7 @@ describe("ImportBlock", () => {
       expect(text).toContain("Balance must be a whole number.");
       expect(text).toContain("2 issues to fix");
       expect(confirmButton()?.disabled).toBe(true);
+      expect(confirmButton()?.textContent?.trim()).toBe("Import");
     } finally {
       await harness.cleanup();
     }
@@ -882,6 +886,49 @@ describe("ImportBlock Excel (.xlsx)", () => {
       expect(parseXlsxCalls).toBe(0);
       expect(dialogText()).toContain("5 MiB");
       expect(confirmButton()?.disabled).toBe(true);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test("announces blocked .xlsx previews accurately and wraps long cell values instead of truncating", async () => {
+    const longEmail = "very.long.customer.address.for.wrapping@subdomain.example.test";
+    const blockedBytes = await buildXlsx({
+      headers: [...COLUMNS],
+      rows: [["Ada", longEmail, null, null, "archived", null, null, null]],
+    });
+
+    const harness = await mount({
+      contract: XLSX_CONTRACT,
+      parseXlsx: realParseXlsx,
+      validate: () => [
+        { lineNumber: 2, field: "status", message: "Status must be active or inactive." },
+      ],
+      confirm: () => {
+        throw new Error("confirm must stay unreachable while blocked");
+      },
+    });
+
+    try {
+      await openDialog();
+      await chooseFile(xlsxFile(blockedBytes));
+      await settle();
+
+      const status = dialog()?.querySelector('[role="status"]');
+      expect(status?.textContent?.trim()).toBe(
+        "Import blocked: 1 issue to fix across 1 record. Nothing has been saved.",
+      );
+      expect(dialogText()).not.toContain("ready to import");
+      expect(dialogText()).toContain("Blocked");
+      expect(confirmButton()?.disabled).toBe(true);
+      expect(confirmButton()?.textContent?.trim()).toBe("Import");
+
+      const emailCell = Array.from(dialog()?.querySelectorAll("td") ?? []).find((cell) =>
+        cell.textContent?.includes(longEmail),
+      );
+      expect(emailCell).toBeDefined();
+      expect(emailCell?.className).not.toContain("truncate");
+      expect(emailCell?.className).toContain("whitespace-normal");
     } finally {
       await harness.cleanup();
     }
