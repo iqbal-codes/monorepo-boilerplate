@@ -11,9 +11,12 @@ Standalone workflows for refining requests, delivering scoped changes, and impro
 | **`factory-pr-revise`** | Address maintainer `CHANGES_REQUESTED` reviews, inline comments, or `/fix` directives on an existing PR and re-run gates & QA. |
 | **`factory-learn`** | Audit the harness and recent run evidence. Recommend one addition, update, consolidation, or removal; optionally open a draft PR for human review. |
 
-`factory-qa` is not a runnable workflow: it is the QA round both delivery workflows
-include from their fix loop (mechanical gate, UX verification, the review axes, round
-verdict). Change reviewer models, review prompts, or gate wiring there once.
+`factory-qa` is not a runnable workflow: it is the sequential QA round both delivery workflows
+include from their fix loop (mechanical gate → optional black-box UX verification, skipped on
+Round 2+ when prior UX passed and the fix delta is non-visual → one consolidated independent
+reviewer covering Code, Spec, Standards, plus Seams & Failure-Safety on `risk:strict` → round
+verdict). Fix passes run with `context: fresh` against `round-feedback.md` and `review/code.md`.
+Change reviewer models, review prompts, or gate wiring there once.
 
 ## Copying to Another Repository
 
@@ -127,6 +130,8 @@ Contract for `.archon/ui-preview.sh`:
 ```bash
 #!/usr/bin/env bash
 # Starts an isolated preview server on an unused port (using ephemeral test DB/seed if needed).
+# Optional: support `--check` to exit 0 if preview prerequisites (e.g. node_modules/tools) are ready
+# and non-zero otherwise so baseline capture-before can skip cleanly without spawning an agent.
 # Must print two lines on stdout:
 #   URL=http://127.0.0.1:<port>
 #   PID=<server_pid>

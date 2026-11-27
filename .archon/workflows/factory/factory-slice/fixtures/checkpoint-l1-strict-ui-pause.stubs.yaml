@@ -1,4 +1,4 @@
-# Checkpoint path: L1 strict UI slice -> Draft PR -> ux-verify + 3 independent QA axes -> Ready PR -> pauses at merge-approval attention gate.
+# Checkpoint path: L1 strict UI slice -> Draft PR -> sequential ux-verify -> consolidated QA reviewer -> Ready PR -> pauses at merge-approval attention gate.
 fixture:
   expect: paused
   inputs:
@@ -67,12 +67,7 @@ qa__ux-verify:
 qa__review-code:
   lgtm: true
   blocking_count: 0
-  summary: "Spec, tests, and standards clean."
-
-qa__review-seams-errors:
-  lgtm: true
-  blocking_count: 0
-  summary: "Tenant boundaries and error handling verified."
+  summary: "Spec, standards, and strict seam boundaries verified."
 
 qa__verdict:
   round: 1
@@ -81,7 +76,7 @@ qa__verdict:
   effective_has_ui: true
   reason: ready
   diff_stat: "8 files changed, 450 insertions(+)"
-  summary: "Round 1 passed: mechanical gate green, UX verified, QA LGTM (3 axes)."
+  summary: "Round 1 passed: mechanical gate green, UX verified, QA LGTM (Code+Spec+Standards+Seams)."
 
 rounds-gate:
   finalize: true

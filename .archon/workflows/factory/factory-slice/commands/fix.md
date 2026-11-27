@@ -1,32 +1,32 @@
-# Fix QA / Review Findings (Resuming Implementer Session)
+# Fix QA / Review Findings (Fresh-Context Targeted Pass)
 
-You are resuming your prior implementation session for `$INPUTS.contract_path`. Mechanical Gate, UX verification, or independent QA reviewers found defects in your previous submission and sent the Draft PR back (`factory:changes-requested`).
+You are running a fresh, focused fix pass for `$INPUTS.contract_path`. Mechanical Gate, UX verification, or independent QA review found blocking defects in the previous submission and sent the Draft PR back (`factory:changes-requested`).
 
 ## Latest Verdict Summary
 $INPUTS.prev_summary
 
 ## Procedure
 
-1. **Read repo standards & all round feedback BEFORE editing any file:**
-   - Read `AGENTS.md` / `CODING_STANDARDS.md` (if present) so fixes conform to modularity and design-system rules.
-   - Read `$ARTIFACTS_DIR/round-feedback.md`
-   - Read `$ARTIFACTS_DIR/mechanical-gate.md` (if failed)
-   - Read `$ARTIFACTS_DIR/evidence/ux-report.md` (if present and failed)
-   - Read every report under `$ARTIFACTS_DIR/review/` (`code.md`, `seams-errors.md`)
-   - Re-read `$INPUTS.contract_path` for the accepted outcome, acceptance criteria, and invariants.
-   - Confirm ownership before editing: read `$INPUTS.allowed_folders` (JSON: a nonempty list limits edits to those folders; `[]` adds no folder restriction) and `$INPUTS.forbidden_paths` (repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Identify the owning modules and check every target against both boundaries.
-   - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
+1. **Read only the round feedback, standards, and exact cited files BEFORE editing:**
+   - Read `$ARTIFACTS_DIR/round-feedback.md` and `$ARTIFACTS_DIR/review/code.md`
+   - Read `$ARTIFACTS_DIR/mechanical-gate.md` (if the mechanical gate failed)
+   - Read `$ARTIFACTS_DIR/evidence/ux-report.md` (if UX verification failed)
+   - Read `AGENTS.md`, `CODING_STANDARDS.md`, and any ADR referenced for the touched domain (e.g., auth/session, form, or table conventions)
+   - Read `$INPUTS.contract_path` for the accepted outcome, acceptance criteria, and invariants
+   - Open only the exact files and tests cited in the open blocking findings (avoid broad exploratory reads across untouched modules)
+   - Confirm ownership before editing: check `$INPUTS.allowed_folders` (`[]` adds no folder restriction) and `$INPUTS.forbidden_paths`. Before editing in a newly needed folder outside a nonempty reservation, stop and return `blocked: true` with the proposal; if a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
 
 2. **Address every `[P0]` / `[P1]` finding and failing gate at root cause:**
-   - Undo only your own boundary violations, then solve within the permitted paths or report the conflict as above.
+   - Undo any boundary violations, then solve within permitted paths or report the conflict as above.
    - For scope findings, remove behavior outside the accepted slice regardless of where it was implemented.
    - Fix failing tests/lint/typecheck without weakening assertions or deleting tests.
-   - Fix every `[P0]` and `[P1]` QA defect cleanly; adopt valid `[P2]` suggestions when small and low-risk. For UX/UI fixes, use the contract, repo standards, and observations in the UX report.
-   - If you determine a reviewer finding is factually false or already satisfied, document exact `file:line` counter-evidence in `$ARTIFACTS_DIR/implementation.md` under `## Declined Review Items` so the next fresh review round can verify it.
+   - Fix every `[P0]` and `[P1]` defect at its **state-machine or contract root cause** (not a narrow symptom patch); adopt small, low-risk `[P2]` suggestions when clean.
+   - **Reproduce the exact failure sequence in a regression test:** when a finding cites an async race, deferred network request, error-then-retry sequence (e.g., `401` → retry → `500`), or cancelled navigation/reload, write a focused regression test that reproduces that exact sequence — never substitute a happy-path mock that hides the bug. When a finding cites third-party library runtime behavior, check the relevant repo ADR or library source/types before assuming how it behaves.
+   - If you determine a reviewer finding is factually false or already satisfied, document exact `file:line` counter-evidence in `$ARTIFACTS_DIR/implementation.md` under `## Declined Review Items` so the next review round can verify it.
 
 3. **Verify locally before handing back to `factory:review`:**
-   - Prepare the worktree using the documented repository setup if needed, then run `$INPUTS.verification_command` and confirm exit code `0`.
-   - When `$INPUTS.has_ui` is `true`, `$INPUTS.preview_cmd` is non-empty, and UI behavior or routes changed, re-verify fixed states and dialogs using `$INPUTS.preview_cmd` and `agent-browser` (when installed; reserve Playwright for persistent E2E test suites or network/CDP tracing). Cover the supported devices and viewports, check interaction, accessibility and runtime health, stop the preview using `PID`, then save refreshed `$ARTIFACTS_DIR/evidence/impl-<state>.png` and visually inspect the PNGs.
+   - Run `$INPUTS.verification_command` and confirm exit code `0`.
+   - **Conditional browser check:** run `$INPUTS.preview_cmd` + `agent-browser` (or saved Playwright check) **only when** `$INPUTS.has_ui` is `true`, `$INPUTS.preview_cmd` is non-empty, AND this round fixed a failing UX/visual/layout/route defect. When UX already passed and this round only fixed logic/state covered by automated regression tests, skip redundant preview/screenshot loops. When you do run a preview, always stop it using `PID` and visually inspect any refreshed `$ARTIFACTS_DIR/evidence/impl-<state>.png`.
    - Update `$ARTIFACTS_DIR/implementation.md` (keeping full fix & declined-item context for QA) AND refresh `$ARTIFACTS_DIR/pr-summary.md` (`## Summary` visual/diff-sketch + `## Merge Danger` One-way/Two-way door & Blast Radius) so the PR description reflects the final shape.
    - Ensure changes are saved on disk (the publisher script will commit and push cleanly to the Draft PR).
 

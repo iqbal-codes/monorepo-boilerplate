@@ -10,9 +10,11 @@ WEB_DIR="$ROOT/apps/web"
 SERVER_DIR="$ROOT/apps/server"
 
 WITH_API="${PREVIEW_WITH_API:-0}"
+CHECK_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --with-api) WITH_API=1 ;;
+    --check) CHECK_ONLY=1 ;;
     *)
       echo "ui-preview: unknown option: $arg" >&2
       exit 2
@@ -83,6 +85,14 @@ elif command -v vp >/dev/null 2>&1; then
 else
   echo "ui-preview: vp not found (node_modules not installed; run bun install first)" >&2
   exit 1
+fi
+
+if [ "$CHECK_ONLY" = "1" ]; then
+  if [ ! -d "$ROOT/node_modules" ]; then
+    echo "ui-preview: node_modules not installed (run bun install first)" >&2
+    exit 1
+  fi
+  exit 0
 fi
 
 if [ ! -f "$WEB_DIR/.env" ] || [ ! -f "$SERVER_DIR/.env" ]; then

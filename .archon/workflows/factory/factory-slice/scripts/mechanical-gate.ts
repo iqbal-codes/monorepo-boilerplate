@@ -2,6 +2,8 @@
  * Deterministic mechanical gate (0 LLM tokens):
  * 1. Checks reserved folders and protected files before running verification.
  * 2. Runs the verification command resolved at contract intake.
+ * 3. Decides whether black-box UX verification should run (skips on Round 2+ when
+ *    prior UX passed, no UX blockers are open, and the fix delta is non-visual).
  * Writes full evidence to $ARTIFACTS_DIR/mechanical-gate.md.
  */
 
@@ -24,7 +26,7 @@ const forbiddenPaths = JSON.parse(text(process.env.INPUTS_FORBIDDEN_PATHS) || '[
 const contractHasUi = text(process.env.INPUTS_CONTRACT_HAS_UI) === 'true';
 
 // A blocked fixer ends the round here: no verification run, no browser check, no
-// reviewers. The round verdict still classifies the round from this node's output.
+// reviewer. The round verdict still classifies the round from this node's output.
 if (text(process.env.INPUTS_FIX_BLOCKED) === 'true') {
   const summary = 'skipped: the fix pass reported a blocker';
   writeFileSync(
@@ -69,7 +71,79 @@ const diffTouchesUi = changedFiles.some((f) => isRenderedUiFile(f));
 const effectiveHasUi = contractHasUi || diffTouchesUi;
 // The implementer may have added the default hook after contract intake.
 const previewCmd = resolvePreviewCommand(text(process.env.INPUTS_PREVIEW_CMD));
-const effectiveRunUx = effectiveHasUi && previewCmd.length > 0;
+
+const prevFeedbackPath = join(artifactsDir, 'round-feedback.md');
+const prevFeedbackRaw = existsSync(prevFeedbackPath) ? readFileSync(prevFeedbackPath, 'utf8') : '';
+const prevShaMatch = prevFeedbackRaw.match(/\*\*Reviewed SHA:\*\*\s*`([a-f0-9]{7,40})`/i);
+const prevSha = prevShaMatch?.[1] || '';
+
+function isTestPath(filePath: string): boolean {
+  return /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[jt]sx?$/i.test(filePath);
+}
+
+function isPureStyleOrMarkupFile(filePath: string): boolean {
+  return /\.(css|scss|sass|less|html|svg|qml|xaml)$/i.test(filePath);
+}
+
+function deltaTouchesVisualSurface(reviewedSha: string): boolean {
+  const statusRes = runCmd(['git', 'diff', '--name-status', `${reviewedSha}..HEAD`], { allowFail: true });
+  if (statusRes.code !== 0) return true;
+  const entries = statusRes.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/\t+/);
+      return { status: parts[0] ?? '', file: parts[parts.length - 1] ?? '' };
+    })
+    .filter((entry) => entry.file && !isTestPath(entry.file));
+
+  const untrackedRes = runCmd(['git', 'ls-files', '--others', '--exclude-standard'], { allowFail: true });
+  if (untrackedRes.code === 0 && untrackedRes.stdout) {
+    for (const file of untrackedRes.stdout.split(/\r?\n/).filter(Boolean)) {
+      if (!isTestPath(file)) entries.push({ status: 'A', file });
+    }
+  }
+
+  for (const { status, file } of entries) {
+    if (isPureStyleOrMarkupFile(file)) return true;
+    if (!isRenderedUiFile(file)) continue;
+    // Newly added UI components or routes always merit a visual pass.
+    if (status.startsWith('A')) return true;
+    // Check whether modified UI file lines actually alter styling, markup, or layout.
+    const patchRes = runCmd(['git', 'diff', '-U0', `${reviewedSha}..HEAD`, '--', file], { allowFail: true });
+    if (patchRes.code !== 0) return true;
+    const changedLines = patchRes.stdout
+      .split(/\r?\n/)
+      .filter((l) => (l.startsWith('+') || l.startsWith('-')) && !l.startsWith('+++') && !l.startsWith('---'));
+    if (
+      changedLines.some((l) =>
+        /\b(?:className|style)\s*=|<svg\b|@media|@container|z-index|position\s*:/.test(l)
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const prevUxPassed = /^- \*\*UX Check:\*\*\s*(?:PASS\b|skipped\s*\(prior round UX PASS\b)/im.test(prevFeedbackRaw);
+const openItemsSection = prevFeedbackRaw.match(/### Open Blocking Items to Verify Fixed([\s\S]*?)(?:###|$)/i)?.[1] ?? '';
+const hasOpenUxFindings = /^\*\*UX:\*\*/m.test(openItemsSection);
+
+let effectiveRunUx = effectiveHasUi && previewCmd.length > 0;
+let uxGateDecision = effectiveRunUx
+  ? 'enabled'
+  : effectiveHasUi
+    ? 'skipped (no preview hook)'
+    : 'skipped (non-UI)';
+
+if (effectiveRunUx && prevUxPassed && !hasOpenUxFindings && prevSha) {
+  if (!deltaTouchesVisualSurface(prevSha)) {
+    effectiveRunUx = false;
+    uxGateDecision = 'skipped (prior round UX PASS; non-visual delta)';
+  }
+}
 
 const reportLines: string[] = [
   '# Mechanical Gate Report',
@@ -78,7 +152,8 @@ const reportLines: string[] = [
   `- **Changed files:** ${changedFiles.length}`,
   `- **Boundary Audit:** ${boundary.ok ? 'PASS' : 'FAIL'}`,
   `- **Verification Command:** \`${cmdToRun || 'none'}\` -> ${checksOk ? 'PASS' : 'FAIL'}`,
-  `- **Effective UI Gate:** ${effectiveHasUi ? 'YES' : 'NO'} (contract=${contractHasUi}, diff=${diffTouchesUi}; ux-verify=${effectiveRunUx ? 'enabled' : effectiveHasUi ? 'skipped (no preview hook)' : 'skipped'})`,
+  `- **Effective UI Gate:** ${effectiveHasUi ? 'YES' : 'NO'} (contract=${contractHasUi}, diff=${diffTouchesUi}; ux-verify=${uxGateDecision})`,
+  `- **UX Gate Decision:** ${uxGateDecision}`,
   '',
 ];
 
@@ -101,7 +176,7 @@ function collectStaticHygieneSignals(files: string[], base: string): string[] {
   for (const relPath of files) {
     if (!existsSync(relPath)) continue;
     if (/\.(md|json|yaml|yml|lock|svg|png|jpg|css)$/i.test(relPath)) continue;
-    if (/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[jt]sx?$/i.test(relPath)) continue;
+    if (isTestPath(relPath)) continue;
 
     const lineCount = readFileSync(relPath, 'utf8').split(/\r?\n/).length;
     const isUi = isRenderedUiFile(relPath);
@@ -136,12 +211,6 @@ function collectStaticHygieneSignals(files: string[], base: string): string[] {
   );
   return signals;
 }
-
-const prevFeedbackPath = join(artifactsDir, 'round-feedback.md');
-const prevShaMatch = existsSync(prevFeedbackPath)
-  ? readFileSync(prevFeedbackPath, 'utf8').match(/\*\*Reviewed SHA:\*\*\s*`([a-f0-9]{7,40})`/i)
-  : null;
-const prevSha = prevShaMatch?.[1] || '';
 
 reportLines.push('## Diff Stat', '```text', diffStat, '```', '');
 if (prevSha) {

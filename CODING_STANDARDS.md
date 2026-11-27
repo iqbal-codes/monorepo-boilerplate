@@ -19,7 +19,7 @@ Reviewed on diffs alongside [GLOSSARY.md](./GLOSSARY.md) and [docs/adr/](./docs/
 - **Money:** Exchange across every boundary as an integer number of currency minor units plus an ISO currency code. Format with `packages/ui/src/lib/format.ts`, never `toLocaleString`.
 - **Form value shapes:** Store date-only fields as `"YYYY-MM-DD"`, datetime fields as UTC ISO-8601 strings, phones as E.164 strings, and uploads as provider-relative asset paths resolved at render time via `apps/web/src/lib/asset-url.ts` ([ADR 0004](./docs/adr/0004-store-asset-paths-relative.md)).
 - **Tables (`@tanstack/react-table` v9.3.1):** Use `useTable` + explicit `tableFeatures(...)`, not v8 `useReactTable` (see `packages/ui/src/components/data-table.tsx`).
-- **Server & Auth:** Keep domain logic in `packages/*`; `apps/server` only wires routes/adapters. Gate admin procedures with `adminProcedure` from `packages/api/src/procedures.ts`.
+- **Server & Auth:** Keep domain logic in `packages/*`; `apps/server` only wires routes/adapters. Gate admin procedures with `adminProcedure` from `packages/api/src/procedures.ts`. For Better Auth session refresh, expiry, or impersonation handling in `apps/web`, follow the runtime gotchas in [ADR 0003](./docs/adr/0003-better-auth-admin-plugin.md).
 
 ## Browser Runtime & Test Hygiene
 

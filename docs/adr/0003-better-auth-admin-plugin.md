@@ -12,3 +12,11 @@ Decided: enable the plugin in `packages/auth`, regenerate `packages/db/src/schem
 ## Consequences
 
 Adding the plugin widens the `Session` type in `packages/auth`, which flows into the API context and every session read in the web app. The tenant model stays single-tenant: the `organization` plugin is deliberately not enabled.
+
+## Runtime Session & Impersonation Gotchas (Better Auth 1.7)
+
+Client code reading `authClient.useSession()` or calling `authClient.admin.stopImpersonating()` must account for these runtime behaviors without re-deriving them from `node_modules/better-auth`:
+
+- **Expired/signed-out session returns `200` with `null`:** Treat a settled `null` response (`!isPending && !error`) as authoritative absence, never falling back to a route-seeded `initialSession`.
+- **`refetch()` clears `error` when retry begins:** Better Auth clears the previous `401` error on retry (`client/query.mjs`), so latch `401` like settled `null` until a fresh non-null session arrives; otherwise `401 → Retry → 500` resurrects stale impersonation banners.
+- **`stopImpersonating()` returns the restored admin identity directly:** Reset identity-bound client state (query cache and `<AssistantProvider>` subtree) immediately from the successful Stop response _before_ awaiting `refetch()`, `router.invalidate()`, or `window.location.reload()` (which a stalled GET or cancelled `beforeunload` can delay or abort).
