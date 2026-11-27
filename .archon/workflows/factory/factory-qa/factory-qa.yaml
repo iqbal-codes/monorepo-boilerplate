@@ -69,6 +69,9 @@ nodes:
     model: large
     context: fresh
     mutates_checkout: false
+    skills:
+      - { name: agent-browser, optional: true }
+      - { name: better-interface, optional: true }
     depends_on: [mechanical-gate]
     when: "$mechanical-gate.output.effective_run_ux == true && $mechanical-gate.output.passed == true"
     with:
@@ -109,6 +112,9 @@ nodes:
     model: large
     context: fresh
     mutates_checkout: false
+    skills:
+      - { name: better-interface, optional: true }
+      - { name: modern-web-guidance, optional: true }
     depends_on: [mechanical-gate, ux-verify]
     trigger_rule: none_failed_min_one_success
     when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
