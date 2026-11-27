@@ -920,12 +920,144 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
           balanceMinor: 5000,
           currency: "USD",
           tags: ["vip", "renewal"],
-          phone: null,
           company: "Analytical Engines",
-          notes: null,
           avatarUrl: null,
         },
       ]);
+      expect(openState).toBe(false);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("SEAM-04: preserves local drawer tag and avatar edits when customers.byId refetches on focus", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const initialRecord = {
+      id: "cust-edit",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "",
+      company: "Analytical Engines",
+      status: "active",
+      balanceMinor: 5000,
+      currency: "USD",
+      avatarUrl: "/uploads/ada.png",
+      tags: ["vip"],
+      notes: "",
+    };
+    let serverRecord = initialRecord;
+    queryClient.setQueryData(["customers", "byId", "cust-edit"], initialRecord);
+    queryClient.setQueryData(["customers", "tags"], ["vip", "enterprise"]);
+    customerByIdImpl = async () => serverRecord;
+
+    const view = await renderWithQuery(
+      <CustomerFormDrawer open onOpenChange={() => {}} customerId="cust-edit" />,
+      queryClient,
+    );
+
+    try {
+      const tagInput = document.body.querySelector<HTMLInputElement>(
+        '[data-slot="tag-input"] input',
+      );
+      await act(async () => {
+        if (tagInput) {
+          setInputValue(tagInput, "local-tag");
+          tagInput.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        }
+      });
+
+      const removeAvatarBtn = Array.from(document.body.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.includes("Remove avatar"),
+      );
+      await act(async () => {
+        removeAvatarBtn?.click();
+      });
+      expect(document.body.textContent).toContain("local-tag");
+      expect(document.body.querySelector('img[alt="Uploaded file preview"]')).toBeNull();
+
+      // Another staff member saves a concurrent update and a focus refetch lands.
+      serverRecord = {
+        ...initialRecord,
+        name: "Ada Updated By Colleague",
+        tags: ["vip", "colleague-tag"],
+        avatarUrl: "/uploads/colleague.png",
+      };
+      await act(async () => {
+        await queryClient.invalidateQueries({ queryKey: ["customers", "byId", "cust-edit"] });
+        await Promise.resolve();
+      });
+
+      const nameInput = document.body.querySelector<HTMLInputElement>('input[name="name"]');
+      expect(nameInput?.value).toBe("Ada Lovelace");
+      expect(document.body.textContent).toContain("local-tag");
+      expect(document.body.textContent).not.toContain("colleague-tag");
+      expect(document.body.querySelector('img[alt="Uploaded file preview"]')).toBeNull();
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("CODE-02: triggers UnsavedChangesGuard on Cancel when tag input has uncommitted draft text", async () => {
+    let openState = true;
+    const view = await renderWithQuery(
+      <CustomerFormDrawer
+        open
+        onOpenChange={(next) => {
+          openState = next;
+        }}
+        customerId={null}
+      />,
+    );
+
+    try {
+      const tagInput = document.body.querySelector<HTMLInputElement>(
+        '[data-slot="tag-input"] input',
+      );
+      expect(tagInput).not.toBeNull();
+
+      await act(async () => {
+        if (tagInput) {
+          setInputValue(tagInput, "uncommitted-tag");
+        }
+      });
+
+      const cancelBtn = Array.from(document.body.querySelectorAll("button")).find(
+        (btn) => btn.textContent?.trim() === "Cancel",
+      );
+      await act(async () => {
+        cancelBtn?.click();
+      });
+
+      const alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(alertDialog?.textContent).toContain("Discard unsaved changes?");
+      expect(openState).toBe(true);
+
+      // Keep editing retains the typed draft text.
+      const keepBtn = Array.from(alertDialog?.querySelectorAll("button") ?? []).find((btn) =>
+        btn.textContent?.includes("Keep editing"),
+      );
+      await act(async () => {
+        keepBtn?.click();
+      });
+      expect(tagInput?.value).toBe("uncommitted-tag");
+
+      // Cancel -> Discard changes closes cleanly.
+      await act(async () => {
+        cancelBtn?.click();
+      });
+      const discardBtn = Array.from(
+        document.body
+          .querySelector('[data-slot="alert-dialog-content"]')
+          ?.querySelectorAll("button") ?? [],
+      ).find((btn) => btn.textContent?.includes("Discard changes"));
+      await act(async () => {
+        discardBtn?.click();
+      });
       expect(openState).toBe(false);
     } finally {
       await view.cleanup();

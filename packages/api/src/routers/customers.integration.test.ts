@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createDb } from "@monorepo-boilerplate/db";
 import { customerQueries } from "@monorepo-boilerplate/db/queries/customer";
-import { customersRouter } from "./customers";
+import { customersRouter, customerUpdateInput } from "./customers";
 
 const databaseUrl = process.env.CUSTOMERS_TEST_DATABASE_URL;
 
@@ -875,6 +875,129 @@ describe.skipIf(!databaseUrl)(
       ).rejects.toMatchObject({
         code: "NOT_FOUND",
       });
+    });
+
+    test("SEAM-01: clearing avatar on archived non-USD record does not implicitly restore or reset currency", async () => {
+      const parsedPatch = customerUpdateInput.parse({ id: "probe-id", avatarUrl: null });
+      expect(parsedPatch).toEqual({ id: "probe-id", avatarUrl: null });
+      expect("status" in parsedPatch).toBe(false);
+      expect("currency" in parsedPatch).toBe(false);
+
+      const created = await staff.create({
+        name: "Archived Euro",
+        email: unique(),
+        status: "archived",
+        balanceMinor: 2500,
+        currency: "EUR",
+        avatarUrl: "/uploads/euro-avatar.png",
+      });
+      fixtureIds.push(created.id);
+
+      const cleared = await staff.update({
+        id: created.id,
+        avatarUrl: null,
+      });
+
+      expect(cleared.status).toBe("archived");
+      expect(cleared.currency).toBe("EUR");
+      expect(cleared.avatarUrl).toBeNull();
+
+      const events = await staff.events.list({ customerId: created.id });
+      expect(events.map((event) => event.type)).toEqual(["created", "avatar_removed"]);
+    });
+
+    test("SEAM-03: rejects absolute URLs, protocol-relative paths, and traversal in avatarUrl", async () => {
+      const created = await staff.create({
+        name: "Avatar Validation",
+        email: unique(),
+        balanceMinor: 0,
+      });
+      fixtureIds.push(created.id);
+
+      for (const badUrl of [
+        "https://example.com/avatar.png",
+        "http://localhost:3000/uploads/avatar.png",
+        "//evil.example/avatar.png",
+        "javascript:alert(1)",
+        "/uploads/../secret.png",
+      ]) {
+        await expect(
+          staff.create({
+            name: "Bad Avatar",
+            email: unique(),
+            balanceMinor: 0,
+            avatarUrl: badUrl,
+          }),
+        ).rejects.toThrow();
+
+        await expect(
+          staff.update({
+            id: created.id,
+            avatarUrl: badUrl,
+          }),
+        ).rejects.toThrow();
+      }
+    });
+
+    test("SEAM-05: orders concurrent updates by insertion time after row lock rather than transaction start time", async () => {
+      const created = await staff.create({
+        name: "Concurrent Lock Order",
+        email: unique(),
+        balanceMinor: 100,
+        company: "Initial",
+      });
+      fixtureIds.push(created.id);
+
+      let markT2Started!: () => void;
+      const t2Started = new Promise<void>((resolve) => {
+        markT2Started = resolve;
+      });
+      let markT1Locked!: () => void;
+      const t1Locked = new Promise<void>((resolve) => {
+        markT1Locked = resolve;
+      });
+
+      // Transaction 2 begins first (earlier transaction_timestamp()), waits for T1
+      // to acquire the row lock via update(), blocks on FOR UPDATE, then overwrites T1.
+      const t2Promise = db.transaction(async (tx2) => {
+        await customerQueries(tx2 as unknown as typeof db).byId(created.id);
+        markT2Started();
+        await t1Locked;
+        await customerQueries(tx2 as unknown as typeof db).update(
+          created.id,
+          { company: "Second Writer" },
+          { id: "staff-2", name: "Staff Two" },
+        );
+      });
+
+      await t2Started;
+      await Bun.sleep(30);
+
+      // Transaction 1 begins later, acquires the row lock first, holds it briefly
+      // while T2 blocks on FOR UPDATE, then commits first.
+      await db.transaction(async (tx1) => {
+        await customerQueries(tx1 as unknown as typeof db).update(
+          created.id,
+          { company: "First Writer" },
+          { id: "staff-1", name: "Staff One" },
+        );
+        markT1Locked();
+        await Bun.sleep(30);
+      });
+
+      await t2Promise;
+
+      const latest = await staff.byId({ id: created.id });
+      expect(latest?.company).toBe("Second Writer");
+
+      const events = await staff.events.list({ customerId: created.id });
+      const updateEvents = events.filter((event) => event.type === "updated");
+      expect(updateEvents).toHaveLength(2);
+      expect(updateEvents[0]?.actorName).toBe("Staff One");
+      expect(updateEvents[1]?.actorName).toBe("Staff Two");
+      expect(new Date(updateEvents[0]!.createdAt).getTime()).toBeLessThanOrEqual(
+        new Date(updateEvents[1]!.createdAt).getTime(),
+      );
     });
   },
 );

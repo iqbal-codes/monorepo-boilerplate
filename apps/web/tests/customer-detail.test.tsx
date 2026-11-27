@@ -69,7 +69,9 @@ mock.module("@/lib/server-url", () => ({
 
 const { createRoot } = await import("react-dom/client");
 const { TooltipProvider } = await import("@monorepo-boilerplate/ui/components/tooltip");
-const { CustomerDetailView } = await import("../src/components/customers/customer-detail");
+const { CustomerDetailView, toTimelineItems } =
+  await import("../src/components/customers/customer-detail");
+const { assetUrl } = await import("../src/lib/asset-url");
 
 afterAll(() => {
   for (const key of DOM_KEYS) {
@@ -87,6 +89,11 @@ async function renderInDom(node: React.ReactNode) {
   });
   return {
     host,
+    rerender: async (next: React.ReactNode) => {
+      await act(async () => {
+        root.render(<TooltipProvider delay={0}>{next}</TooltipProvider>);
+      });
+    },
     cleanup: async () => {
       await act(async () => {
         root.unmount();
@@ -116,25 +123,27 @@ const SAMPLE_EVENTS = [
   {
     id: "evt-1",
     customerId: "cust-1",
-    type: "created",
+    type: "created" as const,
     actorId: "staff-1",
     actorName: "Grace Hopper",
     actorAvatarUrl: null,
     summary: "Created customer",
     body: null,
     metadata: { status: "active" },
+    seq: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "evt-2",
     customerId: "cust-1",
-    type: "note",
+    type: "note" as const,
     actorId: "staff-1",
     actorName: "Grace Hopper",
     actorAvatarUrl: null,
     summary: "Added a note",
     body: "Initial onboarding call complete.",
     metadata: null,
+    seq: 2,
     createdAt: "2026-01-02T10:00:00.000Z",
   },
 ];
@@ -430,6 +439,88 @@ describe("CustomerDetailView", () => {
       expect(deleteCalls).toBe(1);
     } finally {
       await adminView.cleanup();
+    }
+  });
+
+  test("SEAM-02: closes Delete confirmation when navigating Back from customer B to cached customer A", async () => {
+    const deletedIds: string[] = [];
+    const customerA = { ...SAMPLE_CUSTOMER, id: "cust-a", name: "Customer A" };
+    const customerB = { ...SAMPLE_CUSTOMER, id: "cust-b", name: "Customer B" };
+
+    function renderForId(active: typeof customerA) {
+      return (
+        <CustomerDetailView
+          key={active.id}
+          customer={active}
+          isLoading={false}
+          events={[]}
+          onAddNote={noopAsync}
+          onEdit={() => {}}
+          onArchive={noopAsync}
+          onRestore={noopAsync}
+          canDelete
+          onDelete={async () => {
+            deletedIds.push(active.id);
+          }}
+          renderBackLink={renderBackLink}
+        />
+      );
+    }
+
+    const view = await renderInDom(renderForId(customerB));
+    try {
+      const moreBtn = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="More customer actions"]',
+      );
+      await act(async () => {
+        moreBtn?.click();
+      });
+      const deleteItem = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
+        (el) => el.textContent?.trim() === "Delete",
+      ) as HTMLElement | undefined;
+      await act(async () => {
+        deleteItem?.click();
+      });
+      expect(document.body.querySelector('[data-slot="alert-dialog-content"]')).not.toBeNull();
+
+      // Navigate Back to cached customer A before confirming Delete.
+      await view.rerender(renderForId(customerA));
+
+      expect(document.body.querySelector('[data-slot="alert-dialog-content"]')).toBeNull();
+      expect(view.host.textContent).toContain("Customer A");
+      expect(deletedIds).toEqual([]);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("SEAM-03 & SEAM-06: falls back to initials for malformed legacy avatarUrl and passes exhaustive event icons", async () => {
+    expect(assetUrl("//bad authority")).toBeNull();
+    expect(assetUrl("http://[invalid")).toBeNull();
+    expect(assetUrl("javascript:alert(1)")).toBeNull();
+    expect(assetUrl("/uploads/ok.png")).toBe("http://localhost:3000/uploads/ok.png");
+
+    const timelineItems = toTimelineItems(SAMPLE_EVENTS);
+    expect(timelineItems.every((item) => Boolean(item.icon && item.iconClassName))).toBe(true);
+
+    const view = await renderInDom(
+      <CustomerDetailView
+        customer={{ ...SAMPLE_CUSTOMER, avatarUrl: "http://[invalid" }}
+        isLoading={false}
+        events={[{ ...SAMPLE_EVENTS[0]!, actorAvatarUrl: "//bad authority" }]}
+        onAddNote={noopAsync}
+        onEdit={() => {}}
+        onArchive={noopAsync}
+        onRestore={noopAsync}
+        renderBackLink={renderBackLink}
+      />,
+    );
+
+    try {
+      expect(view.host.querySelector("img")).toBeNull();
+      expect(view.host.querySelector('[data-slot="avatar"]')?.textContent).toContain("AL");
+    } finally {
+      await view.cleanup();
     }
   });
 });

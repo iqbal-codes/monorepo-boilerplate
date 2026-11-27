@@ -5,7 +5,16 @@ import { useFieldContext } from "../form-context";
 import type { BaseFieldProps } from "../types";
 
 export type TagFieldProps = BaseFieldProps &
-  Pick<TagInputProps, "suggestions" | "placeholder" | "maxTags" | "delimiters" | "allowDuplicates">;
+  Pick<
+    TagInputProps,
+    | "suggestions"
+    | "placeholder"
+    | "maxTags"
+    | "delimiters"
+    | "allowDuplicates"
+    | "inputValue"
+    | "onInputValueChange"
+  >;
 
 /**
  * TanStack Form-bound multi-tag Field Block wrapping `TagInput` with
@@ -26,6 +35,8 @@ export function TagField({
   maxTags,
   delimiters,
   allowDuplicates,
+  inputValue,
+  onInputValueChange,
 }: TagFieldProps) {
   const field = useFieldContext<string[] | undefined>();
   const ids = useFieldIds(field.name, id);
@@ -49,6 +60,8 @@ export function TagField({
         name={field.name}
         value={Array.isArray(field.state.value) ? field.state.value : []}
         onValueChange={(next) => field.handleChange(next)}
+        inputValue={inputValue}
+        onInputValueChange={onInputValueChange}
         onBlur={field.handleBlur}
         suggestions={suggestions}
         placeholder={placeholder}

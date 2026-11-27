@@ -11,6 +11,15 @@ mock.module(Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", baseUiRoot), ()
 }));
 
 const win = new Window({ url: "http://localhost/" });
+const scrollIntoViewCalls: HTMLElement[] = [];
+win.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {
+  scrollIntoViewCalls.push(this as unknown as HTMLElement);
+};
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 const DOM_KEYS = [
   "window",
   "document",
@@ -27,6 +36,7 @@ const DOM_KEYS = [
   "ClipboardEvent",
   "DataTransfer",
   "MutationObserver",
+  "ResizeObserver",
   "navigator",
   "getComputedStyle",
   "requestAnimationFrame",
@@ -54,6 +64,7 @@ Object.assign(globalThis, {
   ClipboardEvent: win.ClipboardEvent,
   DataTransfer: win.DataTransfer,
   MutationObserver: win.MutationObserver,
+  ResizeObserver: MockResizeObserver,
   navigator: win.navigator,
   getComputedStyle: win.getComputedStyle.bind(win),
   requestAnimationFrame: win.requestAnimationFrame.bind(win),
@@ -129,16 +140,14 @@ describe("TagInput", () => {
           new win.KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }),
         );
       });
-      expect(view.host.querySelectorAll('[data-slot="tag-input-pill"]').length).toBe(1);
+      expect(view.host.querySelectorAll("[data-tag-pill]").length).toBe(1);
 
       // Standard Enter commits trimmed tag and dedupes case-insensitively.
       await act(async () => {
         input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       });
       expect(
-        [...view.host.querySelectorAll('[data-slot="tag-input-pill"]')].map((el) =>
-          el.textContent?.trim(),
-        ),
+        [...view.host.querySelectorAll("[data-tag-pill]")].map((el) => el.textContent?.trim()),
       ).toEqual(["vip", "draft"]);
       expect(input.value).toBe("");
 
@@ -147,7 +156,7 @@ describe("TagInput", () => {
         setInputValue(input, "VIP");
         input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       });
-      expect(view.host.querySelectorAll('[data-slot="tag-input-pill"]').length).toBe(2);
+      expect(view.host.querySelectorAll("[data-tag-pill]").length).toBe(2);
 
       // Paste-split trims, dedupes, and respects maxTags (4).
       await act(async () => {
@@ -158,9 +167,7 @@ describe("TagInput", () => {
         );
       });
       expect(
-        [...view.host.querySelectorAll('[data-slot="tag-input-pill"]')].map((el) =>
-          el.textContent?.trim(),
-        ),
+        [...view.host.querySelectorAll("[data-tag-pill]")].map((el) => el.textContent?.trim()),
       ).toEqual(["vip", "draft", "enterprise", "renewal"]);
 
       // Backspace on empty input removes last tag.
@@ -168,9 +175,7 @@ describe("TagInput", () => {
         input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
       });
       expect(
-        [...view.host.querySelectorAll('[data-slot="tag-input-pill"]')].map((el) =>
-          el.textContent?.trim(),
-        ),
+        [...view.host.querySelectorAll("[data-tag-pill]")].map((el) => el.textContent?.trim()),
       ).toEqual(["vip", "draft", "enterprise"]);
 
       // Remove button removes specific tag.
@@ -181,9 +186,7 @@ describe("TagInput", () => {
         removeDraft?.click();
       });
       expect(
-        [...view.host.querySelectorAll('[data-slot="tag-input-pill"]')].map((el) =>
-          el.textContent?.trim(),
-        ),
+        [...view.host.querySelectorAll("[data-tag-pill]")].map((el) => el.textContent?.trim()),
       ).toEqual(["vip", "enterprise"]);
     } finally {
       await view.cleanup();
@@ -208,7 +211,7 @@ describe("TagInput", () => {
         setInputValue(input, "onb");
       });
 
-      const options = [...view.host.querySelectorAll('[role="option"]')];
+      const options = [...document.body.querySelectorAll('[role="option"]')];
       expect(options.map((o) => o.textContent)).toEqual(["onboarding"]);
 
       await act(async () => {
@@ -219,6 +222,66 @@ describe("TagInput", () => {
       });
 
       expect(changes).toEqual([["vip", "onboarding"]]);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("scrolls highlighted option into view when navigating past visible options and keeps tags on Escape", async () => {
+    scrollIntoViewCalls.length = 0;
+    const suggestions = Array.from(
+      { length: 20 },
+      (_, index) => `tag-${String(index + 1).padStart(2, "0")}`,
+    );
+    const changes: string[][] = [];
+    const inputValues: string[] = [];
+
+    const view = await renderInDom(
+      <TagInput
+        aria-label="Many tags"
+        value={["initial"]}
+        onValueChange={(next) => changes.push(next)}
+        onInputValueChange={(next) => inputValues.push(next)}
+        suggestions={suggestions}
+      />,
+    );
+
+    try {
+      const input = view.host.querySelector<HTMLInputElement>("input")!;
+      await act(async () => {
+        input.focus();
+      });
+
+      // Navigate past the visible window (15 ArrowDown presses to tag-15).
+      for (let step = 0; step < 15; step += 1) {
+        await act(async () => {
+          input.dispatchEvent(
+            new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          );
+        });
+      }
+
+      const highlighted = document.body.querySelector<HTMLElement>(
+        '[role="option"][data-highlighted]',
+      );
+      expect(highlighted?.textContent).toBe("tag-15");
+      expect(scrollIntoViewCalls.some((el) => el.textContent === "tag-15")).toBe(true);
+
+      // Select highlighted tag-15 with Enter.
+      await act(async () => {
+        input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(changes).toEqual([["initial", "tag-15"]]);
+
+      // Pressing Escape while menu is closed must not clear existing tags.
+      await act(async () => {
+        setInputValue(input, "unsaved-draft");
+      });
+      expect(inputValues.at(-1)).toBe("unsaved-draft");
+      await act(async () => {
+        input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      expect(changes).toEqual([["initial", "tag-15"]]);
     } finally {
       await view.cleanup();
     }

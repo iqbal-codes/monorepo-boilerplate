@@ -76,7 +76,12 @@ export const customerEvent = pgTable(
     body: text("body"),
     metadata: jsonb("metadata").$type<Record<string, unknown> | null>(),
     seq: serial("seq").notNull(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
+    // Use clock_timestamp() instead of defaultNow() (transaction_timestamp()) so
+    // concurrent transactions that wait on a row lock are ordered by insertion
+    // time after acquiring the lock rather than transaction start time.
+    createdAt: timestamp("created_at")
+      .default(sql`clock_timestamp()`)
+      .notNull(),
   },
   (table) => [
     index("customer_event_customer_created_idx").on(table.customerId, table.createdAt, table.seq),

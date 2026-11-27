@@ -3,17 +3,7 @@
 import * as React from "react";
 import { cn } from "cn";
 import { formatDistanceToNow } from "date-fns";
-import {
-  ActivityIcon,
-  ArchiveIcon,
-  ChevronDownIcon,
-  HistoryIcon,
-  ImageIcon,
-  MessageSquareIcon,
-  PencilIcon,
-  PlusCircleIcon,
-  RotateCcwIcon,
-} from "lucide-react";
+import { ActivityIcon, ChevronDownIcon, HistoryIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@monorepo-boilerplate/ui/components/alert";
 import {
@@ -51,19 +41,9 @@ export type ActivityTimelineActor = {
   initials?: string;
 };
 
-export type ActivityTimelineEventType =
-  | "created"
-  | "updated"
-  | "archived"
-  | "restored"
-  | "avatar_updated"
-  | "avatar_removed"
-  | "note"
-  | (string & {});
-
 export type ActivityTimelineItem = {
   id: string;
-  type: ActivityTimelineEventType;
+  type?: string;
   title: React.ReactNode;
   description?: React.ReactNode;
   actor?: ActivityTimelineActor;
@@ -71,6 +51,7 @@ export type ActivityTimelineItem = {
   /** Structured metadata object or custom element rendered in an expandable panel. */
   metadata?: Record<string, unknown> | React.ReactNode;
   icon?: React.ReactNode;
+  iconClassName?: string;
 };
 
 export type ActivityTimelineProps = {
@@ -86,36 +67,7 @@ export type ActivityTimelineProps = {
   className?: string;
 };
 
-const EVENT_ICON_STYLES: Record<string, { icon: React.ReactNode; badgeClassName: string }> = {
-  created: {
-    icon: <PlusCircleIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-success/25 bg-success-subtle text-success-subtle-foreground",
-  },
-  updated: {
-    icon: <PencilIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-info/25 bg-info-subtle text-info-subtle-foreground",
-  },
-  archived: {
-    icon: <ArchiveIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-warning/25 bg-warning-subtle text-warning-subtle-foreground",
-  },
-  restored: {
-    icon: <RotateCcwIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-success/25 bg-success-subtle text-success-subtle-foreground",
-  },
-  avatar_updated: {
-    icon: <ImageIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-border bg-muted text-muted-foreground",
-  },
-  avatar_removed: {
-    icon: <ImageIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-border bg-muted text-muted-foreground",
-  },
-  note: {
-    icon: <MessageSquareIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-info/25 bg-info-subtle text-info-subtle-foreground",
-  },
-};
+const DEFAULT_ICON_BADGE_CLASS_NAME = "border-border bg-muted text-muted-foreground";
 
 function hasMetadataContent(metadata: ActivityTimelineItem["metadata"]): boolean {
   if (metadata === null || metadata === undefined) return false;
@@ -165,10 +117,6 @@ function TimelineTimestamp({ value }: { value: Date | string | number }) {
 
 function TimelineRow({ item, isLast }: { item: ActivityTimelineItem; isLast: boolean }) {
   const [detailsOpen, setDetailsOpen] = React.useState(false);
-  const iconStyle = EVENT_ICON_STYLES[item.type] ?? {
-    icon: <ActivityIcon className="size-3.5" aria-hidden="true" />,
-    badgeClassName: "border-border bg-muted text-muted-foreground",
-  };
   const showMetadata = hasMetadataContent(item.metadata);
 
   return (
@@ -186,10 +134,10 @@ function TimelineRow({ item, isLast }: { item: ActivityTimelineItem; isLast: boo
         aria-hidden="true"
         className={cn(
           "relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full border",
-          iconStyle.badgeClassName,
+          item.iconClassName ?? DEFAULT_ICON_BADGE_CLASS_NAME,
         )}
       >
-        {item.icon ?? iconStyle.icon}
+        {item.icon ?? <ActivityIcon className="size-3.5" aria-hidden="true" />}
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5">

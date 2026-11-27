@@ -249,4 +249,29 @@ describe("ActivityTimeline", () => {
       await view.cleanup();
     }
   });
+
+  test("renders caller-supplied event icon and iconClassName without domain coupling", async () => {
+    const view = await renderInDom(
+      <ActivityTimeline
+        items={[
+          {
+            id: "evt-custom",
+            type: "custom_audit",
+            title: "Custom audit",
+            icon: <span data-testid="custom-icon">*</span>,
+            iconClassName: "border-warning/25 bg-warning-subtle",
+            timestamp: "2026-11-27T10:30:00.000Z",
+          },
+        ]}
+      />,
+    );
+
+    try {
+      const iconSlot = view.host.querySelector('[data-slot="activity-timeline-icon"]');
+      expect(iconSlot?.querySelector('[data-testid="custom-icon"]')).not.toBeNull();
+      expect(iconSlot?.className).toContain("bg-warning-subtle");
+    } finally {
+      await view.cleanup();
+    }
+  });
 });

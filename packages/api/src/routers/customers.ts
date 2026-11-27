@@ -79,27 +79,44 @@ function toExportBalanceMinor(balanceMinor: string): number {
 }
 
 const TAG_REGEX = /^.+$/;
+const STORED_ASSET_PATH_REGEX = /^\/uploads\/(?:[^/\s\\?#]+\/)*[^/\s\\?#]+$/;
 
-export const customerCreateInput = z.object({
+export const storedAssetPathSchema = z
+  .string()
+  .max(2048)
+  .refine(
+    (value) =>
+      STORED_ASSET_PATH_REGEX.test(value) &&
+      !value.split("/").some((segment) => segment === "." || segment === ".."),
+    "Avatar must be a relative stored asset path under /uploads/.",
+  );
+
+const customerBaseFields = {
   name: z.string().trim().min(1).max(200),
   email: z.email().max(320),
   phone: z.string().trim().max(40).optional(),
   company: z.string().trim().max(200).optional(),
-  status: z.enum(customerStatus.enumValues).default("active"),
+  status: z.enum(customerStatus.enumValues),
   balanceMinor: z.number().int().min(-MAX_BALANCE_MINOR).max(MAX_BALANCE_MINOR),
-  currency: z.string().length(3).default("USD"),
+  currency: z.string().length(3),
   notes: z.string().max(2000).optional(),
-  avatarUrl: z.string().max(2048).optional(),
+  avatarUrl: storedAssetPathSchema.optional(),
   tags: z.array(z.string().trim().min(1).max(64).regex(TAG_REGEX)).max(50).optional(),
+};
+
+export const customerCreateInput = z.object({
+  ...customerBaseFields,
+  status: customerBaseFields.status.default("active"),
+  currency: customerBaseFields.currency.default("USD"),
 });
 
-export const customerUpdateInput = customerCreateInput.partial().extend({
-  id: z.string().min(1),
-  avatarUrl: z.string().max(2048).nullable().optional(),
-  phone: z.string().trim().max(40).nullable().optional(),
-  company: z.string().trim().max(200).nullable().optional(),
-  notes: z.string().max(2000).nullable().optional(),
-});
+export const customerUpdateInput = z
+  .object(customerBaseFields)
+  .partial()
+  .extend({
+    id: z.string().min(1),
+    avatarUrl: storedAssetPathSchema.nullable().optional(),
+  });
 
 /**
  * A CSV row as the Import block sends it: the original 1-based line plus the

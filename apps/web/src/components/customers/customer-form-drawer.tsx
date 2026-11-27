@@ -19,7 +19,7 @@ import { isValidPhoneNumber } from "@monorepo-boilerplate/ui/lib/phone";
 import { useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -32,6 +32,15 @@ const STATUS_OPTIONS: ReadonlyArray<FieldOption> = [
   { value: "inactive", label: "Inactive" },
   { value: "archived", label: "Archived" },
 ];
+
+const STORED_ASSET_PATH_REGEX = /^\/uploads\/(?:[^/\s\\?#]+\/)*[^/\s\\?#]+$/;
+
+function isStoredAssetPath(value: string): boolean {
+  return (
+    STORED_ASSET_PATH_REGEX.test(value) &&
+    !value.split("/").some((segment) => segment === "." || segment === "..")
+  );
+}
 
 const customerFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(200),
@@ -47,7 +56,13 @@ const customerFormSchema = z.object({
   currency: z.string().length(3),
   tags: z.array(z.string().trim().min(1).max(64)).max(50),
   notes: z.string().max(2000),
-  avatarUrl: z.string().max(2048),
+  avatarUrl: z
+    .string()
+    .max(2048)
+    .refine(
+      (val) => val === "" || isStoredAssetPath(val),
+      "Avatar must be a relative stored asset path under /uploads/.",
+    ),
 });
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
@@ -65,6 +80,32 @@ const EMPTY_VALUES: CustomerFormValues = {
   avatarUrl: "",
 };
 
+function toFormValues(row: {
+  name: string;
+  email: string;
+  phone: string | null;
+  company: string | null;
+  status: "active" | "inactive" | "archived";
+  balanceMinor: number;
+  currency: string;
+  tags?: string[] | null;
+  notes: string | null;
+  avatarUrl: string | null;
+}): CustomerFormValues {
+  return {
+    name: row.name,
+    email: row.email,
+    phone: row.phone ?? "",
+    company: row.company ?? "",
+    status: row.status,
+    balanceMinor: row.balanceMinor,
+    currency: row.currency,
+    tags: row.tags ?? [],
+    notes: row.notes ?? "",
+    avatarUrl: row.avatarUrl ?? "",
+  };
+}
+
 type CustomerFormDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -75,6 +116,7 @@ type CustomerFormDrawerProps = {
 export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerFormDrawerProps) {
   const queryClient = useQueryClient();
   const isEditing = customerId !== null;
+  const [tagInputValue, setTagInputValue] = useState("");
 
   const detail = useQuery({
     ...trpc.customers.byId.queryOptions({ id: customerId ?? "" }),
@@ -86,13 +128,27 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     enabled: open,
   });
 
+  const initialCachedSnapshot =
+    open && isEditing && detail.data && detail.data.id === customerId
+      ? toFormValues(detail.data)
+      : EMPTY_VALUES;
+  const [snapshot, setSnapshot] = useState<CustomerFormValues>(() => initialCachedSnapshot);
+  const hydratedSessionRef = useRef<string | null>(
+    open && (!isEditing || (detail.data && detail.data.id === customerId))
+      ? (customerId ?? "__new__")
+      : null,
+  );
+
   const blockerRef = useRef<{ status: string; reset?: () => void } | null>(null);
 
   const create = useMutation(
     trpc.customers.create.mutationOptions({
       onSuccess: () => {
         toast.success("Customer created");
-        form.reset();
+        setSnapshot(EMPTY_VALUES);
+        form.reset(EMPTY_VALUES);
+        setTagInputValue("");
+        hydratedSessionRef.current = null;
         if (blockerRef.current?.status === "blocked") {
           blockerRef.current.reset?.();
         }
@@ -107,7 +163,10 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     trpc.customers.update.mutationOptions({
       onSuccess: () => {
         toast.success("Customer updated");
-        form.reset();
+        setSnapshot(EMPTY_VALUES);
+        form.reset(EMPTY_VALUES);
+        setTagInputValue("");
+        hydratedSessionRef.current = null;
         if (blockerRef.current?.status === "blocked") {
           blockerRef.current.reset?.();
         }
@@ -118,27 +177,8 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     }),
   );
 
-  const initialValues = useMemo<CustomerFormValues>(() => {
-    if (isEditing && detail.data) {
-      const row = detail.data;
-      return {
-        name: row.name,
-        email: row.email,
-        phone: row.phone ?? "",
-        company: row.company ?? "",
-        status: row.status,
-        balanceMinor: row.balanceMinor,
-        currency: row.currency,
-        tags: row.tags ?? [],
-        notes: row.notes ?? "",
-        avatarUrl: row.avatarUrl ?? "",
-      };
-    }
-    return EMPTY_VALUES;
-  }, [isEditing, detail.data]);
-
   const form = useAppForm({
-    defaultValues: initialValues,
+    defaultValues: snapshot,
     validators: {
       onChange: customerFormSchema,
       onSubmit: customerFormSchema,
@@ -151,23 +191,20 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
         balanceMinor: value.balanceMinor ?? 0,
         currency: value.currency,
         tags: value.tags,
+        ...(value.phone ? { phone: value.phone } : {}),
+        ...(value.company ? { company: value.company } : {}),
+        ...(value.notes ? { notes: value.notes } : {}),
       };
       try {
         if (isEditing && customerId) {
           await update.mutateAsync({
             id: customerId,
             ...basePayload,
-            phone: value.phone || null,
-            company: value.company || null,
-            notes: value.notes || null,
-            avatarUrl: value.avatarUrl || null,
+            avatarUrl: value.avatarUrl ? value.avatarUrl : null,
           });
         } else {
           await create.mutateAsync({
             ...basePayload,
-            ...(value.phone ? { phone: value.phone } : {}),
-            ...(value.company ? { company: value.company } : {}),
-            ...(value.notes ? { notes: value.notes } : {}),
             ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
           });
         }
@@ -177,25 +214,53 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     },
   });
 
-  // Reset the form whenever the drawer opens for a different record.
+  // Snapshot initial values once per drawer open/record session so background or
+  // focus refetches never overwrite in-progress local edits.
   useEffect(() => {
-    if (!open) return;
-    form.reset(initialValues);
-    // `form` is stable; re-running on data arrival is the point.
+    if (!open) {
+      hydratedSessionRef.current = null;
+      setSnapshot(EMPTY_VALUES);
+      form.reset(EMPTY_VALUES);
+      setTagInputValue("");
+      return;
+    }
+
+    const sessionKey = customerId ?? "__new__";
+    if (hydratedSessionRef.current === sessionKey) {
+      return;
+    }
+
+    if (!isEditing) {
+      hydratedSessionRef.current = sessionKey;
+      setSnapshot(EMPTY_VALUES);
+      form.reset(EMPTY_VALUES);
+      setTagInputValue("");
+      return;
+    }
+
+    if (detail.data && detail.data.id === customerId) {
+      const nextSnapshot = toFormValues(detail.data);
+      hydratedSessionRef.current = sessionKey;
+      setSnapshot(nextSnapshot);
+      form.reset(nextSnapshot);
+      setTagInputValue("");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, customerId, initialValues]);
+  }, [open, isEditing, customerId, detail.data]);
 
   const [isDirty, isFormSubmitting] = useStore(form.store, (state) => [
     state.isDirty,
     state.isSubmitting,
   ]);
+  const hasPendingTagText = tagInputValue.trim().length > 0;
+  const hasUnsavedChanges = isDirty || hasPendingTagText;
   const submitting = create.isPending || update.isPending || isFormSubmitting;
   const currency = form.getFieldValue("currency") || DEFAULT_CURRENCY;
 
   const blocker = useBlocker({
-    shouldBlockFn: () => open && (isDirty || submitting),
-    enableBeforeUnload: () => open && (isDirty || submitting),
-    disabled: !(open && (isDirty || submitting)),
+    shouldBlockFn: () => open && (hasUnsavedChanges || submitting),
+    enableBeforeUnload: () => open && (hasUnsavedChanges || submitting),
+    disabled: !(open && (hasUnsavedChanges || submitting)),
     withResolver: true,
   });
   blockerRef.current = blocker;
@@ -203,11 +268,17 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   return (
     <UnsavedChangesGuard
       form={form}
+      isDirty={hasUnsavedChanges}
       enabled={open}
       pending={submitting}
       blocker={blocker}
       onOpenChange={onOpenChange}
-      onDiscard={() => form.reset()}
+      onDiscard={() => {
+        setSnapshot(EMPTY_VALUES);
+        form.reset(EMPTY_VALUES);
+        setTagInputValue("");
+        hydratedSessionRef.current = null;
+      }}
       title="Discard unsaved changes?"
       description="You have unsaved changes to this customer. Leaving now will discard them."
     >
@@ -274,6 +345,8 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
                       placeholder="Add a tag…"
                       suggestions={tagsQuery.data ?? []}
                       maxTags={20}
+                      inputValue={tagInputValue}
+                      onInputValueChange={setTagInputValue}
                       description="Press Enter or comma to add tags."
                     />
                   )}

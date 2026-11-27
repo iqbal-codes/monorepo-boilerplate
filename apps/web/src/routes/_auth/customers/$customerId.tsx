@@ -17,6 +17,10 @@ export const Route = createFileRoute("/_auth/customers/$customerId")({
 
 function CustomerDetailScreen() {
   const { customerId } = Route.useParams();
+  return <CustomerDetailContent key={customerId} customerId={customerId} />;
+}
+
+export function CustomerDetailContent({ customerId }: { customerId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
@@ -83,6 +87,7 @@ function CustomerDetailScreen() {
   return (
     <>
       <CustomerDetailView
+        key={customerId}
         customer={customerQuery.data}
         isLoading={customerQuery.isPending}
         error={customerQuery.isError ? customerQuery.error.message : null}
@@ -116,7 +121,12 @@ function CustomerDetailScreen() {
         )}
       />
 
-      <CustomerFormDrawer open={editOpen} onOpenChange={setEditOpen} customerId={customerId} />
+      <CustomerFormDrawer
+        key={customerId}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        customerId={customerId}
+      />
     </>
   );
 }

@@ -1,7 +1,6 @@
 import {
   ActivityTimeline,
   ActivityTimelineComposer,
-  type ActivityTimelineItem,
 } from "@monorepo-boilerplate/ui/components/activity-timeline";
 import {
   Avatar,
@@ -12,17 +11,8 @@ import {
 import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { Button, buttonVariants } from "@monorepo-boilerplate/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@monorepo-boilerplate/ui/components/card";
-import { ConfirmationDialog } from "@monorepo-boilerplate/ui/components/confirmation-dialog";
 import { CopyButton } from "@monorepo-boilerplate/ui/components/copy-button";
 import { DescriptionList } from "@monorepo-boilerplate/ui/components/description-list";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@monorepo-boilerplate/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,22 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@monorepo-boilerplate/ui/components/dropdown-menu";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-  FieldTitle,
-} from "@monorepo-boilerplate/ui/components/field";
-import { RadioGroup, RadioGroupItem } from "@monorepo-boilerplate/ui/components/radio-group";
-import { Skeleton } from "@monorepo-boilerplate/ui/components/skeleton";
-import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
-import {
-  StatusBadge,
-  type StatusBadgeTone,
-} from "@monorepo-boilerplate/ui/components/status-badge";
+import { StatusBadge } from "@monorepo-boilerplate/ui/components/status-badge";
 import { StatusScreen } from "@monorepo-boilerplate/ui/components/status-screen";
 import { formatDate, formatDateTime, formatMoney } from "@monorepo-boilerplate/ui/lib/format";
 import {
@@ -58,64 +33,29 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import type * as React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import {
+  CustomerArchiveDialog,
+  CustomerDeleteDialog,
+  CustomerRestoreDialog,
+} from "@/components/customers/customer-detail-dialogs";
+import { CustomerDetailSkeleton } from "@/components/customers/customer-detail-skeleton";
+import {
+  CUSTOMER_STATUS_META,
+  toTimelineItems,
+  type CustomerDetailRecord,
+  type CustomerEventRecord,
+  type CustomerEventType,
+} from "@/components/customers/customer-detail-timeline";
 import { assetUrl } from "@/lib/asset-url";
 
-export type CustomerDetailRecord = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  company: string | null;
-  status: "active" | "inactive" | "archived";
-  balanceMinor: number;
-  currency: string;
-  avatarUrl: string | null;
-  tags: readonly string[];
-  notes: string | null;
-  createdAt: Date | string;
-  updatedAt: Date | string;
+export {
+  toTimelineItems,
+  type CustomerDetailRecord,
+  type CustomerEventRecord,
+  type CustomerEventType,
 };
-
-export type CustomerEventRecord = {
-  id: string;
-  customerId: string;
-  type: string;
-  actorId: string | null;
-  actorName: string | null;
-  actorAvatarUrl: string | null;
-  summary: string;
-  body: string | null;
-  metadata: Record<string, unknown> | null;
-  createdAt: Date | string;
-};
-
-const CUSTOMER_STATUS_META: Record<
-  CustomerDetailRecord["status"],
-  { label: string; tone: StatusBadgeTone }
-> = {
-  active: { label: "Active", tone: "success" },
-  inactive: { label: "Inactive", tone: "neutral" },
-  archived: { label: "Archived", tone: "warning" },
-};
-
-export function toTimelineItems(events: readonly CustomerEventRecord[]): ActivityTimelineItem[] {
-  return events.map((event) => ({
-    id: event.id,
-    type: event.type,
-    title: event.summary,
-    description: event.body ?? undefined,
-    actor: event.actorName
-      ? {
-          name: event.actorName,
-          avatarUrl: assetUrl(event.actorAvatarUrl),
-        }
-      : undefined,
-    timestamp: event.createdAt,
-    metadata: event.metadata ?? undefined,
-  }));
-}
 
 export type CustomerDetailViewProps = {
   customer: CustomerDetailRecord | null | undefined;
@@ -138,71 +78,6 @@ export type CustomerDetailViewProps = {
   deleting?: boolean;
   renderBackLink: (props: { className: string; children: React.ReactNode }) => React.ReactElement;
 };
-
-function CustomerDetailSkeleton() {
-  return (
-    <div data-slot="customer-detail-skeleton" className="flex flex-col gap-6" aria-busy="true">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
-        <div className="flex min-w-0 items-center gap-4">
-          <Skeleton className="size-12 shrink-0 rounded-full" />
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-7 w-44" />
-              <Skeleton className="h-5 w-16" />
-            </div>
-            <Skeleton className="h-4 w-56" />
-            <div className="flex gap-1.5">
-              <Skeleton className="h-5 w-14" />
-              <Skeleton className="h-5 w-16" />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-16" />
-          <Skeleton className="size-8" />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <div className="flex flex-col gap-6 md:col-span-2">
-          <Card>
-            <CardHeader>
-              <Skeleton className="h-5 w-20" />
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {Array.from({ length: 6 }, (_, index) => (
-                <div key={index} className="flex flex-col gap-1.5">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-4 w-36" />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <Skeleton className="h-5 w-24" />
-            </CardHeader>
-            <CardContent>
-              <ActivityTimeline items={[]} isLoading />
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <Skeleton className="h-5 w-16" />
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-2/3" />
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Customer detail Screen presentation: Identity Header (48px Avatar with
@@ -237,6 +112,18 @@ export function CustomerDetailView({
   const [restoreError, setRestoreError] = useState<string>();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string>();
+
+  const customerId = customer?.id;
+  // Reset any open lifecycle confirmation if rendered unkeyed across customer transitions.
+  useEffect(() => {
+    setArchiveOpen(false);
+    setArchiveError(undefined);
+    setRestoreOpen(false);
+    setRestoreChoice(null);
+    setRestoreError(undefined);
+    setDeleteOpen(false);
+    setDeleteError(undefined);
+  }, [customerId]);
 
   if (isLoading) {
     return <CustomerDetailSkeleton />;
@@ -290,6 +177,12 @@ export function CustomerDetailView({
   const resolvedAvatar = assetUrl(customer.avatarUrl);
   const isArchived = customer.status === "archived";
 
+  function openRestoreDialog() {
+    setRestoreChoice(null);
+    setRestoreError(undefined);
+    setRestoreOpen(true);
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <header
@@ -335,15 +228,7 @@ export function CustomerDetailView({
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {isArchived ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                setRestoreChoice(null);
-                setRestoreError(undefined);
-                setRestoreOpen(true);
-              }}
-            >
+            <Button type="button" size="sm" onClick={openRestoreDialog}>
               <RotateCcwIcon aria-hidden="true" data-icon="inline-start" />
               Restore
             </Button>
@@ -370,13 +255,7 @@ export function CustomerDetailView({
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuGroup>
                 {isArchived ? (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setRestoreChoice(null);
-                      setRestoreError(undefined);
-                      setRestoreOpen(true);
-                    }}
-                  >
+                  <DropdownMenuItem onClick={openRestoreDialog}>
                     <RotateCcwIcon aria-hidden="true" />
                     Restore customer
                   </DropdownMenuItem>
@@ -514,15 +393,9 @@ export function CustomerDetailView({
         </Card>
       </div>
 
-      <ConfirmationDialog
+      <CustomerArchiveDialog
         open={archiveOpen}
-        onOpenChange={(next) => {
-          if (!archiving) setArchiveOpen(next);
-        }}
-        title="Archive customer?"
-        description="Archived customers are hidden from the default list. Their record, notes, and avatar are preserved, and you can restore them anytime."
-        confirmLabel="Archive customer"
-        pendingLabel="Archiving…"
+        onOpenChange={setArchiveOpen}
         pending={archiving}
         error={archiveError}
         onConfirm={() => {
@@ -535,106 +408,31 @@ export function CustomerDetailView({
         }}
       />
 
-      <Dialog
+      <CustomerRestoreDialog
         open={restoreOpen}
-        onOpenChange={(next) => {
-          if (!restoring) setRestoreOpen(next);
+        onOpenChange={setRestoreOpen}
+        choice={restoreChoice}
+        onChoiceChange={(value) => {
+          setRestoreChoice(value);
+          setRestoreError(undefined);
         }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
-          <DialogHeader>
-            <DialogTitle>Restore customer</DialogTitle>
-            <DialogDescription>
-              Choose the status this customer should have when restored to the active list.
-            </DialogDescription>
-          </DialogHeader>
-
-          <FieldSet>
-            <FieldLegend variant="label">Restored status</FieldLegend>
-            <RadioGroup
-              value={restoreChoice ?? ""}
-              onValueChange={(value) => {
-                if (value === "active" || value === "inactive") {
-                  setRestoreChoice(value);
-                  setRestoreError(undefined);
-                }
-              }}
-              className="grid gap-2"
-            >
-              <FieldLabel htmlFor="restore-status-active" className="cursor-pointer">
-                <Field orientation="horizontal">
-                  <RadioGroupItem id="restore-status-active" value="active" />
-                  <FieldContent>
-                    <FieldTitle>Active</FieldTitle>
-                    <FieldDescription>
-                      Customer returns as an active account in the default list.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
-              </FieldLabel>
-
-              <FieldLabel htmlFor="restore-status-inactive" className="cursor-pointer">
-                <Field orientation="horizontal">
-                  <RadioGroupItem id="restore-status-inactive" value="inactive" />
-                  <FieldContent>
-                    <FieldTitle>Inactive</FieldTitle>
-                    <FieldDescription>
-                      Customer returns to the default list marked as inactive.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
-              </FieldLabel>
-            </RadioGroup>
-          </FieldSet>
-
-          {restoreError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {restoreError}
-            </p>
-          ) : null}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={restoring}
-              onClick={() => setRestoreOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={!restoreChoice || restoring}
-              onClick={() => {
-                if (!restoreChoice) return;
-                setRestoreError(undefined);
-                void onRestore(restoreChoice)
-                  .then(() => setRestoreOpen(false))
-                  .catch((err) => {
-                    setRestoreError(
-                      err instanceof Error ? err.message : "Could not restore customer.",
-                    );
-                  });
-              }}
-            >
-              {restoring ? <Spinner aria-hidden="true" data-icon="inline-start" /> : null}
-              {restoring ? "Restoring…" : "Restore customer"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        pending={restoring}
+        error={restoreError}
+        onConfirm={() => {
+          if (!restoreChoice) return;
+          setRestoreError(undefined);
+          void onRestore(restoreChoice)
+            .then(() => setRestoreOpen(false))
+            .catch((err) => {
+              setRestoreError(err instanceof Error ? err.message : "Could not restore customer.");
+            });
+        }}
+      />
 
       {canDelete && onDelete ? (
-        <ConfirmationDialog
+        <CustomerDeleteDialog
           open={deleteOpen}
-          onOpenChange={(next) => {
-            if (!deleting) setDeleteOpen(next);
-          }}
-          title="Delete customer permanently?"
-          description="This permanently deletes the customer record and all associated activity history. This action cannot be undone."
-          confirmLabel="Delete customer"
-          confirmVariant="destructive"
-          pendingLabel="Deleting…"
+          onOpenChange={setDeleteOpen}
           pending={deleting}
           error={deleteError}
           onConfirm={() => {
