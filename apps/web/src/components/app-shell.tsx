@@ -24,26 +24,35 @@ import { AppSettingsDialog } from "@/components/settings/app-settings-dialog";
 export function AppShell({
   children,
   initialSession = null,
+  onIdentityReset,
 }: {
   children: ReactNode;
   initialSession?: AppSession | null;
+  onIdentityReset?: () => void;
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [commandOpen, setCommandOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
+  const commandOpenRef = useRef(commandOpen);
+  commandOpenRef.current = commandOpen;
   const commandLauncherRef = useRef<HTMLElement | null>(null);
   const suppressCommandReturnFocusRef = useRef(false);
   const [shortcutsReturnTarget, setShortcutsReturnTarget] = useState<HTMLElement | null>(null);
 
   const openCommandCenter = useCallback((launcher?: HTMLElement | null) => {
-    commandLauncherRef.current =
-      launcher ??
-      (typeof document !== "undefined" && document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null);
+    // Capture the launcher only on a closed-to-open transition so reissuing the
+    // Command Center shortcut while open never overwrites it with CommandInput.
+    if (!commandOpenRef.current) {
+      commandLauncherRef.current =
+        launcher ??
+        (typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+    }
     suppressCommandReturnFocusRef.current = false;
+    commandOpenRef.current = true;
     setCommandOpen(true);
   }, []);
 
@@ -53,6 +62,7 @@ export function AppShell({
         openCommandCenter();
         return;
       }
+      commandOpenRef.current = false;
       setCommandOpen(false);
     },
     [openCommandCenter],
@@ -66,6 +76,7 @@ export function AppShell({
   const openShortcutsFromCommandCenter = useCallback(() => {
     suppressCommandReturnFocusRef.current = true;
     setShortcutsReturnTarget(commandLauncherRef.current);
+    commandOpenRef.current = false;
     setCommandOpen(false);
     setShortcutsOpen(true);
   }, []);
@@ -79,7 +90,7 @@ export function AppShell({
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
-          <AppSystemBanners initialSession={initialSession} />
+          <AppSystemBanners initialSession={initialSession} onIdentityReset={onIdentityReset} />
           <AppTopbar onOpenCommandCenter={openCommandCenter} />
           <div
             data-slot="app-content"

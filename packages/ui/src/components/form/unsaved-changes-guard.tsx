@@ -107,14 +107,19 @@ export function UnsavedChangesGuard({
 
   const [closePromptOpen, setClosePromptOpen] = React.useState(false);
 
-  const isNavigationBlocked = blocker?.status === "blocked";
+  const isNavigationBlocked = enabled && blocker?.status === "blocked";
   const isPromptOpen = closePromptOpen || isNavigationBlocked;
 
   React.useEffect(() => {
-    if ((!enabled || !dirty) && closePromptOpen) {
-      setClosePromptOpen(false);
+    if (!enabled || (!dirty && !pending)) {
+      if (closePromptOpen) {
+        setClosePromptOpen(false);
+      }
+      if (blocker?.status === "blocked") {
+        blocker.reset();
+      }
     }
-  }, [enabled, dirty, closePromptOpen]);
+  }, [enabled, dirty, pending, closePromptOpen, blocker]);
 
   const requestClose = React.useCallback(() => {
     if (pending) return;
@@ -150,8 +155,8 @@ export function UnsavedChangesGuard({
   }
 
   function handleDiscardChanges() {
-    if (pending) return;
     const wasBlockedNavigation = blocker?.status === "blocked";
+    if (pending && !wasBlockedNavigation) return;
     setClosePromptOpen(false);
     onDiscard?.();
     if (wasBlockedNavigation) {
@@ -190,7 +195,6 @@ export function UnsavedChangesGuard({
         cancelLabel={keepEditingLabel}
         confirmLabel={discardLabel}
         confirmVariant="destructive"
-        pending={pending}
         pendingLabel="Discarding…"
         onConfirm={handleDiscardChanges}
         finalFocus={finalFocus}

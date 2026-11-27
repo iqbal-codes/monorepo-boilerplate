@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { AlertTriangleIcon, UserCheckIcon, WifiOffIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@monorepo-boilerplate/ui/components/button";
@@ -12,8 +13,10 @@ import { useOnlineStatus } from "@/lib/use-online-status";
 export type AppSession = typeof authClient.$Infer.Session;
 
 export type AppSystemBannersProps = {
-  /** Route-verified session from `/_auth` `beforeLoad`, preserved if live session refresh fails. */
+  /** Route-verified session from `/_auth` `beforeLoad`, preserved only while loading or on transient refresh failure. */
   initialSession?: AppSession | null;
+  /** Called after a successful identity change (e.g. stopping impersonation) to reset identity-bound client trees before reload. */
+  onIdentityReset?: () => void;
   /** Override for reloading the page after stopping impersonation (defaults to `window.location.reload()`). */
   onReload?: () => void;
 };
@@ -27,15 +30,34 @@ function isUnauthorizedError(error: unknown): boolean {
  * `AppTopbar`: active Better Auth admin impersonation, session refresh
  * failures, and browser offline state.
  */
-export function AppSystemBanners({ initialSession = null, onReload }: AppSystemBannersProps) {
-  const { data: liveSession, error: sessionError, refetch } = authClient.useSession();
+export function AppSystemBanners({
+  initialSession = null,
+  onIdentityReset,
+  onReload,
+}: AppSystemBannersProps) {
+  const { data: liveSession, error: sessionError, isPending, refetch } = authClient.useSession();
   const isOnline = useOnlineStatus();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [stopping, setStopping] = useState(false);
+  const [hasSettledNull, setHasSettledNull] = useState(false);
 
-  const session = isUnauthorizedError(sessionError) ? liveSession : (liveSession ?? initialSession);
-  const isImpersonating = Boolean(session?.session?.impersonatedBy);
   const hasSessionError = Boolean(sessionError);
+  const isUnauthorized = isUnauthorizedError(sessionError);
+
+  useEffect(() => {
+    if (liveSession !== null) {
+      setHasSettledNull(false);
+    } else if (!isPending && !hasSessionError) {
+      setHasSettledNull(true);
+    }
+  }, [liveSession, isPending, hasSessionError]);
+
+  // Honor a settled `null` (200/null expired or signed-out session) and 401s as authoritative;
+  // only fall back to the route-verified seed while loading or on transient non-401 refresh errors.
+  const canUseSeed = !hasSettledNull && !isUnauthorized && (Boolean(isPending) || hasSessionError);
+  const session = liveSession ?? (canUseSeed ? initialSession : null);
+  const isImpersonating = Boolean(session?.session?.impersonatedBy);
 
   if (!isImpersonating && !hasSessionError && isOnline) {
     return null;
@@ -52,6 +74,9 @@ export function AppSystemBanners({ initialSession = null, onReload }: AppSystemB
         return;
       }
       queryClient.clear();
+      await refetch();
+      await router.invalidate();
+      onIdentityReset?.();
       toast.success("Stopped impersonating");
       if (onReload) {
         onReload();

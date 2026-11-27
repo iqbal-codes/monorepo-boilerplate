@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import { AssistantProvider } from "@/components/assistant/assistant-provider";
@@ -19,9 +20,17 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
   const { session } = Route.useRouteContext();
+  const { data: liveSession } = authClient.useSession();
+  const [identityEpoch, setIdentityEpoch] = useState(0);
+
+  const activeUserId = liveSession?.user?.id ?? session.data?.user?.id ?? "anonymous";
+  const handleIdentityReset = useCallback(() => {
+    setIdentityEpoch((epoch) => epoch + 1);
+  }, []);
+
   return (
-    <AssistantProvider>
-      <AppShell initialSession={session.data}>
+    <AssistantProvider key={`${activeUserId}:${identityEpoch}`}>
+      <AppShell initialSession={session.data} onIdentityReset={handleIdentityReset}>
         <Outlet />
       </AppShell>
     </AssistantProvider>

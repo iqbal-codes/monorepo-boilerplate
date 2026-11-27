@@ -19,7 +19,7 @@ import { isValidPhoneNumber } from "@monorepo-boilerplate/ui/lib/phone";
 import { useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -79,11 +79,16 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     enabled: open && isEditing,
   });
 
+  const blockerRef = useRef<{ status: string; reset?: () => void } | null>(null);
+
   const create = useMutation(
     trpc.customers.create.mutationOptions({
       onSuccess: () => {
         toast.success("Customer created");
         form.reset();
+        if (blockerRef.current?.status === "blocked") {
+          blockerRef.current.reset?.();
+        }
         void queryClient.invalidateQueries(trpc.customers.pathFilter());
         onOpenChange(false);
       },
@@ -96,6 +101,9 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
       onSuccess: () => {
         toast.success("Customer updated");
         form.reset();
+        if (blockerRef.current?.status === "blocked") {
+          blockerRef.current.reset?.();
+        }
         void queryClient.invalidateQueries(trpc.customers.pathFilter());
         onOpenChange(false);
       },
@@ -169,6 +177,7 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     disabled: !(open && (isDirty || submitting)),
     withResolver: true,
   });
+  blockerRef.current = blocker;
 
   return (
     <UnsavedChangesGuard

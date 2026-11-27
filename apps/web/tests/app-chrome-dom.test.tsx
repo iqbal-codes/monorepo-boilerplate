@@ -149,6 +149,11 @@ mock.module("@/utils/trpc", () => ({
   },
 }));
 
+let routerInvalidateCalls = 0;
+let blockerImpl: () =>
+  | { status: "idle" }
+  | { status: "blocked"; proceed: () => void; reset: () => void } = () => ({ status: "idle" });
+
 mock.module("@tanstack/react-router", () => ({
   Link: ({
     to,
@@ -160,12 +165,17 @@ mock.module("@tanstack/react-router", () => ({
     </a>
   ),
   useNavigate: () => () => Promise.resolve(),
+  useRouter: () => ({
+    invalidate: async () => {
+      routerInvalidateCalls += 1;
+    },
+  }),
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({
       location: { pathname: "/customers" },
       matches: [{ staticData: { pageTitle: "Customers" } }],
     }),
-  useBlocker: () => ({ status: "idle" }),
+  useBlocker: () => blockerImpl(),
 }));
 
 const { createRoot } = await import("react-dom/client");
@@ -192,6 +202,8 @@ beforeEach(() => {
   };
   stopImpersonatingImpl = async () => ({ error: null });
   createCustomerImpl = async () => ({ id: "c-1" });
+  routerInvalidateCalls = 0;
+  blockerImpl = () => ({ status: "idle" });
 });
 
 async function renderWithQuery(node: React.ReactNode, queryClient?: QueryClient) {
@@ -285,10 +297,14 @@ describe("AppSystemBanners seam safety", () => {
     };
 
     let reloads = 0;
+    let identityResets = 0;
     stopImpersonatingImpl = async () => ({ error: { message: "Denied" } });
 
     const view = await renderWithQuery(
       <AppSystemBanners
+        onIdentityReset={() => {
+          identityResets += 1;
+        }}
         onReload={() => {
           reloads += 1;
         }}
@@ -306,6 +322,7 @@ describe("AppSystemBanners seam safety", () => {
         stopBtn?.click();
       });
       expect(reloads).toBe(0);
+      expect(identityResets).toBe(0);
       expect(queryClient.getQueryData(["assistant", "threads"])).toBeDefined();
 
       stopImpersonatingImpl = async () => ({ error: null });
@@ -313,9 +330,114 @@ describe("AppSystemBanners seam safety", () => {
         stopBtn?.click();
       });
       expect(reloads).toBe(1);
+      expect(identityResets).toBe(1);
+      expect(routerInvalidateCalls).toBe(1);
       expect(queryClient.getQueryData(["assistant", "threads"])).toBeUndefined();
     } finally {
       await view.cleanup();
+    }
+  });
+
+  test("hides impersonation banner when useSession settles to null (200/null expired session) and stays hidden on refetch", async () => {
+    const impersonatedInitial = {
+      user: { id: "u-target", name: "Target User", email: "target@example.com" },
+      session: { id: "s-imp", impersonatedBy: "admin-1" },
+    } as never;
+
+    sessionHookState = {
+      data: null,
+      error: null,
+      isPending: true,
+      refetch: async () => {},
+    };
+
+    const view = await renderWithQuery(<AppSystemBanners initialSession={impersonatedInitial} />);
+    try {
+      expect(view.host.textContent).toContain("Viewing as Target User");
+
+      // Better Auth settles to HTTP 200 / null when session expires.
+      sessionHookState = {
+        data: null,
+        error: null,
+        isPending: false,
+        refetch: async () => {},
+      };
+      await act(async () => {
+        await view.cleanup();
+      });
+
+      const settledView = await renderWithQuery(
+        <AppSystemBanners initialSession={impersonatedInitial} />,
+      );
+      try {
+        expect(settledView.host.textContent).not.toContain("Viewing as Target User");
+        expect(settledView.host.textContent).not.toContain("Stop impersonating");
+      } finally {
+        await settledView.cleanup();
+      }
+    } finally {
+      // Initial view already cleaned up above if settledView block ran; ensure safe cleanup.
+    }
+  });
+
+  test("does not resurrect initialSession when live session transitions from active to null then refetches", async () => {
+    const impersonatedInitial = {
+      user: { id: "u-target", name: "Target User", email: "target@example.com" },
+      session: { id: "s-imp", impersonatedBy: "admin-1" },
+    } as never;
+
+    sessionHookState = {
+      data: {
+        user: { id: "u-target", name: "Target User", email: "target@example.com" },
+        session: { id: "s-imp", impersonatedBy: "admin-1" },
+      },
+      error: null,
+      isPending: false,
+      refetch: async () => {},
+    };
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { createRoot: makeRoot } = await import("react-dom/client");
+    const root = makeRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <AppSystemBanners initialSession={impersonatedInitial} />
+          </QueryClientProvider>,
+        );
+      });
+      expect(host.textContent).toContain("Viewing as Target User");
+
+      // Active -> settled null (session expired)
+      sessionHookState = { data: null, error: null, isPending: false, refetch: async () => {} };
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <AppSystemBanners initialSession={impersonatedInitial} />
+          </QueryClientProvider>,
+        );
+      });
+      expect(host.textContent).not.toContain("Viewing as Target User");
+
+      // Subsequent refetch puts isPending=true again; banner must stay hidden.
+      sessionHookState = { data: null, error: null, isPending: true, refetch: async () => {} };
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <AppSystemBanners initialSession={impersonatedInitial} />
+          </QueryClientProvider>,
+        );
+      });
+      expect(host.textContent).not.toContain("Viewing as Target User");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
     }
   });
 });
@@ -407,6 +529,88 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
       await view.cleanup();
     }
   });
+
+  test("resets blocked navigation resolver when save succeeds so both drawer and discard prompt close cleanly", async () => {
+    let resolveCreate!: (value: unknown) => void;
+    createCustomerImpl = () =>
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      });
+
+    let blocked = false;
+    let resetCalls = 0;
+    let proceedCalls = 0;
+    blockerImpl = () =>
+      blocked
+        ? {
+            status: "blocked",
+            proceed: () => {
+              proceedCalls += 1;
+              blocked = false;
+            },
+            reset: () => {
+              resetCalls += 1;
+              blocked = false;
+            },
+          }
+        : { status: "idle" };
+
+    function DrawerBlockerHarness() {
+      const [open, setOpen] = React.useState(true);
+      const [, setTick] = React.useState(0);
+      return (
+        <div>
+          <button
+            type="button"
+            data-testid="trigger-back"
+            onClick={() => {
+              blocked = true;
+              setTick((n) => n + 1);
+            }}
+          >
+            Back
+          </button>
+          <CustomerFormDrawer open={open} onOpenChange={setOpen} customerId={null} />
+        </div>
+      );
+    }
+
+    const view = await renderWithQuery(<DrawerBlockerHarness />);
+    try {
+      const nameInput = document.body.querySelector<HTMLInputElement>('input[name="name"]');
+      const emailInput = document.body.querySelector<HTMLInputElement>('input[name="email"]');
+      await act(async () => {
+        if (nameInput) setInputValue(nameInput, "Save During Back");
+        if (emailInput) setInputValue(emailInput, "save-back@example.com");
+      });
+
+      const formEl = document.body.querySelector<HTMLFormElement>("form");
+      await act(async () => {
+        formEl?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      // Simulate pressing browser Back while create is pending.
+      await act(async () => {
+        view.host.querySelector<HTMLButtonElement>('[data-testid="trigger-back"]')?.click();
+      });
+      expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(true);
+
+      // Save resolves successfully: drawer AND discard confirmation must both close cleanly.
+      await act(async () => {
+        resolveCreate({ id: "c-new" });
+        await Promise.resolve();
+      });
+
+      expect(resetCalls).toBeGreaterThanOrEqual(1);
+      expect(proceedCalls).toBe(0);
+      expect(Boolean(document.body.querySelector('[data-slot="sheet-content"]'))).toBe(false);
+      expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(
+        false,
+      );
+    } finally {
+      await view.cleanup();
+    }
+  });
 });
 
 describe("AppShell Command Center -> ShortcutsDialog focus handoff", () => {
@@ -426,6 +630,18 @@ describe("AppShell Command Center -> ShortcutsDialog focus handoff", () => {
       sidebarLauncher?.focus();
       await act(async () => {
         sidebarLauncher?.click();
+      });
+
+      // Reissuing Ctrl+K while Command Center is already open must not overwrite the launcher target.
+      await act(async () => {
+        window.dispatchEvent(
+          new win.KeyboardEvent("keydown", {
+            key: "k",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
       });
 
       const shortcutsCmdItem = Array.from(

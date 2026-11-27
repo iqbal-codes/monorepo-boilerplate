@@ -439,4 +439,47 @@ describe("UnsavedChangesGuard", () => {
       await view.cleanup();
     }
   });
+
+  test("resets blocked navigation prompt when guard is disabled after save completes", async () => {
+    let resetCalls = 0;
+
+    function SaveClearsBlockerHarness({
+      enabled,
+      blocked,
+    }: {
+      enabled: boolean;
+      blocked: boolean;
+    }) {
+      return (
+        <UnsavedChangesGuard
+          isDirty={enabled}
+          enabled={enabled}
+          blocker={
+            blocked
+              ? {
+                  status: "blocked",
+                  proceed: () => {},
+                  reset: () => {
+                    resetCalls += 1;
+                  },
+                }
+              : { status: "idle" }
+          }
+        />
+      );
+    }
+
+    const view = await renderInDom(<SaveClearsBlockerHarness enabled blocked />);
+    try {
+      expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(true);
+
+      await view.rerender(<SaveClearsBlockerHarness enabled={false} blocked />);
+      expect(resetCalls).toBe(1);
+      expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(
+        false,
+      );
+    } finally {
+      await view.cleanup();
+    }
+  });
 });
