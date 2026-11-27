@@ -131,6 +131,8 @@ nodes:
     model: medium
     context: fresh
     mutates_checkout: false
+    skills:
+      - { name: agent-browser, optional: true }
     depends_on: [fetch-contract]
     when: "$fetch-contract.output.contract_ok == true && $fetch-contract.output.blockers_ok == true && $fetch-contract.output.capture_before == true"
     with:
@@ -149,6 +151,12 @@ nodes:
   - id: implement
     command: implement
     model: medium
+    skills:
+      - { name: agent-browser, optional: true }
+      - { name: shadcn, optional: true }
+      - { name: modern-web-guidance, optional: true }
+      - { name: better-interface, optional: true }
+      - { name: assistant-ui, optional: true }
     depends_on: [fetch-contract, capture-before]
     trigger_rule: none_failed_min_one_success
     when: "$fetch-contract.output.contract_ok == true && $fetch-contract.output.blockers_ok == true"
@@ -258,6 +266,12 @@ nodes:
           command: fix
           model: medium
           context: { resume: implement }
+          skills:
+            - { name: agent-browser, optional: true }
+            - { name: shadcn, optional: true }
+            - { name: modern-web-guidance, optional: true }
+            - { name: better-interface, optional: true }
+            - { name: assistant-ui, optional: true }
           when: "$LOOP_PREV.qa.output.done == false"
           with:
             contract_path: "$fetch-contract.output.contract_path"
