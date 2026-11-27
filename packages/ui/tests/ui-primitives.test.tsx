@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { FieldApi, FormApi } from "@tanstack/react-form";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Button } from "../src/components/button";
 import { Combobox, ComboboxInput } from "../src/components/combobox";
 import { columnsFor, DataTable } from "../src/components/data-table";
 import { ImportBlock } from "../src/components/import-block";
@@ -147,5 +148,13 @@ describe("Responsive UI blocks", () => {
     );
 
     expect(html).not.toContain('data-slot="import-trigger"');
+  });
+
+  test("Button uses a solid focus-visible outline instead of semi-transparent ring-ring/30", () => {
+    const html = renderToStaticMarkup(<Button variant="outline">Download Excel template</Button>);
+
+    expect(html).toContain("focus-visible:outline-ring");
+    expect(html).toContain("focus-visible:outline-2");
+    expect(html).not.toContain("ring-ring/30");
   });
 });

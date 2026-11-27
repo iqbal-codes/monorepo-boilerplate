@@ -17,7 +17,7 @@ function Table({
       role="region"
       aria-label={regionLabel}
       className={cn(
-        "relative w-full overflow-x-auto focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        "relative w-full overflow-x-auto focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
         containerClassName,
       )}
     >

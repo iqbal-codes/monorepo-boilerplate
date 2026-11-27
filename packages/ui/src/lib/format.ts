@@ -59,6 +59,24 @@ export function toMajorUnits({ minor, currency }: Money): number {
   return minor / minorUnitFactor(currency);
 }
 
+/**
+ * Converts safe integer minor units into an exact decimal string using BigInt
+ * quotient/remainder arithmetic so limits up to `Number.MAX_SAFE_INTEGER`
+ * never lose precision through floating-point division.
+ */
+function toMajorDecimalString({ minor, currency }: Money): Intl.StringNumericLiteral | null {
+  if (!Number.isSafeInteger(minor)) return null;
+  if (minor === 0) return "0";
+  const digits = minorUnitDigits(currency);
+  const sign = minor < 0 ? "-" : "";
+  const absMinor = BigInt(Math.abs(minor));
+  if (digits === 0) return `${sign}${absMinor}` as Intl.StringNumericLiteral;
+  const factor = 10n ** BigInt(digits);
+  const whole = absMinor / factor;
+  const fraction = (absMinor % factor).toString().padStart(digits, "0");
+  return `${sign}${whole}.${fraction}` as Intl.StringNumericLiteral;
+}
+
 /** Rounds half away from zero, matching how cash amounts are drawn. */
 export function toMinorUnits(value: number, currency: string): number {
   const scaled = value * minorUnitFactor(currency);
@@ -77,6 +95,7 @@ export function formatMoney(
   money: Money,
   { locale = DEFAULT_LOCALE, withSymbol = true, compact = false }: FormatOptions = {},
 ): string {
+  const value = toMajorDecimalString(money) ?? toMajorUnits(money);
   return new Intl.NumberFormat(locale, {
     style: withSymbol ? "currency" : "decimal",
     currency: money.currency,
@@ -84,7 +103,7 @@ export function formatMoney(
     minimumFractionDigits: withSymbol ? minorUnitDigits(money.currency) : 0,
     maximumFractionDigits: minorUnitDigits(money.currency),
     notation: compact ? "compact" : "standard",
-  }).format(toMajorUnits(money));
+  }).format(value);
 }
 
 /**

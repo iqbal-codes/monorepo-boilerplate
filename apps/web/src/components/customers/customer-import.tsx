@@ -18,6 +18,7 @@ import {
   type ImportIssue,
   type ImportRecord,
 } from "@monorepo-boilerplate/ui/components/import-block";
+import { TRPCClientError } from "@trpc/client";
 import { z } from "zod";
 
 import { trpcClient } from "@/utils/trpc";
@@ -49,6 +50,7 @@ export const CUSTOMER_IMPORT_DEFAULTS = {
 } as const;
 
 export const CUSTOMER_IMPORT_FILENAME = "customers-template.csv";
+export const CUSTOMER_IMPORT_XLSX_FILENAME = "customers-template.xlsx";
 
 function optionalText(value: string | undefined): string | undefined {
   const trimmed = (value ?? "").trim();
@@ -148,34 +150,52 @@ function toProcedureRows(records: readonly ImportRecord[]) {
   }));
 }
 
+const KNOWN_PREWRITE_STATUSES = new Set([400, 401, 403, 404, 413, 422]);
+
+function isKnownPreWriteRejection(error: unknown): boolean {
+  if (!(error instanceof TRPCClientError)) return false;
+  const httpStatus = (error.data as { httpStatus?: unknown } | undefined)?.httpStatus;
+  return typeof httpStatus === "number" && KNOWN_PREWRITE_STATUSES.has(httpStatus);
+}
+
 export function CustomerImport({
   onImported,
-  triggerLabel = "Import CSV",
+  cancelSignal,
+  triggerLabel = "Import",
   size,
   className,
   open,
   onOpenChange,
   hideTrigger,
+  returnFocusRef,
 }: {
   /** Called with the created count once the batch is stored. */
   onImported: (created: number) => void;
+  cancelSignal?: AbortSignal;
   triggerLabel?: string;
   size?: "default" | "sm";
   className?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   hideTrigger?: boolean;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   return (
     <ImportBlock
-      contract={{ columns: CUSTOMER_IMPORT_COLUMNS, filename: CUSTOMER_IMPORT_FILENAME }}
+      contract={{
+        columns: CUSTOMER_IMPORT_COLUMNS,
+        filename: CUSTOMER_IMPORT_FILENAME,
+        xlsxFilename: CUSTOMER_IMPORT_XLSX_FILENAME,
+      }}
       defaults={CUSTOMER_IMPORT_DEFAULTS}
+      cancelSignal={cancelSignal}
       triggerLabel={triggerLabel}
       size={size}
       className={className}
       open={open}
       onOpenChange={onOpenChange}
       hideTrigger={hideTrigger}
+      returnFocusRef={returnFocusRef}
       validate={async (records) => {
         // Field rules are local, so a broken row is reported without a request.
         // Only a locally clean file asks the API about saved Customers, which
@@ -188,13 +208,56 @@ export function CustomerImport({
         });
         return preview.issues;
       }}
-      confirm={async (records): Promise<ImportConfirmResult> => {
-        const result = await trpcClient.customers.importConfirm.mutate({
-          rows: toProcedureRows(records),
+      confirm={async (records, context): Promise<ImportConfirmResult> => {
+        try {
+          const result = await trpcClient.customers.importConfirm.mutate({
+            rows: toProcedureRows(records),
+            importId: context?.attemptId,
+          });
+          if (!result.ok) return { ok: false, conflictLineNumbers: result.conflictLineNumbers };
+          onImported(result.created);
+          return { ok: true, created: result.created };
+        } catch (error) {
+          if (isKnownPreWriteRejection(error)) {
+            return {
+              ok: false,
+              outcome: "unsaved",
+              message:
+                "The import could not be accepted and no records were saved. Review the file and try again.",
+            };
+          }
+          throw error;
+        }
+      }}
+      reconcile={async (records, { attemptId }): Promise<ImportConfirmResult> => {
+        const emails = [
+          ...new Set(records.map((record) => (record.values.email ?? "").trim()).filter(Boolean)),
+        ];
+        const status = await trpcClient.customers.importStatus.mutate({
+          importId: attemptId,
+          emails,
         });
-        if (!result.ok) return { ok: false, conflictLineNumbers: result.conflictLineNumbers };
-        onImported(result.created);
-        return { ok: true, created: result.created };
+        if (status.status === "completed") {
+          if (status.result.ok) {
+            onImported(status.result.created);
+            return { ok: true, created: status.result.created };
+          }
+          return { ok: false, conflictLineNumbers: status.result.conflictLineNumbers };
+        }
+        if (status.status === "ambiguous") {
+          return {
+            ok: false,
+            outcome: "unknown",
+            message:
+              "Matching Customer emails already exist, so this import could not be verified as unsaved. Check the Customers list before importing again.",
+          };
+        }
+        return {
+          ok: false,
+          outcome: "unsaved",
+          message:
+            "No records from this import attempt were saved. Check your connection and try again.",
+        };
       }}
     />
   );
