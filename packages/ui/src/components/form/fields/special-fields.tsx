@@ -126,6 +126,7 @@ export type UploadFieldProps = Omit<BaseFieldProps, "orientation" | "hideLabel">
   variant?: "file" | "image";
   maxSizeBytes?: number;
   hint?: React.ReactNode;
+  removeLabel?: string;
   onError?: (error: Error) => void;
 };
 
@@ -148,6 +149,7 @@ export function UploadField({
   variant = "image",
   maxSizeBytes,
   hint,
+  removeLabel,
   onError,
 }: UploadFieldProps) {
   const field = useFieldContext<string | null | undefined>();
@@ -182,6 +184,7 @@ export function UploadField({
           )
         }
         hint={hint}
+        removeLabel={removeLabel}
         accept={accept}
         variant={variant}
         maxSizeBytes={maxSizeBytes}

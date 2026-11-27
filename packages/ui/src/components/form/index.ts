@@ -86,6 +86,7 @@ export {
   type OtpFieldProps,
   type UploadFieldProps,
 } from "./fields/special-fields";
+export { TagField, type TagFieldProps } from "./fields/tag-field";
 
 export { extractErrorMessages, shouldShowFieldError, type ShowErrorMode } from "./error-utils";
 export {

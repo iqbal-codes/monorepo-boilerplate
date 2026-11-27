@@ -109,6 +109,9 @@ let stopImpersonatingImpl: () => Promise<{
 });
 
 let createCustomerImpl: (input: unknown) => Promise<unknown> = async () => ({ id: "c-1" });
+let updateCustomerImpl: (input: unknown) => Promise<unknown> = async () => ({ id: "c-1" });
+let customerByIdImpl: (id: string) => Promise<unknown> = async () => null;
+let customerTagsImpl: () => Promise<string[]> = async () => ["vip", "enterprise"];
 
 mock.module("@/lib/server-url", () => ({
   serverUrl: "http://localhost:3000",
@@ -131,7 +134,13 @@ mock.module("@/utils/trpc", () => ({
       byId: {
         queryOptions: ({ id }: { id: string }) => ({
           queryKey: ["customers", "byId", id],
-          queryFn: async () => null,
+          queryFn: () => customerByIdImpl(id),
+        }),
+      },
+      tags: {
+        queryOptions: () => ({
+          queryKey: ["customers", "tags"],
+          queryFn: () => customerTagsImpl(),
         }),
       },
       list: {
@@ -149,7 +158,7 @@ mock.module("@/utils/trpc", () => ({
       update: {
         mutationOptions: (opts: Record<string, unknown> = {}) => ({
           ...opts,
-          mutationFn: async () => ({ id: "c-1" }),
+          mutationFn: (input: unknown) => updateCustomerImpl(input),
         }),
       },
     },
@@ -209,6 +218,9 @@ beforeEach(() => {
   };
   stopImpersonatingImpl = async () => ({ error: null });
   createCustomerImpl = async () => ({ id: "c-1" });
+  updateCustomerImpl = async () => ({ id: "c-1" });
+  customerByIdImpl = async () => null;
+  customerTagsImpl = async () => ["vip", "enterprise"];
   routerInvalidateCalls = 0;
   blockerImpl = () => ({ status: "idle" });
 });
@@ -803,6 +815,118 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
       expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(
         false,
       );
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("TC-09: CustomerFormDrawer supports TagField and avatar clearing with avatarUrl: null while respecting UnsavedChangesGuard", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const customerRecord = {
+      id: "cust-edit",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "",
+      company: "Analytical Engines",
+      status: "active",
+      balanceMinor: 5000,
+      currency: "USD",
+      avatarUrl: "/uploads/ada.png",
+      tags: ["vip"],
+      notes: "",
+    };
+    queryClient.setQueryData(["customers", "byId", "cust-edit"], customerRecord);
+    queryClient.setQueryData(["customers", "tags"], ["vip", "enterprise"]);
+    customerByIdImpl = async () => customerRecord;
+    const updatedPayloads: unknown[] = [];
+    updateCustomerImpl = async (input) => {
+      updatedPayloads.push(input);
+      return { id: "cust-edit" };
+    };
+
+    let openState = true;
+    const view = await renderWithQuery(
+      <CustomerFormDrawer
+        open
+        onOpenChange={(next) => {
+          openState = next;
+        }}
+        customerId="cust-edit"
+      />,
+      queryClient,
+    );
+
+    try {
+      const nameInput = document.body.querySelector<HTMLInputElement>('input[name="name"]');
+      expect(nameInput?.value).toBe("Ada Lovelace");
+      const tagInput = document.body.querySelector<HTMLInputElement>(
+        '[data-slot="tag-input"] input',
+      );
+      expect(tagInput).not.toBeNull();
+      expect(document.body.textContent).toContain("vip");
+
+      // Add a new tag via TagField.
+      await act(async () => {
+        if (tagInput) {
+          setInputValue(tagInput, "renewal");
+          tagInput.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        }
+      });
+      expect(document.body.textContent).toContain("renewal");
+
+      // Clear avatar via UploadField remove affordance.
+      const removeAvatarBtn = Array.from(document.body.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.includes("Remove avatar"),
+      );
+      expect(removeAvatarBtn).not.toBeUndefined();
+      await act(async () => {
+        removeAvatarBtn?.click();
+      });
+
+      // Attempting to close via Escape must trigger UnsavedChangesGuard.
+      const sheet = document.body.querySelector('[data-slot="sheet-content"]');
+      await act(async () => {
+        sheet?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      });
+      const alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(alertDialog?.textContent).toContain("Discard unsaved changes?");
+
+      // Keep editing and submit the form.
+      const keepBtn = Array.from(alertDialog?.querySelectorAll("button") ?? []).find((btn) =>
+        btn.textContent?.includes("Keep editing"),
+      );
+      await act(async () => {
+        keepBtn?.click();
+      });
+
+      const formEl = document.body.querySelector<HTMLFormElement>("form");
+      await act(async () => {
+        formEl?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      expect(updatedPayloads).toEqual([
+        {
+          id: "cust-edit",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          status: "active",
+          balanceMinor: 5000,
+          currency: "USD",
+          tags: ["vip", "renewal"],
+          phone: null,
+          company: "Analytical Engines",
+          notes: null,
+          avatarUrl: null,
+        },
+      ]);
+      expect(openState).toBe(false);
     } finally {
       await view.cleanup();
     }

@@ -8,7 +8,7 @@ import { sql } from "drizzle-orm";
 import "varlock/auto-load";
 
 import { createDb } from "../src/index";
-import { customer } from "../src/schema/customer";
+import { customer, customerEvent } from "../src/schema/customer";
 
 const FIRST_NAMES = [
   "Ada",
@@ -71,6 +71,15 @@ const COMPANIES = [
 
 const STATUSES = ["active", "active", "active", "inactive", "archived"] as const;
 
+const TAG_SETS: readonly (readonly string[])[] = [
+  ["vip", "enterprise"],
+  ["onboarding"],
+  ["renewal", "priority"],
+  ["beta"],
+  [],
+  ["vip", "billing"],
+];
+
 /** Deterministic pseudo-random in [0, 1): index-shuffled, no clock, no Math.random. */
 function noise(index: number, salt: number): number {
   const value = Math.sin(index * 12.9898 + salt * 78.233) * 43758.5453;
@@ -83,6 +92,7 @@ function buildCustomer(index: number) {
   const name = `${first} ${last}`;
   const status = STATUSES[Math.floor(noise(index, 1) * STATUSES.length)]!;
   const balanceMinor = Math.round(noise(index, 2) * 5_000_000) - 250_000;
+  const tags = [...TAG_SETS[index % TAG_SETS.length]!];
 
   return {
     id: `seed-customer-${String(index + 1).padStart(3, "0")}`,
@@ -96,6 +106,7 @@ function buildCustomer(index: number) {
     balanceMinor,
     currency: "USD",
     avatarUrl: null,
+    tags,
     notes: index % 5 === 0 ? "Onboarded through the reference flow seed." : null,
     // Spread creation dates backwards so default sort has a meaningful order.
     createdAt: new Date(Date.UTC(2026, 0, 1 + index)),
@@ -122,10 +133,32 @@ async function main() {
         status: sql`excluded.status`,
         balanceMinor: sql`excluded.balance_minor`,
         currency: sql`excluded.currency`,
+        tags: sql`excluded.tags`,
         notes: sql`excluded.notes`,
         updatedAt: sql`excluded.updated_at`,
       },
     });
+
+  await db
+    .insert(customerEvent)
+    .values(
+      rows.map((row) => ({
+        id: `seed-event-created-${row.id}`,
+        customerId: row.id,
+        type: "created" as const,
+        actorId: null,
+        actorName: "System seed",
+        actorAvatarUrl: null,
+        summary: "Created customer",
+        body: null,
+        metadata: {
+          status: row.status,
+          ...(row.tags.length > 0 ? { tags: row.tags } : {}),
+        },
+        createdAt: row.createdAt,
+      })),
+    )
+    .onConflictDoNothing({ target: customerEvent.id });
 
   console.log(`seeded ${rows.length} customers`);
   await db.$client.end();

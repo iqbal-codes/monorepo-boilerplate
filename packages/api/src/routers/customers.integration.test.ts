@@ -753,3 +753,128 @@ describe.skipIf(!databaseUrl)("Customers export with disposable Postgres", () =>
     expect(decoded.rows.every((row) => row[0] === "Bulk Export")).toBe(true);
   }, 60_000);
 });
+
+describe.skipIf(!databaseUrl)(
+  "Customers tags, events, avatar & list deltas with disposable Postgres",
+  () => {
+    if (!databaseUrl) return;
+    const { db, adminSession, staff } = createCustomerTestContext(databaseUrl);
+    const fixtureIds: string[] = [];
+    afterAll(async () => {
+      try {
+        const admin = customersRouter.createCaller({ db, session: adminSession });
+        for (const id of fixtureIds) await admin.remove({ id });
+      } finally {
+        await db.$client.end();
+      }
+    });
+
+    const unique = () => `${crypto.randomUUID()}@example.test`;
+
+    test("stores customer tags, returns avatarUrl and tags in list, and exposes distinct tag suggestions", async () => {
+      const tagA = `tag-${crypto.randomUUID().slice(0, 6)}`;
+      const tagB = `tag-${crypto.randomUUID().slice(0, 6)}`;
+      const first = await staff.create({
+        name: "Tagged One",
+        email: unique(),
+        balanceMinor: 1500,
+        avatarUrl: "/uploads/one.png",
+        tags: [tagB, tagA, tagB],
+      });
+      const second = await staff.create({
+        name: "Tagged Two",
+        email: unique(),
+        balanceMinor: 0,
+        tags: [tagA],
+      });
+      fixtureIds.push(first.id, second.id);
+
+      expect(first.tags).toEqual([tagB, tagA]);
+
+      const listed = await staff.list({ search: first.email });
+      expect(listed.rows[0]).toMatchObject({
+        id: first.id,
+        avatarUrl: "/uploads/one.png",
+        tags: [tagB, tagA],
+      });
+
+      const allTags = await staff.tags();
+      expect(allTags).toContain(tagA);
+      expect(allTags).toContain(tagB);
+      expect(allTags.filter((t: string) => t === tagA)).toHaveLength(1);
+    });
+
+    test("records customer_event audit trail across create, update, avatar set/clear, archive, restore, and addNote", async () => {
+      const created = await staff.create({
+        name: "Lifecycle Customer",
+        email: unique(),
+        balanceMinor: 500,
+        avatarUrl: "/uploads/initial.png",
+        tags: ["vip"],
+      });
+      fixtureIds.push(created.id);
+
+      await staff.update({
+        id: created.id,
+        company: "Acme Corp",
+        avatarUrl: "/uploads/updated.png",
+      });
+
+      const cleared = await staff.update({
+        id: created.id,
+        avatarUrl: null,
+      });
+      expect(cleared.avatarUrl).toBeNull();
+
+      await staff.archiveMany({ ids: [created.id] });
+      // Repeating archive should not duplicate the archived event.
+      await staff.archiveMany({ ids: [created.id] });
+
+      await staff.update({
+        id: created.id,
+        status: "active",
+      });
+
+      const note = await staff.events.addNote({
+        customerId: created.id,
+        body: "Confirmed contract renewal with CFO.",
+      });
+      expect(note).toMatchObject({
+        customerId: created.id,
+        type: "note",
+        body: "Confirmed contract renewal with CFO.",
+        actorId: "staff",
+        actorName: "Staff",
+      });
+
+      const events = await staff.events.list({ customerId: created.id });
+      expect(events.map((event) => event.type)).toEqual([
+        "created",
+        "avatar_updated",
+        "updated",
+        "avatar_removed",
+        "archived",
+        "restored",
+        "note",
+      ]);
+    });
+
+    test("events endpoints enforce auth and validate customer existence", async () => {
+      const signedOut = customersRouter.createCaller({ db, session: null });
+      await expect(signedOut.events.list({ customerId: "missing" })).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
+      await expect(
+        signedOut.events.addNote({ customerId: "missing", body: "hi" }),
+      ).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
+
+      await expect(
+        staff.events.addNote({ customerId: crypto.randomUUID(), body: "Orphan note" }),
+      ).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
+    });
+  },
+);

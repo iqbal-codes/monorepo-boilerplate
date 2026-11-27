@@ -78,6 +78,8 @@ function toExportBalanceMinor(balanceMinor: string): number {
   return Number(exact);
 }
 
+const TAG_REGEX = /^.+$/;
+
 export const customerCreateInput = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.email().max(320),
@@ -88,10 +90,15 @@ export const customerCreateInput = z.object({
   currency: z.string().length(3).default("USD"),
   notes: z.string().max(2000).optional(),
   avatarUrl: z.string().max(2048).optional(),
+  tags: z.array(z.string().trim().min(1).max(64).regex(TAG_REGEX)).max(50).optional(),
 });
 
 export const customerUpdateInput = customerCreateInput.partial().extend({
   id: z.string().min(1),
+  avatarUrl: z.string().max(2048).nullable().optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  company: z.string().trim().max(200).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
 });
 
 /**
@@ -325,10 +332,44 @@ function toCustomerInsert(draft: CustomerImportDraft) {
   return { ...values, id: crypto.randomUUID() };
 }
 
+function toActor(user: { id: string; name: string; image?: string | null }) {
+  return {
+    id: user.id,
+    name: user.name,
+    avatarUrl: user.image ?? null,
+  };
+}
+
 export const customersRouter = router({
   list: protectedProcedure.input(customerListInput).query(({ ctx, input }) => {
     const query: CustomerListQuery = input;
     return customerQueries(ctx.db).list(query);
+  }),
+
+  tags: protectedProcedure.query(({ ctx }) => customerQueries(ctx.db).distinctTags()),
+
+  events: router({
+    list: protectedProcedure
+      .input(z.object({ customerId: z.string().min(1) }))
+      .query(({ ctx, input }) => customerQueries(ctx.db).listEvents(input.customerId)),
+
+    addNote: protectedProcedure
+      .input(
+        z.object({
+          customerId: z.string().min(1),
+          body: z.string().trim().min(1, "Note cannot be empty.").max(2000),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const created = await customerQueries(ctx.db).addNote(input, toActor(ctx.session.user));
+        if (!created) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Customer not found.",
+          });
+        }
+        return created;
+      }),
   }),
 
   /**
@@ -367,18 +408,31 @@ export const customersRouter = router({
     .query(({ ctx, input }) => customerQueries(ctx.db).byId(input.id)),
 
   create: protectedProcedure.input(customerCreateInput).mutation(({ ctx, input }) => {
-    return customerQueries(ctx.db).create({ ...input, id: crypto.randomUUID() });
+    return customerQueries(ctx.db).create(
+      { ...input, id: crypto.randomUUID() },
+      toActor(ctx.session.user),
+    );
   }),
 
-  update: protectedProcedure.input(customerUpdateInput).mutation(({ ctx, input }) => {
+  update: protectedProcedure.input(customerUpdateInput).mutation(async ({ ctx, input }) => {
     const { id, ...patch } = input;
-    return customerQueries(ctx.db).update(id, patch);
+    const updated = await customerQueries(ctx.db).update(id, patch, toActor(ctx.session.user));
+    if (!updated) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Customer not found.",
+      });
+    }
+    return updated;
   }),
 
   archiveMany: protectedProcedure
     .input(z.object({ ids: z.array(z.string().min(1)).min(1).max(MAX_CUSTOMER_PAGE_SIZE) }))
     .mutation(async ({ ctx, input }) => {
-      const archived = await customerQueries(ctx.db).archiveMany(input.ids);
+      const archived = await customerQueries(ctx.db).archiveMany(
+        input.ids,
+        toActor(ctx.session.user),
+      );
       if (!archived) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -439,6 +493,7 @@ export const customersRouter = router({
       if (issues.length === 0) {
         const { created, conflictEmails } = await customerQueries(ctx.db).importMany(
           drafts.map(toCustomerInsert),
+          toActor(ctx.session.user),
         );
         if (conflictEmails.length === 0 && created.length === drafts.length) {
           return { ok: true as const, created: created.length };

@@ -19,7 +19,7 @@ import { isValidPhoneNumber } from "@monorepo-boilerplate/ui/lib/phone";
 import { useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -45,6 +45,7 @@ const customerFormSchema = z.object({
   status: z.enum(["active", "inactive", "archived"]),
   balanceMinor: z.number().int().optional(),
   currency: z.string().length(3),
+  tags: z.array(z.string().trim().min(1).max(64)).max(50),
   notes: z.string().max(2000),
   avatarUrl: z.string().max(2048),
 });
@@ -59,6 +60,7 @@ const EMPTY_VALUES: CustomerFormValues = {
   status: "active",
   balanceMinor: 0,
   currency: DEFAULT_CURRENCY,
+  tags: [],
   notes: "",
   avatarUrl: "",
 };
@@ -77,6 +79,11 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   const detail = useQuery({
     ...trpc.customers.byId.queryOptions({ id: customerId ?? "" }),
     enabled: open && isEditing,
+  });
+
+  const tagsQuery = useQuery({
+    ...trpc.customers.tags.queryOptions(),
+    enabled: open,
   });
 
   const blockerRef = useRef<{ status: string; reset?: () => void } | null>(null);
@@ -111,29 +118,58 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     }),
   );
 
+  const initialValues = useMemo<CustomerFormValues>(() => {
+    if (isEditing && detail.data) {
+      const row = detail.data;
+      return {
+        name: row.name,
+        email: row.email,
+        phone: row.phone ?? "",
+        company: row.company ?? "",
+        status: row.status,
+        balanceMinor: row.balanceMinor,
+        currency: row.currency,
+        tags: row.tags ?? [],
+        notes: row.notes ?? "",
+        avatarUrl: row.avatarUrl ?? "",
+      };
+    }
+    return EMPTY_VALUES;
+  }, [isEditing, detail.data]);
+
   const form = useAppForm({
-    defaultValues: EMPTY_VALUES,
+    defaultValues: initialValues,
     validators: {
       onChange: customerFormSchema,
       onSubmit: customerFormSchema,
     },
     onSubmit: async ({ value }) => {
-      const payload = {
+      const basePayload = {
         name: value.name,
         email: value.email,
         status: value.status,
         balanceMinor: value.balanceMinor ?? 0,
         currency: value.currency,
-        ...(value.phone ? { phone: value.phone } : {}),
-        ...(value.company ? { company: value.company } : {}),
-        ...(value.notes ? { notes: value.notes } : {}),
-        ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
+        tags: value.tags,
       };
       try {
         if (isEditing && customerId) {
-          await update.mutateAsync({ id: customerId, ...payload });
+          await update.mutateAsync({
+            id: customerId,
+            ...basePayload,
+            phone: value.phone || null,
+            company: value.company || null,
+            notes: value.notes || null,
+            avatarUrl: value.avatarUrl || null,
+          });
         } else {
-          await create.mutateAsync(payload);
+          await create.mutateAsync({
+            ...basePayload,
+            ...(value.phone ? { phone: value.phone } : {}),
+            ...(value.company ? { company: value.company } : {}),
+            ...(value.notes ? { notes: value.notes } : {}),
+            ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
+          });
         }
       } catch {
         // Surfaced via mutation onError toast and FormError (create.error / update.error).
@@ -144,25 +180,10 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   // Reset the form whenever the drawer opens for a different record.
   useEffect(() => {
     if (!open) return;
-    if (isEditing && detail.data) {
-      const row = detail.data;
-      form.reset({
-        name: row.name,
-        email: row.email,
-        phone: row.phone ?? "",
-        company: row.company ?? "",
-        status: row.status,
-        balanceMinor: row.balanceMinor,
-        currency: row.currency,
-        notes: row.notes ?? "",
-        avatarUrl: row.avatarUrl ?? "",
-      });
-    } else if (!isEditing) {
-      form.reset(EMPTY_VALUES);
-    }
+    form.reset(initialValues);
     // `form` is stable; re-running on data arrival is the point.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isEditing, customerId, detail.data]);
+  }, [open, customerId, initialValues]);
 
   const [isDirty, isFormSubmitting] = useStore(form.store, (state) => [
     state.isDirty,
@@ -246,11 +267,24 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
                   </form.AppField>
                 </div>
 
+                <form.AppField name="tags">
+                  {(field) => (
+                    <field.TagField
+                      label="Tags"
+                      placeholder="Add a tag…"
+                      suggestions={tagsQuery.data ?? []}
+                      maxTags={20}
+                      description="Press Enter or comma to add tags."
+                    />
+                  )}
+                </form.AppField>
+
                 <form.AppField name="avatarUrl">
                   {(field) => (
                     <field.UploadField
                       label="Avatar"
                       hint="PNG, JPEG, WebP, or GIF up to 5 MB"
+                      removeLabel="Remove avatar"
                       accept="image/png,image/jpeg,image/webp,image/gif"
                       upload={uploadFile}
                       resolvePreviewUrl={assetUrl}

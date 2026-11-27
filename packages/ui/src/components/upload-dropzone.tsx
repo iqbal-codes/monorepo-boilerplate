@@ -42,6 +42,7 @@ type UploadDropzoneProps = {
   className?: string;
   label?: React.ReactNode;
   hint?: React.ReactNode;
+  removeLabel?: string;
 };
 
 const DEFAULT_MAX_SIZE = 5 * 1024 * 1024;
@@ -58,6 +59,7 @@ export function UploadDropzone({
   className,
   label,
   hint,
+  removeLabel = "Remove",
 }: UploadDropzoneProps) {
   const [internalUrl, setInternalUrl] = React.useState<string | null>(null);
   const [progress, setProgress] = React.useState<number | null>(null);
@@ -211,7 +213,7 @@ export function UploadDropzone({
             disabled={disabled || isUploading}
           >
             <Trash2Icon aria-hidden />
-            Remove
+            {removeLabel}
           </Button>
         ) : null}
       </div>
