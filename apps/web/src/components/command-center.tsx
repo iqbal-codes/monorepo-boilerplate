@@ -1,6 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowRightIcon, MoonIcon, SunIcon, UsersIcon, type LucideIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  MoonIcon,
+  SettingsIcon,
+  SunIcon,
+  UsersIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
@@ -67,9 +74,11 @@ const CUSTOMER_SEARCH_DEBOUNCE_MS = 300;
 export function CommandCenter({
   open,
   onOpenChange,
+  onOpenSettings,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenSettings?: () => void;
 }) {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useThemeToggle();
@@ -141,14 +150,22 @@ export function CommandCenter({
     close();
   }
 
+  function openSettingsAndClose() {
+    close();
+    onOpenSettings?.();
+  }
+
   const themeLabel = isDark ? "Switch to light theme" : "Switch to dark theme";
   const showThemeAction = matchesQuery(terms, themeLabel, "theme", "appearance", "dark", "light");
+  const showSettingsAction =
+    Boolean(onOpenSettings) &&
+    matchesQuery(terms, "Open settings", "preferences", "appearance", "profile", "password");
   const ThemeIcon = isDark ? SunIcon : MoonIcon;
 
   const screens = COMMAND_SCREENS.filter((screen) =>
     matchesQuery(terms, screen.title, ...(screen.keywords ?? [])),
   );
-  const hasStaticResults = screens.length > 0 || showThemeAction;
+  const hasStaticResults = screens.length > 0 || showThemeAction || showSettingsAction;
 
   const customerRows = customers.data?.rows ?? [];
   const visibleCustomerRows = customerSearchPending ? [] : customerRows;
@@ -220,12 +237,20 @@ export function CommandCenter({
             </CommandGroup>
           ) : null}
 
-          {showThemeAction ? (
+          {showThemeAction || showSettingsAction ? (
             <CommandGroup heading="Actions">
-              <CommandItem value="action-toggle-theme" onSelect={toggleThemeAndClose}>
-                <ThemeIcon />
-                <span>{themeLabel}</span>
-              </CommandItem>
+              {showSettingsAction ? (
+                <CommandItem value="action-open-settings" onSelect={openSettingsAndClose}>
+                  <SettingsIcon />
+                  <span>Open settings</span>
+                </CommandItem>
+              ) : null}
+              {showThemeAction ? (
+                <CommandItem value="action-toggle-theme" onSelect={toggleThemeAndClose}>
+                  <ThemeIcon />
+                  <span>{themeLabel}</span>
+                </CommandItem>
+              ) : null}
             </CommandGroup>
           ) : null}
 

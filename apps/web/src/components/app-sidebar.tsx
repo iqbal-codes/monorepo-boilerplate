@@ -35,9 +35,11 @@ import { navMain, navShortcuts } from "@/lib/nav";
 export function AppSidebar({
   currentPath,
   onOpenCommandCenter,
+  onOpenSettings,
 }: {
   currentPath: string;
   onOpenCommandCenter: () => void;
+  onOpenSettings: () => void;
 }) {
   const { state } = useSidebar();
 
@@ -80,7 +82,7 @@ export function AppSidebar({
         <NavShortcuts items={navShortcuts} currentPath={currentPath} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser />
+        <NavUser onOpenSettings={onOpenSettings} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

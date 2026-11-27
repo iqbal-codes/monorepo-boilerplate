@@ -175,11 +175,17 @@ export function formatPercent(
   {
     locale = DEFAULT_LOCALE,
     maximumFractionDigits = 1,
-  }: { locale?: string; maximumFractionDigits?: number } = {},
+    signDisplay = "auto",
+  }: {
+    locale?: string;
+    maximumFractionDigits?: number;
+    signDisplay?: "auto" | "never" | "always" | "exceptZero";
+  } = {},
 ): string {
   return new Intl.NumberFormat(locale, {
     style: "percent",
     maximumFractionDigits,
+    signDisplay,
   }).format(value);
 }
 

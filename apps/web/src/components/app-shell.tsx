@@ -6,6 +6,7 @@ import { SidebarInset, SidebarProvider } from "@monorepo-boilerplate/ui/componen
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandCenter } from "@/components/command-center";
 import { PageTitleProvider } from "@/components/page-title";
+import { AppSettingsDialog } from "@/components/settings/app-settings-dialog";
 import { AppTopbar } from "@/components/app-topbar";
 
 /**
@@ -21,11 +22,16 @@ import { AppTopbar } from "@/components/app-topbar";
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [commandOpen, setCommandOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <PageTitleProvider>
       <SidebarProvider className="h-svh min-h-0 overflow-hidden">
-        <AppSidebar currentPath={pathname} onOpenCommandCenter={() => setCommandOpen(true)} />
+        <AppSidebar
+          currentPath={pathname}
+          onOpenCommandCenter={() => setCommandOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
         <SidebarInset className="min-w-0 overflow-hidden">
           <AppTopbar onOpenCommandCenter={() => setCommandOpen(true)} />
           <div
@@ -35,7 +41,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             {children}
           </div>
         </SidebarInset>
-        <CommandCenter open={commandOpen} onOpenChange={setCommandOpen} />
+        <CommandCenter
+          open={commandOpen}
+          onOpenChange={setCommandOpen}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </SidebarProvider>
     </PageTitleProvider>
   );

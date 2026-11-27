@@ -3,10 +3,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   AlertCircleIcon,
   ArrowUpIcon,
+  BriefcaseIcon,
   CalendarIcon,
+  CircleDollarSignIcon,
   CircleIcon,
+  LayersIcon,
   PlusIcon,
   RotateCcwIcon,
+  TrophyIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -609,21 +613,33 @@ function KanbanDemo() {
           <KpiGrid>
             <KpiCard
               label="Open pipeline"
+              icon={<CircleDollarSignIcon />}
+              tone="info"
               value={formatMoney({ minor: openPipelineMinor, currency: "USD" })}
               hint="Leads cannot skip directly to Closed Won"
             />
             <KpiCard
               label="Active deals"
+              icon={<BriefcaseIcon />}
+              tone="warning"
               value={formatNumber(deals.filter((deal) => deal.stage !== "closed_won").length)}
               hint="Status-only columns (within-column reorder off)"
             />
             <KpiCard
               label="Closed won"
+              icon={<TrophyIcon />}
+              tone="success"
               value={formatMoney({ minor: closedWonMinor, currency: "USD" })}
+              progress={{
+                value: closedWonMinor,
+                max: Math.max(1, openPipelineMinor + closedWonMinor),
+                label: "Closed won share of pipeline",
+              }}
               hint="Currency minor units formatted via formatMoney"
             />
             <KpiCard
               label="Total deals"
+              icon={<LayersIcon />}
               value={formatNumber(deals.length)}
               hint="Select any card to inspect details"
             />

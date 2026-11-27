@@ -67,6 +67,8 @@ const { Sheet, SheetAction, SheetContent, SheetDescription, SheetHeader, SheetTi
   await import("../src/components/sheet");
 const { Dialog, DialogAction, DialogContent, DialogDescription, DialogHeader, DialogTitle } =
   await import("../src/components/dialog");
+const { AlertDialog, AlertDialogContent, AlertDialogTitle } =
+  await import("../src/components/alert-dialog");
 const { Drawer, DrawerAction, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } =
   await import("../src/components/drawer");
 
@@ -287,6 +289,44 @@ describe("Sheet, Dialog, and Drawer headers", () => {
       expect(action?.className).toContain("col-start-2");
     } finally {
       await closeableDrawer.cleanup();
+    }
+  });
+
+  test("Dialog and AlertDialog overlays use starting/ending transitions without animate-out", async () => {
+    const dialogView = await renderInDom(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Confirm</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    try {
+      const overlay = document.body.querySelector('[data-slot="dialog-overlay"]');
+      const content = document.body.querySelector('[data-slot="dialog-content"]');
+      expect(overlay?.className).toContain("data-ending-style:opacity-0");
+      expect(overlay?.className).not.toContain("animate-out");
+      expect(content?.className).toContain("data-ending-style:opacity-0");
+      expect(content?.className).not.toContain("animate-out");
+    } finally {
+      await dialogView.cleanup();
+    }
+
+    const alertView = await renderInDom(
+      <AlertDialog open>
+        <AlertDialogContent>
+          <AlertDialogTitle>Delete</AlertDialogTitle>
+        </AlertDialogContent>
+      </AlertDialog>,
+    );
+    try {
+      const overlay = document.body.querySelector('[data-slot="alert-dialog-overlay"]');
+      const content = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(overlay?.className).toContain("data-ending-style:opacity-0");
+      expect(overlay?.className).not.toContain("animate-out");
+      expect(content?.className).toContain("data-ending-style:opacity-0");
+      expect(content?.className).not.toContain("animate-out");
+    } finally {
+      await alertView.cleanup();
     }
   });
 });
