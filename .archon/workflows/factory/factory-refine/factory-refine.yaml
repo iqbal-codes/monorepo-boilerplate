@@ -52,6 +52,9 @@ nodes:
     command: refine
     model: medium
     mutates_checkout: false
+    skills:
+      - { name: better-interface, optional: true }
+      - { name: shadcn, optional: true }
     depends_on: [load-issue]
     with:
       request_path: "$load-issue.output.request_path"
