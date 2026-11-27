@@ -141,8 +141,10 @@ export function PhoneField({
                 />
               }
             >
-              <span aria-hidden="true">{activeCountry?.flag}</span>
-              <span className="text-xs tabular-nums">+{activeCountry?.dialCode}</span>
+              <span className="flex items-center gap-1 text-base md:text-sm">
+                <span aria-hidden="true">{activeCountry?.flag}</span>
+                <span className="tabular-nums">+{activeCountry?.dialCode}</span>
+              </span>
               <ChevronsUpDownIcon aria-hidden="true" className="text-muted-foreground" />
             </PopoverTrigger>
             <PopoverContent align="start" className="w-72 gap-2 p-2">
