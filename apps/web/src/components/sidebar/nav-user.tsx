@@ -46,7 +46,7 @@ export function NavUser() {
     return (
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton render={<Link to="/login" />}>Sign in</SidebarMenuButton>
+          <SidebarMenuButton render={<Link to="/sign-in" />}>Sign in</SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
     );
@@ -124,7 +124,7 @@ export function NavUser() {
                 void authClient.signOut({
                   fetchOptions: {
                     onSuccess: () => {
-                      void navigate({ to: "/login" });
+                      void navigate({ to: "/sign-in" });
                     },
                   },
                 });

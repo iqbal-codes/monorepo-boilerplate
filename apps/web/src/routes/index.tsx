@@ -18,8 +18,11 @@ function HomeComponent() {
         <Button nativeButton={false} render={<Link to="/dashboard" />}>
           Dashboard
         </Button>
-        <Button nativeButton={false} variant="outline" render={<Link to="/login" />}>
+        <Button nativeButton={false} variant="outline" render={<Link to="/sign-in" />}>
           Sign in
+        </Button>
+        <Button nativeButton={false} variant="ghost" render={<Link to="/sign-up" />}>
+          Sign up
         </Button>
       </div>
     </div>
