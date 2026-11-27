@@ -29,16 +29,18 @@ type CsvExportWorkerScope = {
 export function handleCsvExportRequest(
   scope: CsvExportWorkerScope,
   message: { payload: string; filename: string; format?: ExportFormat },
+  signal?: AbortSignal,
 ): CsvExportResponse | Promise<CsvExportResponse> {
-  if (message.format === "xlsx") {
-    return runXlsxExport(message).then((response) => {
-      scope.postMessage(response);
-      return response;
-    });
+  function postResult(response: CsvExportResponse): CsvExportResponse {
+    const result: CsvExportResponse = signal?.aborted ? { type: "aborted" } : response;
+    scope.postMessage(result);
+    return result;
   }
-  const response = runCsvExport(message);
-  scope.postMessage(response);
-  return response;
+
+  if (message.format === "xlsx") {
+    return runXlsxExport(message).then(postResult);
+  }
+  return postResult(runCsvExport(message));
 }
 
 function isAbortError(cause: unknown): boolean {
@@ -140,10 +142,10 @@ export function registerCsvExportWorker(
     }
     if (started) return;
     started = true;
+    const controller = new AbortController();
+    activeAbort = controller;
 
     if (message.type === "http") {
-      const controller = new AbortController();
-      activeAbort = controller;
       void handleHttpCsvExport(
         scope,
         message.request,
@@ -155,7 +157,7 @@ export function registerCsvExportWorker(
       return;
     }
 
-    void handleCsvExportRequest(scope, message);
+    void handleCsvExportRequest(scope, message, controller.signal);
   });
 }
 

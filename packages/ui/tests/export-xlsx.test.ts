@@ -351,6 +351,23 @@ describe("export worker xlsx seam", () => {
     expect(done.file.type).toBe(XLSX_MIME_TYPE);
   });
 
+  test("emits only an aborted result if cancellation arrives during payload XLSX compression", async () => {
+    const scope = fakeScope();
+    registerCsvExportWorker(scope);
+
+    scope.emit({
+      type: "payload",
+      payload: payloadOf([]),
+      filename: "customers.xlsx",
+      format: "xlsx",
+    });
+    scope.emit({ type: "abort" });
+    scope.emit({ type: "abort" });
+
+    await scope.waitForCount(1);
+    expect(scope.posted).toEqual([{ type: "aborted" }]);
+  });
+
   test("fetches, unwraps, and generates an .xlsx File off-thread in HTTP worker mode", async () => {
     const scope = fakeScope();
     const fakeFetch = (async () =>

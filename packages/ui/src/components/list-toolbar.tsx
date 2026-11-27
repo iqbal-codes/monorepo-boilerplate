@@ -1,6 +1,6 @@
-import { useState, type ReactNode, type Ref } from "react";
+import { useCallback, useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "cn";
-import { SearchIcon, SlidersHorizontalIcon } from "lucide-react";
+import { SearchIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
@@ -15,9 +15,18 @@ import {
 import {
   InputGroup,
   InputGroupAddon,
+  InputGroupButton,
   InputGroupInput,
 } from "@monorepo-boilerplate/ui/components/input-group";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
+
+function assignInputRef(ref: Ref<HTMLInputElement> | undefined, node: HTMLInputElement | null) {
+  if (typeof ref === "function") {
+    ref(node);
+  } else if (ref && typeof ref === "object") {
+    ref.current = node;
+  }
+}
 
 export type ListToolbarFilterSheet = {
   /** Number of active non-default filters, shown as a badge on the mobile Filter button. */
@@ -34,6 +43,9 @@ export function ListToolbar({
   search,
   filters,
   filterSheet,
+  onClearFilters,
+  hasActiveFilters,
+  clearFiltersLabel = "Clear filters",
   actions,
   resultLabel,
   isFetching,
@@ -48,30 +60,65 @@ export function ListToolbar({
   filters?: ReactNode;
   /** Enables a mobile Filter button that opens a bottom-sheet Drawer instead of rendering filters inline. */
   filterSheet?: ListToolbarFilterSheet;
+  /** Clears all active filters (e.g. search and filter controls). */
+  onClearFilters?: () => void;
+  /** Controls visibility of the Clear filters button. Defaults to active search or `filterSheet.activeCount > 0`. */
+  hasActiveFilters?: boolean;
+  /** Text for the Clear filters button. Defaults to `"Clear filters"`. */
+  clearFiltersLabel?: string;
   /** Trailing controls, rendered after the result label. */
   actions?: ReactNode;
   resultLabel?: string;
   isFetching?: boolean;
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
+  const internalSearchRef = useRef<HTMLInputElement | null>(null);
+  const externalSearchRef = search.inputRef;
+  const setSearchInputRef = useCallback(
+    (node: HTMLInputElement | null) => {
+      internalSearchRef.current = node;
+      assignInputRef(externalSearchRef, node);
+    },
+    [externalSearchRef],
+  );
+
   const sheetContent = filterSheet?.content ?? filters;
   const hasMobileSheet = Boolean(filterSheet && sheetContent);
   const activeCount = filterSheet?.activeCount ?? 0;
+  const showClearSearch = search.value.length > 0;
+  const isFilterActive = hasActiveFilters ?? (showClearSearch || activeCount > 0);
 
   return (
     <div data-slot="list-toolbar" className="flex min-w-0 flex-wrap items-center gap-2">
       <InputGroup className="min-w-0 flex-1 sm:max-w-xs">
         <InputGroupInput
-          ref={search.inputRef}
+          ref={setSearchInputRef}
           type="search"
           aria-label={search.label}
           placeholder={search.placeholder}
           value={search.value}
           onChange={(event) => search.onChange(event.target.value)}
+          className="[&::-webkit-search-cancel-button]:hidden"
         />
         <InputGroupAddon>
           <SearchIcon aria-hidden />
         </InputGroupAddon>
+        {showClearSearch ? (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              type="button"
+              size="icon-xs"
+              data-slot="list-toolbar-search-clear"
+              aria-label={`Clear ${search.label}`}
+              onClick={() => {
+                search.onChange("");
+                internalSearchRef.current?.focus();
+              }}
+            >
+              <XIcon aria-hidden />
+            </InputGroupButton>
+          </InputGroupAddon>
+        ) : null}
       </InputGroup>
 
       {filters && (
@@ -140,6 +187,20 @@ export function ListToolbar({
           </Drawer>
         </div>
       )}
+
+      {onClearFilters && isFilterActive ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-slot="list-toolbar-clear-filters"
+          onClick={onClearFilters}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <XIcon data-icon="inline-start" aria-hidden />
+          {clearFiltersLabel}
+        </Button>
+      ) : null}
 
       {(resultLabel || isFetching) && (
         <span className="flex w-full items-center gap-1.5 text-xs text-muted-foreground tabular-nums sm:ms-auto sm:w-auto">

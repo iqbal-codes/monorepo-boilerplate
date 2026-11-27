@@ -15,10 +15,11 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 
 1. Read `$INPUTS.contract_path`, `$ARTIFACTS_DIR/qa-testcases.md`, and linked UI brief/references to collect every **Required UI State**, `TC-*` test case, **Out of Scope** boundary, declared **Layout Pattern**, **Anti-Pattern**, performance budget, and viewport requirement.
    - **Round 1:** Verify every UI-applicable `TC-*` in `qa-testcases.md`, plus one bounded exploratory check over the UI surfaces touched by this change (never fail on items listed under `Out of Scope`). Emit any newly discovered diff-bounded UX defect as `TC-R1-UX-01`, `TC-R1-UX-02`, ... under `## Test Case Results`.
-   - **Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md`):** Check `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`), reuse `$ARTIFACTS_DIR/evidence/ux-check.mjs` if present, and **only** re-verify previously `FAIL` `TC-*` cases plus `TC-*` cases affected by the fix delta — do NOT invent new exploratory cases on untouched areas.
-2. Start the preview server via `$INPUTS.preview_cmd` and parse `URL=...` and `PID=...`. Always stop `PID` before exiting, even on failure.
+   - **Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md`):** Check `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`), reuse `$ARTIFACTS_DIR/evidence/ux-check.mjs` if present, and **only** re-verify unresolved `TC-*` cases plus `TC-*` cases affected by the fix delta — do NOT invent new exploratory cases on untouched areas.
+2. Use the repository's preview command for any interactive checks. When starting it directly, parse `URL=...` and `PID=...` and stop that PID on exit.
 3. **Exhaustive single-pass browser audit (do NOT stop after the first defect):**
    Use the repository’s browser tooling when documented, or an available browser tool. If `$ARTIFACTS_DIR/evidence/ux-check.mjs` (or equivalent saved verification script) already exists from Round 1, inspect and reuse/extend it instead of rebuilding setup, auth, and selectors from scratch; otherwise save your main deterministic verification script to `$ARTIFACTS_DIR/evidence/ux-check.mjs` so subsequent rounds can reuse it.
+   Run a repository-provided browser verification command before starting a separate preview when the contract or repository guide names one for the touched flow. Use its case results and evidence paths to report the matching ledger `TC-*` entries.
    Complete **all** applicable checks before deciding `passed`:
    - **Contract & Scope:** Verify every required state, visible/accessible label, action hierarchy, and error/empty/cancellation/scope flow. For a launch-only preview, open each declared route and verify its static marker, reporting visible product controls or demo flows outside the slice as blocking scope defects.
    - **Responsive Layout & Overflow:** Exercise all viewports required by the contract or repo guidance (defaulting to representative desktop and narrow mobile sizes such as `1280×800` and `320×800` when unspecified). Verify zero unintended page-wide horizontal overflow (`scrollWidth <= innerWidth`), zero clipped or overlapping controls, and proper overlay/menu containment.
@@ -41,7 +42,7 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 - Collect every observable blocking defect across all categories above in one round before returning — never short-circuit after finding a single issue.
 - Ground every defect in what you directly observed in live interaction, browser trace, or inside the `after-*.png` image (`after-default.png`: ...). Never invent hypothetical flaws, and never bikeshed subjective taste (e.g. swapping two equally clear brand colors) unless hierarchy, contrast, or domain usability fails.
 - If the preview server fails to boot due to a bug in this change, return `passed: false` with the exact startup error.
-- If an external host limitation prevents the check, including unavailable browser tooling, record the check as unverified in `ux-report.md` and `summary`. Set `passed: true` only if no blocking defect was observed.
+- If an external host limitation prevents the check, including unavailable browser tooling, record the affected cases as unverified in `ux-report.md` and `summary`. Set `passed: false` when a required case is unverified.
 
 ## Output
 

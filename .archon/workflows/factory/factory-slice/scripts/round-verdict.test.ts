@@ -132,6 +132,86 @@ describe('round-verdict combined UX and parallel review verdict', () => {
     }
   });
 
+  test('requires a QA ledger when a contract is present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-missing-ledger-'));
+    try {
+      const { output } = runVerdict(dir, { INPUTS_CONTRACT_PATH: join(dir, 'contract.md') });
+      expect(output.ready).toBe(false);
+      expect(output.reason).toBe('qa_cases_incomplete');
+      expect(output.summary).toContain('ledger is missing or empty');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ['PENDING', false],
+    ['FAIL', false],
+    ['PASS', true],
+  ])('uses a %s required case to decide readiness even when reviewers report green', (status, ready) => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-cases-'));
+    try {
+      mkdirSync(join(dir, 'evidence'));
+      writeFileSync(join(dir, 'qa-testcases.md'), '| `TC-01` | Check keyboard focus | `PENDING` | — |\n');
+      if (status !== 'PENDING') {
+        writeFileSync(join(dir, 'evidence', 'ux-report.md'), `## Test Case Results\n- TC-01: ${status} — browser result`);
+      }
+
+      const { output, feedbackMd } = runVerdict(dir, {});
+      expect(output.ready).toBe(ready);
+      expect(output.done).toBe(ready);
+      expect(output.reason).toBe(ready ? 'ready' : 'qa_cases_incomplete');
+      expect(feedbackMd).toContain(`TC-01: ${status}`);
+      const [record] = JSON.parse(readFileSync(join(dir, 'qa-verdicts.json'), 'utf8'));
+      expect(record).toMatchObject({
+        round: 1,
+        ready,
+        cases: [{ id: 'TC-01', status }],
+      });
+      const ledger = record.evidence.find((file: string) => file.endsWith('/qa-testcases.md'));
+      expect(readFileSync(join(dir, ledger), 'utf8')).toContain(`\`${status}\``);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('publishes the verdict for the reviewed commit when status reporting is enabled', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-status-'));
+    try {
+      const sha = Bun.spawnSync(['git', 'rev-parse', 'HEAD']).stdout.toString().trim();
+      const outputPath = join(dir, 'github-status.txt');
+      writeFileSync(
+        join(dir, 'gh'),
+        [
+          '#!/bin/sh',
+          'if [ "$1" = api ]; then',
+          '  printf "%s\\n" "$@" >> "$QA_STATUS_CAPTURE"',
+          'fi',
+        ].join('\n'),
+        { mode: 0o700 }
+      );
+      writeFileSync(join(dir, 'qa-testcases.md'), '| `TC-01` | Verify export | `FAIL` | Reproduced |\n');
+      const env = {
+        INPUTS_PR_NUMBER: '9',
+        FACTORY_PUBLISH_QA_STATUS: 'true',
+        PATH: `${dir}:${process.env.PATH}`,
+        QA_STATUS_CAPTURE: outputPath,
+      };
+      const { output } = runVerdict(dir, env);
+      expect(output.ready).toBe(false);
+      const args = readFileSync(outputPath, 'utf8').trim().split('\n');
+      expect(args).toEqual([
+        'api', '--method', 'POST', `repos/owner/repo/statuses/${sha}`,
+        '-f', 'context=factory/qa', '-f', 'state=failure',
+        '-f', 'description=Factory QA requires changes (round 1)',
+        '-f', 'target_url=https://github.com/owner/repo/pull/9',
+      ]);
+      expect(readFileSync(join(dir, 'last-pr-comment.md'), 'utf8')).toContain(sha);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('freezes Round 1 exploratory TCs in qa-testcases.md and locks Round 2+ against new exploratory TCs', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-freeze-'));
     try {

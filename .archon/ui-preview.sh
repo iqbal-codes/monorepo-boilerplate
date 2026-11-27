@@ -64,6 +64,18 @@ wait_for_http() {
   return 1
 }
 
+start_session() {
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@"
+  else
+    bun -e '
+      import { spawn } from "node:child_process";
+      const [command, ...args] = process.argv.slice(1);
+      spawn(command, args, { detached: true, stdio: "ignore" }).unref();
+    ' -- "$@"
+  fi
+}
+
 if [ ! -f "$WEB_DIR/.env" ] || [ ! -f "$SERVER_DIR/.env" ]; then
   bun "$ROOT/scripts/env-init.ts" >/dev/null 2>&1 || true
 fi
@@ -85,7 +97,7 @@ if [ "$WITH_API" = "1" ]; then
   META_FILE="$(mktemp "${TMPDIR:-/tmp}/archon-e2e-meta.XXXXXX")"
 
   # Supervise both children in one session (`PGID == SUP_PID`) so `kill "$PID"` tears down API, Web, and Vite children.
-  setsid bash -c '
+  start_session bash -c '
     set -euo pipefail
     api_dir="$1" web_dir="$2" api_port="$3" web_port="$4" api_url="$5" web_url="$6" api_log="$7" web_log="$8" meta_file="$9" db_url="${10:-}"
 
@@ -156,7 +168,7 @@ PORT="${PREVIEW_WEB_PORT:-$(pick_port 4100 4199)}" || {
 LOG="${TMPDIR:-/tmp}/archon-ui-preview-$PORT.log"
 META_FILE="$(mktemp "${TMPDIR:-/tmp}/archon-ui-meta.XXXXXX")"
 
-setsid bash -c '
+start_session bash -c '
   set -euo pipefail
   web_dir="$1" port="$2" log="$3" meta_file="$4"
   (cd "$web_dir" && exec bunx --bun vp dev --port "$port" --strictPort --host 127.0.0.1 >"$log" 2>&1 < /dev/null) &

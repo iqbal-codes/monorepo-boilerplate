@@ -199,6 +199,13 @@ async function errorOf(bytes: Uint8Array, columns: readonly string[] = COLUMNS) 
 }
 
 describe("buildXlsxTemplate & round-trip", () => {
+  test("preserves literal escape tokens and XML-invalid characters through a workbook", async () => {
+    const notes = "Reference _x0041_ with Unicode \uFFFE\uFFFF";
+    const workbook = await buildXlsx({ headers: ["notes"], rows: [[notes]] });
+    const table = await tableOf(workbook, ["notes"]);
+    expect(table.rows[0]?.values.notes).toBe(notes);
+  });
+
   test("creates a single-worksheet workbook with the exact 8 columns and round-trips", async () => {
     const bytes = await buildXlsxTemplate(COLUMNS);
     const table = await tableOf(bytes);

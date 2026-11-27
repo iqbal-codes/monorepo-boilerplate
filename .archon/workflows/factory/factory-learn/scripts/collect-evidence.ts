@@ -17,7 +17,7 @@ const common = runCmd(['git', 'rev-parse', '--path-format=absolute', '--git-comm
 const checkout = dirname(common);
 const ledger = join(state, 'factory-learn', 'seen.json');
 const seen = new Set<string>(existsSync(ledger) ? JSON.parse(readFileSync(ledger, 'utf8')) : []);
-const names: Record<string, true> = { 'factory-slice': true, 'factory-refine': true };
+const names: Record<string, true> = { 'factory-slice': true, 'factory-refine': true, 'factory-pr-revise': true };
 const terminal: Record<string, true> = { completed: true, failed: true, cancelled: true };
 
 type Run = {
@@ -34,6 +34,34 @@ const batch = history.runs.filter((run) => {
   return !!source && existsSync(source) && realpathSync(source) === realpathSync(checkout);
 }).slice(0, 12);
 
+function readQaVerdicts(runId: string) {
+  const result = runCmd(['archon', 'workflow', 'artifacts', runId, 'qa-verdicts.json', '--cwd', checkout], {
+    allowFail: true,
+  });
+  if (result.code !== 0) return [];
+  try {
+    const rows: unknown = JSON.parse(result.stdout);
+    if (!Array.isArray(rows)) return [];
+    return rows.slice(-5).map((row) => ({
+      round: Number(row.round),
+      reviewed_sha: excerpt(row.reviewed_sha),
+      ready: row.ready === true,
+      reason: excerpt(row.reason),
+      summary: excerpt(row.summary),
+      cases: Array.isArray(row.cases)
+        ? row.cases.slice(0, 30).map((item: { id?: unknown; status?: unknown; note?: unknown }) => ({
+            id: excerpt(item.id),
+            status: excerpt(item.status),
+            note: excerpt(item.note),
+          }))
+        : [],
+      evidence: Array.isArray(row.evidence) ? row.evidence.slice(0, 20).map(excerpt) : [],
+    }));
+  } catch {
+    return [];
+  }
+}
+
 const evidence = batch.map((run) => {
   const issue = String(run.metadata?.inputs?.issue ?? '').replace(/^#/, '');
   const response = runCmd(['archon', 'workflow', 'get', run.id, '--cwd', checkout, '--json', '--verbose'], { allowFail: true });
@@ -45,6 +73,7 @@ const evidence = batch.map((run) => {
     nodes: nodes.filter((node) => /^(?:mechanical-gate|ci-merge|review-|verdict|approve-contract|merge-approval|rounds|summary)/.test(node.nodeId ?? '')).slice(0, 16).map((node) => ({
       id: node.nodeId, state: node.state, summary: excerpt(node.error ?? node.outputPreview),
     })),
+    qa_verdicts: readQaVerdicts(run.id),
     qa: ['round-feedback.md', 'mechanical-gate.md'].flatMap((file) => {
       const result = runCmd(['archon', 'workflow', 'artifacts', run.id, file, '--cwd', checkout], { allowFail: true });
       return result.code === 0 ? [{ file, excerpt: excerpt(result.stdout) }] : [];

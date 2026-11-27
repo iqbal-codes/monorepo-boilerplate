@@ -3,7 +3,9 @@
 import * as React from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { cn } from "cn";
-import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react";
+import { ChevronDownIcon, CheckIcon, ChevronUpIcon, XIcon } from "lucide-react";
+
+import { Button } from "@monorepo-boilerplate/ui/components/button";
 
 const Select = SelectPrimitive.Root;
 
@@ -27,29 +29,91 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   );
 }
 
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
+  if (typeof ref === "function") {
+    ref(value);
+  } else if (ref && typeof ref === "object") {
+    ref.current = value;
+  }
+}
+
 function SelectTrigger({
   className,
   size = "default",
+  showClear = false,
+  onClear,
+  clearLabel = "Clear selection",
+  disabled,
+  ref,
   children,
   ...props
 }: SelectPrimitive.Trigger.Props & {
   size?: "sm" | "default";
+  showClear?: boolean;
+  onClear?: () => void;
+  clearLabel?: string;
 }) {
-  return (
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const canClear = Boolean(showClear && onClear && !disabled);
+
+  const handleRef = React.useCallback(
+    (node: HTMLButtonElement | null) => {
+      triggerRef.current = node;
+      assignRef(ref, node);
+    },
+    [ref],
+  );
+
+  const trigger = (
     <SelectPrimitive.Trigger
+      ref={handleRef}
       data-slot="select-trigger"
       data-size={size}
+      disabled={disabled}
       className={cn(
-        "flex w-fit items-center justify-between gap-1.5 rounded-none border border-transparent border-b-input bg-transparent px-0 py-2 text-sm whitespace-nowrap transition-[color,border-color] outline-none focus-visible:border-b-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-b-destructive data-placeholder:text-muted-foreground data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-b-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "peer flex w-fit items-center justify-between gap-1.5 rounded-none border border-transparent border-b-input bg-transparent px-0 py-2 text-sm whitespace-nowrap transition-[color,border-color] outline-none focus-visible:border-b-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-b-destructive data-placeholder:text-muted-foreground data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-b-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
         className,
+        canClear && "pe-8",
       )}
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon
-        render={<ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />}
-      />
+      {!canClear && (
+        <SelectPrimitive.Icon
+          render={
+            <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
+          }
+        />
+      )}
     </SelectPrimitive.Trigger>
+  );
+
+  if (!canClear) {
+    return trigger;
+  }
+
+  return (
+    <div
+      data-slot="select-trigger-wrapper"
+      className="relative inline-flex max-w-full items-center has-[>[data-slot=select-trigger].w-full]:w-full"
+    >
+      {trigger}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        data-slot="select-clear"
+        aria-label={clearLabel}
+        className="absolute end-0 inset-y-0 my-auto text-muted-foreground hover:text-foreground peer-[.border-input]:end-1"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClear?.();
+          triggerRef.current?.focus();
+        }}
+      >
+        <XIcon aria-hidden="true" />
+      </Button>
+    </div>
   );
 }
 

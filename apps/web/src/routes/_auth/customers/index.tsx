@@ -48,11 +48,20 @@ export const Route = createFileRoute("/_auth/customers/")({
 });
 
 const STATUS_LABELS: Record<CustomerStatusFilter, string> = {
-  all: "Not archived",
+  all: "All Status",
   active: "Active",
   inactive: "Inactive",
   archived: "Archived",
 };
+
+const STATUS_FILTER_ITEMS: ReadonlyArray<{
+  value: Exclude<CustomerStatusFilter, "all">;
+  label: string;
+}> = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "archived", label: "Archived" },
+];
 
 const SORT_KEYS = ["name", "company", "status", "balanceMinor", "createdAt"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
@@ -259,33 +268,32 @@ function CustomersScreen() {
             value: list.searchInput,
             onChange: list.onSearchInputChange,
           }}
-          resultLabel={
-            query.data && !query.isPlaceholderData
-              ? rowCount === 1
-                ? "1 customer"
-                : `${rowCount} customers`
-              : undefined
-          }
           isFetching={query.isFetching}
+          hasActiveFilters={Boolean(list.searchInput) || list.status !== "all"}
+          onClearFilters={list.clearFilters}
           filters={
             <Select
-              value={list.status}
+              items={STATUS_FILTER_ITEMS}
+              value={list.status === "all" ? null : list.status}
               onValueChange={(value) => {
-                if (value !== null) list.setStatus(value);
+                list.setStatus((value ?? "all") as CustomerStatusFilter);
               }}
             >
               <SelectTrigger
                 size="sm"
                 className="w-40 border border-input px-3"
                 aria-label="Filter by status"
+                showClear={list.status !== "all"}
+                onClear={() => list.setStatus("all")}
+                clearLabel="Clear status filter"
               >
-                <SelectValue>{STATUS_LABELS[list.status]}</SelectValue>
+                <SelectValue placeholder="All Status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
+                  {STATUS_FILTER_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>

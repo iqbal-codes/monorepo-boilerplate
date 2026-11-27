@@ -133,6 +133,12 @@ Contract for `.archon/ui-preview.sh`:
 ```
 The mechanical gate checks the implemented checkout for a hook added by the slice. It skips browser verification when the slice has no UI or there is no resolved preview command.
 
+## QA Results
+
+Each round writes its reviewed SHA, case results, and evidence paths to `qa-verdicts.json` in the run artifacts. Factory Learn consumes this history. Every required case in the QA ledger needs a passing result for the round to approve.
+
+Set `FACTORY_PUBLISH_QA_STATUS=true` in the trusted Archon runner environment to publish `factory/qa` on the reviewed commit. The GitHub identity needs commit-status write access. Before requiring the status on a protected branch, verify a passing and a failing factory PR plus the path for manually opened PRs.
+
 ## PR Evidence Branch (`pr-evidence`)
 
 When Before/After PNG screenshots exist in `$ARTIFACTS_DIR/evidence/`, `publish-pr.ts` commits them to an orphan branch named `pr-evidence` (never polluting `main` or the PR diff) and embeds them as a side-by-side Markdown table in the PR body using GitHub blob `?raw=true` links.

@@ -24,19 +24,19 @@ import {
 } from "../date-utils";
 import { buildDescribedBy, FieldFrame, useFieldFeedback, useFieldIds } from "../field-frame";
 import { useFieldContext } from "../form-context";
-import type { BaseFieldProps, DateRangeValue } from "../types";
+import type { BaseFieldProps, ClearableFieldProps, DateRangeValue } from "../types";
 
-export type DateFieldProps = BaseFieldProps & {
-  placeholder?: string;
-  /** date-fns format string for trigger display. Defaults to `"PPP"`. */
-  displayFormat?: string;
-  clearable?: boolean;
-  /** Calendar disabled matcher passed straight to react-day-picker. */
-  disabledDates?: React.ComponentProps<typeof Calendar>["disabled"];
-  captionLayout?: React.ComponentProps<typeof Calendar>["captionLayout"];
-  startMonth?: Date;
-  endMonth?: Date;
-};
+export type DateFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    placeholder?: string;
+    /** date-fns format string for trigger display. Defaults to `"PPP"`. */
+    displayFormat?: string;
+    /** Calendar disabled matcher passed straight to react-day-picker. */
+    disabledDates?: React.ComponentProps<typeof Calendar>["disabled"];
+    captionLayout?: React.ComponentProps<typeof Calendar>["captionLayout"];
+    startMonth?: Date;
+    endMonth?: Date;
+  };
 
 /**
  * Date Field Block. Stores a timezone-free `"YYYY-MM-DD"` string (or `""` when
@@ -55,6 +55,7 @@ export function DateField({
   placeholder = "Pick a date",
   displayFormat = "PPP",
   clearable = true,
+  clearLabel,
   disabledDates,
   captionLayout = "dropdown",
   startMonth,
@@ -64,9 +65,11 @@ export function DateField({
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   const selected = React.useMemo(() => parseIsoDate(field.state.value), [field.state.value]);
   const showClear = clearable && Boolean(selected) && !disabled;
+  const resolvedClearLabel = clearLabel ?? `Clear ${typeof label === "string" ? label : "date"}`;
 
   return (
     <FieldFrame
@@ -92,6 +95,7 @@ export function DateField({
           <PopoverTrigger
             render={
               <Button
+                ref={triggerRef}
                 id={ids.fieldId}
                 type="button"
                 variant="outline"
@@ -137,14 +141,16 @@ export function DateField({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="absolute end-0 inset-y-0 my-auto"
-            aria-label={`Clear ${typeof label === "string" ? label : "date"}`}
+            data-slot="field-clear"
+            className="absolute end-0 inset-y-0 my-auto text-muted-foreground hover:text-foreground"
+            aria-label={resolvedClearLabel}
             onClick={() => {
               field.handleChange("");
               field.handleBlur();
+              triggerRef.current?.focus();
             }}
           >
-            <XIcon />
+            <XIcon aria-hidden />
           </Button>
         ) : null}
       </div>
@@ -152,13 +158,13 @@ export function DateField({
   );
 }
 
-export type DateRangeFieldProps = BaseFieldProps & {
-  placeholder?: string;
-  displayFormat?: string;
-  clearable?: boolean;
-  numberOfMonths?: number;
-  disabledDates?: React.ComponentProps<typeof Calendar>["disabled"];
-};
+export type DateRangeFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    placeholder?: string;
+    displayFormat?: string;
+    numberOfMonths?: number;
+    disabledDates?: React.ComponentProps<typeof Calendar>["disabled"];
+  };
 
 /**
  * Date Range Field Block. Stores `{ from?: string; to?: string }` using
@@ -177,6 +183,7 @@ export function DateRangeField({
   placeholder = "Pick a date range",
   displayFormat = "LLL d, y",
   clearable = true,
+  clearLabel,
   numberOfMonths = 2,
   disabledDates,
 }: DateRangeFieldProps) {
@@ -184,6 +191,7 @@ export function DateRangeField({
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   const selected = React.useMemo(() => {
     const from = parseIsoDate(field.state.value?.from);
@@ -197,6 +205,8 @@ export function DateRangeField({
       : format(selected.from, displayFormat)
     : placeholder;
   const showClear = clearable && Boolean(selected?.from || selected?.to) && !disabled;
+  const resolvedClearLabel =
+    clearLabel ?? `Clear ${typeof label === "string" ? label : "date range"}`;
 
   return (
     <FieldFrame
@@ -222,6 +232,7 @@ export function DateRangeField({
           <PopoverTrigger
             render={
               <Button
+                ref={triggerRef}
                 id={ids.fieldId}
                 type="button"
                 variant="outline"
@@ -265,14 +276,16 @@ export function DateRangeField({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="absolute end-0 inset-y-0 my-auto"
-            aria-label={`Clear ${typeof label === "string" ? label : "date range"}`}
+            data-slot="field-clear"
+            className="absolute end-0 inset-y-0 my-auto text-muted-foreground hover:text-foreground"
+            aria-label={resolvedClearLabel}
             onClick={() => {
               field.handleChange({ from: undefined, to: undefined });
               field.handleBlur();
+              triggerRef.current?.focus();
             }}
           >
-            <XIcon />
+            <XIcon aria-hidden />
           </Button>
         ) : null}
       </div>
@@ -280,15 +293,15 @@ export function DateRangeField({
   );
 }
 
-export type DateTimeFieldProps = BaseFieldProps & {
-  placeholder?: string;
-  /** date-fns display format. Defaults to `"PPP p"` (12h) or `"PPP HH:mm"` (24h). */
-  displayFormat?: string;
-  hourCycle?: 12 | 24;
-  showSeconds?: boolean;
-  clearable?: boolean;
-  disabledDates?: React.ComponentProps<typeof Calendar>["disabled"];
-};
+export type DateTimeFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    placeholder?: string;
+    /** date-fns display format. Defaults to `"PPP p"` (12h) or `"PPP HH:mm"` (24h). */
+    displayFormat?: string;
+    hourCycle?: 12 | 24;
+    showSeconds?: boolean;
+    disabledDates?: React.ComponentProps<typeof Calendar>["disabled"];
+  };
 
 function clampInt(raw: string, min: number, max: number): number | null {
   const num = Number.parseInt(raw, 10);
@@ -316,16 +329,20 @@ export function DateTimeField({
   hourCycle = 24,
   showSeconds = false,
   clearable = true,
+  clearLabel,
   disabledDates,
 }: DateTimeFieldProps) {
   const field = useFieldContext<string | undefined>();
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   const timeZone = React.useMemo(() => getLocalTimeZone(), []);
   const selected = React.useMemo(() => parseIsoDateTime(field.state.value), [field.state.value]);
   const showClear = clearable && Boolean(selected) && !disabled;
+  const resolvedClearLabel =
+    clearLabel ?? `Clear ${typeof label === "string" ? label : "date and time"}`;
 
   const hours24 = selected ? selected.getHours() : 9;
   const minutes = selected ? selected.getMinutes() : 0;
@@ -372,6 +389,7 @@ export function DateTimeField({
           <PopoverTrigger
             render={
               <Button
+                ref={triggerRef}
                 id={ids.fieldId}
                 type="button"
                 variant="outline"
@@ -522,14 +540,16 @@ export function DateTimeField({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="absolute end-0 inset-y-0 my-auto"
-            aria-label={`Clear ${typeof label === "string" ? label : "date and time"}`}
+            data-slot="field-clear"
+            className="absolute end-0 inset-y-0 my-auto text-muted-foreground hover:text-foreground"
+            aria-label={resolvedClearLabel}
             onClick={() => {
               field.handleChange("");
               field.handleBlur();
+              triggerRef.current?.focus();
             }}
           >
-            <XIcon />
+            <XIcon aria-hidden />
           </Button>
         ) : null}
       </div>

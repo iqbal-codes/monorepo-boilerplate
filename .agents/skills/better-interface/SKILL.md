@@ -5,9 +5,9 @@ description: Reviews a screen, flow or whole interface across accessibility, lay
 
 # Interface
 
-This skill runs a cross-discipline review. It routes the interface to each `better-*` skill, collects their evidence and consolidates one ranked verdict.
+This skill runs a cross-discipline review. It routes the interface to `modern-web-guidance` and the `better-*` skills, collects their evidence and consolidates one ranked verdict.
 
-Orchestration is all it owns. Accessibility rules belong to `better-accessibility`, structure to `better-layout`, copy to `better-writing`, type to `better-typography`, color to `better-colors`, visual polish to `better-ui` and motion to `better-motion`.
+Orchestration is all it owns. Structure belongs to `better-layout`, copy to `better-writing`, visual polish to `better-ui`, and web platform accessibility, typography, color and motion rules to `modern-web-guidance`.
 
 Change-scoped review of uncommitted work, branches and pull requests belongs to `interface-review`.
 
@@ -41,19 +41,19 @@ A documented convention settles matters of taste but never excuses a trigger or 
 
 ## 4. Use domain skills as the sources of truth
 
-Load every owning skill below and complete each domain review before consolidation. Review in this order so foundational failures are not hidden by polish:
+Load every owning source below and complete each domain review before consolidation. Review in this order so foundational failures are not hidden by polish:
 
-1. `better-accessibility`
-2. `better-layout`
-3. `better-writing`
-4. `better-typography`
-5. `better-colors`
-6. `better-ui`
-7. `better-motion`
+1. Accessibility → `modern-web-guidance` (`accessibility`, plus `accessible-error-announcement` / `forms` as needed)
+2. Layout → `better-layout`
+3. Writing → `better-writing`
+4. Typography → `modern-web-guidance` (`typography`, `improve-text-layout-and-legibility`, `precise-text-alignment`, `single-line-overflow`)
+5. Color → `modern-web-guidance` (`color`, `contrast-color`, `dark-mode`)
+6. UI polish → `better-ui`
+7. Motion → `modern-web-guidance` (`motion`, `animate-element-entry-exit`, `animate-to-intrinsic-sizes`)
 
 From each, take its principles, its references and its verification checks. Its severity ladder and its format are for standalone use; the ones in this file replace them.
 
-If an owning skill is unavailable, mark that domain `Not reviewed`, name it and continue with the rest. Do not recreate its rules from memory, substitute a neighbour or claim holistic coverage.
+If an owning source is unavailable or does not cover the domain, mark that domain `Not reviewed`, name it and continue with the rest. Do not recreate its rules from memory, substitute a neighbour or claim holistic coverage.
 
 When two skills appear to cover one issue, assign it to the owner of the underlying rule and note secondary effects in the **Why** cell.
 

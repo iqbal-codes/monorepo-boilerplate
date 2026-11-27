@@ -2,6 +2,14 @@
 
 Load this guide when booting `.archon/ui-preview.sh --with-api` or writing Playwright checks against the web app.
 
+## Customers Regression Command
+
+Install Chromium with `bunx playwright install chromium`. Run `bun run test:browser:customers` with Docker running. The command creates a disposable PostgreSQL container on an ephemeral port, applies the schema, seeds Customers, and starts the full-stack preview. It stops the preview and the container on exit.
+
+On a host with PostgreSQL already provisioned, set `CUSTOMERS_BROWSER_DATABASE_URL` to an empty disposable database. The runner checks that the public schema is empty. The caller owns that database's lifecycle.
+
+Use `--case focus`, `--case export-cancel`, or `--case import-response-loss` to replay a single case. The command prints the path to its JSON results and failure traces. In an Archon run it writes them under `$ARTIFACTS_DIR/evidence/`.
+
 ## Preview & Disposable Database
 
 1. Create a disposable Postgres database on port `5432`, push the schema (`DATABASE_URL=<test-url> bun run db:push`), and seed (`DATABASE_URL=<test-url> bun run db:seed`, which writes **41** active/inactive and **12** archived customers).

@@ -12,7 +12,7 @@ Adopt a strict, non-sycophantic **independent reviewer** posture in a completely
 ## Scope Discipline & Round 2+ Delta Rule
 
 - **Stay in your lane (no duplication with `review-code`):** Do NOT spend turns auditing code style, naming, Smell Baseline heuristics, or general acceptance/test coverage unless they directly create a seam mismatch or silent failure — `review-code` covers those. Focus 100% on Parts A & B below and respect `Out of Scope` in `$ARTIFACTS_DIR/qa-testcases.md`.
-- **If Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md` / `Reviewed SHA:` in `round-feedback.md`):** Check every prior seam/failure item under `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`). Inspect `git diff <reviewed_sha>..HEAD` first; only re-verify failing seam `TC-*` items and boundaries touched by the delta — do NOT add new exploratory cases on untouched clean boundaries.
+- **If Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md` / `Reviewed SHA:` in `round-feedback.md`):** Check every prior seam/failure item under `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`). Inspect `git diff <reviewed_sha>..HEAD` first; only re-verify unresolved seam `TC-*` items and boundaries touched by the delta — do NOT add new exploratory cases on untouched clean boundaries.
 - **If Round 1:** Inspect `git diff $INPUTS.base_sha` and untracked files, leaving the diff up to 2 hops to inspect counterparts (readers, writers, schemas, callers, routes). Emit any newly discovered diff-bounded seam defect as `TC-R1-SEAM-01`, ... under `## Test Case Results`.
 
 ## Evidence Bar

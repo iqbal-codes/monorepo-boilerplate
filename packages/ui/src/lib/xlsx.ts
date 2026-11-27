@@ -241,22 +241,23 @@ function columnName(index: number): string {
   return name;
 }
 
-// Escape XML entities, preserve `\r` with `&#13;` so XML parsers do not fold
-// CR to LF, and encode disallowed XML 1.0 control characters per OOXML §22.4.2.4.
+// Preserve literal spreadsheet escape tokens before encoding characters that
+// XML 1.0 cannot represent. Keep carriage returns out of XML line normalization.
 function escapeXmlText(text: string): string {
+  const literal = text.replace(/_(?=x[\da-f]{4}_)/gi, "_x005F_");
   let result = "";
-  for (let i = 0; i < text.length; i += 1) {
-    const code = text.charCodeAt(i);
+  for (let i = 0; i < literal.length; i += 1) {
+    const code = literal.charCodeAt(i);
     if (code === 0x26) result += "&amp;";
     else if (code === 0x3c) result += "&lt;";
     else if (code === 0x3e) result += "&gt;";
     else if (code === 0x22) result += "&quot;";
     else if (code === 0x27) result += "&apos;";
     else if (code === 0x0d) result += "&#13;";
-    else if (code < 0x20 && code !== 0x09 && code !== 0x0a) {
+    else if ((code < 0x20 && code !== 0x09 && code !== 0x0a) || code >= 0xfffe) {
       result += `_x${code.toString(16).toUpperCase().padStart(4, "0")}_`;
     } else {
-      result += text[i]!;
+      result += literal[i]!;
     }
   }
   return result;
@@ -656,6 +657,12 @@ function decodeXmlText(raw: string): string {
   });
 }
 
+function decodeSpreadsheetText(text: string): string {
+  return text.replace(/_x([\da-f]{4})_/gi, (_, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+}
+
 function localTagName(tagName: string): string {
   const colon = tagName.indexOf(":");
   return colon === -1 ? tagName : tagName.slice(colon + 1);
@@ -858,7 +865,7 @@ function parseSharedStrings(xml: string): string[] {
       if (totalChars > MAX_XLSX_SHARED_STRING_CHARS) {
         throw new XlsxRejection({ kind: "over-budget", reason: "shared-strings" });
       }
-      current += text;
+      current += decodeSpreadsheetText(text);
     },
     onEndElement(name) {
       if (name === "t") {
@@ -1094,7 +1101,7 @@ function parseWorksheetXml(
         if (inlineText.length + text.length > MAX_XLSX_CELL_CHARS) {
           throw new XlsxRejection({ kind: "over-budget", reason: "cells-examined" });
         }
-        inlineText += text;
+        inlineText += decodeSpreadsheetText(text);
       }
     },
 
@@ -1142,7 +1149,7 @@ function parseWorksheetXml(
             break;
           }
           case "str":
-            resolved = vText;
+            resolved = decodeSpreadsheetText(vText);
             break;
           case "b": {
             if (!hasV || vText.trim() === "") break;

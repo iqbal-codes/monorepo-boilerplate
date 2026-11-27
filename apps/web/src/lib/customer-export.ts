@@ -47,11 +47,9 @@ export type CustomerExportScope = {
  * before the URL commits, so aborting there invalidates the run while the toolbar
  * is still on screen.
  *
- * Only `pathChanged` counts. Search, sort, paging, and filter changes keep the same
- * path and are not departures — and an export already captured its scope, so it
- * must survive them. If an effect re-runs after cleanup (such as React StrictMode
- * or a router identity change), a fresh non-aborted controller is installed so the
- * Screen is never stranded with a pre-aborted signal.
+ * Only departure from the Customers list counts. Search, sort, paging, and filter
+ * changes keep the same path. Renew the signal when history navigation returns
+ * to a retained list Screen or React runs the effect again after cleanup.
  */
 export function useCustomerExportCancel(): AbortSignal {
   const router = useRouter();
@@ -63,11 +61,19 @@ export function useCustomerExportCancel(): AbortSignal {
       setController(active);
       return;
     }
-    const unsubscribe = router.subscribe("onBeforeNavigate", (event) => {
-      if (event.pathChanged) active.abort();
+    const unsubscribeDeparture = router.subscribe("onBeforeNavigate", (event) => {
+      if (event.pathChanged && event.fromLocation?.pathname.replace(/\/$/, "") === "/customers") {
+        active.abort();
+      }
+    });
+    const unsubscribeReturn = router.subscribe("onResolved", (event) => {
+      if (event.toLocation.pathname.replace(/\/$/, "") === "/customers" && active.signal.aborted) {
+        setController(new AbortController());
+      }
     });
     return () => {
-      unsubscribe();
+      unsubscribeDeparture();
+      unsubscribeReturn();
       active.abort();
     };
   }, [router, controller]);
