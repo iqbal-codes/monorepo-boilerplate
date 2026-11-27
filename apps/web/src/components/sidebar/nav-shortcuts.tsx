@@ -8,10 +8,11 @@ import {
   SidebarMenuItem,
 } from "@monorepo-boilerplate/ui/components/sidebar";
 
-import type { NavShortcut } from "@/lib/nav";
+import { resolveActiveRoute, type NavShortcut } from "@/lib/nav";
 
 type NavShortcutsProps = {
   items: NavShortcut[];
+  currentPath: string;
 };
 
 /**
@@ -23,8 +24,10 @@ type NavShortcutsProps = {
  * become icon links with tooltips instead of disappearing behind the
  * collapsed rail.
  */
-export function NavShortcuts({ items }: NavShortcutsProps) {
+export function NavShortcuts({ items, currentPath }: NavShortcutsProps) {
   if (items.length === 0) return null;
+
+  const activeShortcut = resolveActiveRoute(currentPath, items);
 
   return (
     <SidebarGroup>
@@ -32,7 +35,11 @@ export function NavShortcuts({ items }: NavShortcutsProps) {
       <SidebarMenu>
         {items.map((item) => (
           <SidebarMenuItem key={item.to}>
-            <SidebarMenuButton tooltip={item.name} render={<Link to={item.to} />}>
+            <SidebarMenuButton
+              tooltip={item.name}
+              isActive={activeShortcut?.to === item.to}
+              render={<Link to={item.to} />}
+            >
               <item.icon />
               <span>{item.name}</span>
             </SidebarMenuButton>

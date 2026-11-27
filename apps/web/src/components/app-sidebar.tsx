@@ -18,7 +18,7 @@ import { NavMain } from "@/components/sidebar/nav-main";
 import { NavShortcuts } from "@/components/sidebar/nav-shortcuts";
 import { NavUser } from "@/components/sidebar/nav-user";
 import { commandShortcutLabel } from "@/lib/command-shortcut";
-import { activeMainItem, navMain, navShortcuts } from "@/lib/nav";
+import { navMain, navShortcuts } from "@/lib/nav";
 
 /**
  * App sidebar, following shadcn's official `sidebar-07` block: brand header,
@@ -39,7 +39,6 @@ export function AppSidebar({
   currentPath: string;
   onOpenCommandCenter: () => void;
 }) {
-  const active = activeMainItem(currentPath);
   const { state } = useSidebar();
 
   return (
@@ -77,8 +76,8 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} activeTitle={active?.title} />
-        <NavShortcuts items={navShortcuts} />
+        <NavMain items={navMain} currentPath={currentPath} />
+        <NavShortcuts items={navShortcuts} currentPath={currentPath} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />
