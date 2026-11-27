@@ -114,6 +114,12 @@ nodes:
   - id: revise
     command: revise
     model: medium
+    skills:
+      - { name: agent-browser, optional: true }
+      - { name: shadcn, optional: true }
+      - { name: modern-web-guidance, optional: true }
+      - { name: better-interface, optional: true }
+      - { name: assistant-ui, optional: true }
     depends_on: [fetch-pr-feedback]
     when: "$fetch-pr-feedback.output.ready == true"
     with:
@@ -217,6 +223,12 @@ nodes:
           command: fix
           model: medium
           context: { resume: revise }
+          skills:
+            - { name: agent-browser, optional: true }
+            - { name: shadcn, optional: true }
+            - { name: modern-web-guidance, optional: true }
+            - { name: better-interface, optional: true }
+            - { name: assistant-ui, optional: true }
           when: "$LOOP_PREV.qa.output.done == false"
           with:
             contract_path: "$fetch-pr-feedback.output.contract_path"
