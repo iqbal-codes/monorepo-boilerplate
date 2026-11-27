@@ -156,8 +156,45 @@ if (source === 'issue' && repoInput && allBlockers.length > 0) {
 
 const previewCmd = resolvePreviewCommand(previewInput);
 
+function checkBaselinePreviewReady(cmd: string): { ok: boolean; reason: string } {
+  if (!cmd) return { ok: false, reason: 'no preview hook' };
+  const scriptPath = cmd.replace(/^\.\//, '').split(/\s+/)[0] ?? '';
+  if (scriptPath && existsSync(scriptPath)) {
+    const content = readFileSync(scriptPath, 'utf8');
+    if (content.includes('--check')) {
+      const probe = runCmd(['bash', '-lc', `${cmd} --check`], { allowFail: true });
+      if (probe.code !== 0) {
+        const detail = (probe.stderr || probe.stdout).split(/\r?\n/)[0]?.trim();
+        return { ok: false, reason: detail || `preview preflight exited ${probe.code}` };
+      }
+      return { ok: true, reason: '' };
+    }
+  }
+  if (existsSync('package.json') && !existsSync('node_modules')) {
+    return { ok: false, reason: 'node_modules not installed on baseline worktree' };
+  }
+  return { ok: true, reason: '' };
+}
+
 const runUx = parsed.hasUi && previewCmd.length > 0;
-const captureBefore = runUx && hasTrackedWorkAreas(parsed.workAreas);
+const wantsCaptureBefore = runUx && hasTrackedWorkAreas(parsed.workAreas);
+const baselinePreview = wantsCaptureBefore
+  ? checkBaselinePreviewReady(previewCmd)
+  : { ok: false, reason: '' };
+const captureBefore = baselinePreview.ok;
+if (wantsCaptureBefore && !captureBefore) {
+  writeFileSync(
+    join(artifactsDir, 'evidence', 'before.md'),
+    [
+      '# Before Evidence (Skipped — Preflight)',
+      '',
+      `- **Base:** \`${baseBranch}\` @ \`${baseSha.slice(0, 7)}\``,
+      `- **Reason:** ${baselinePreview.reason}`,
+      '',
+    ].join('\n'),
+    'utf8'
+  );
+}
 const forbiddenPaths = resolveForbiddenPaths(policyBase, parsed.forbiddenPaths);
 const runId = text(process.env.INPUTS_RUN_ID);
 if (contractOk && unmetBlockers.length === 0) assertReservation(runId, claim);
@@ -197,7 +234,10 @@ if (source === 'issue' && repoInput && issueNumber > 0) {
   }
 }
 
-const beforeSummary = `Base ${baseBranch} @ ${baseSha.slice(0, 7)}.`;
+const beforeSummary =
+  wantsCaptureBefore && !captureBefore
+    ? `Base ${baseBranch} @ ${baseSha.slice(0, 7)} (before capture skipped: ${baselinePreview.reason}).`
+    : `Base ${baseBranch} @ ${baseSha.slice(0, 7)}.`;
 
 emit({
   source,

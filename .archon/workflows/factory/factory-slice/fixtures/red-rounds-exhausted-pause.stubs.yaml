@@ -1,4 +1,4 @@
-# Red path: Independent QA rejects Round 1 -> Round 2+ resumes implementer in fix + push-fix -> still open after 3 rounds -> pauses at escalate-rounds.
+# Red path: Independent QA rejects Round 1 -> Round 2+ runs fresh-context fix + push-fix -> still open after 3 rounds -> pauses at escalate-rounds.
 fixture:
   expect: paused
   inputs:
@@ -58,11 +58,6 @@ qa__mechanical-gate:
   summary: "boundary clean & checks passed"
 
 qa__review-code:
-  lgtm: true
-  blocking_count: 0
-  summary: "Spec and standards verified."
-
-qa__review-seams-errors:
   lgtm: false
   blocking_count: 1
   summary: "SSE reconnect still drops unacked event sequence."
@@ -74,7 +69,7 @@ qa__verdict:
   effective_has_ui: false
   reason: review_findings
   diff_stat: "4 files changed, 205 insertions(+)"
-  summary: "Round findings open in Seams+Errors; sent back to factory:changes-requested."
+  summary: "Round findings open in Code+Spec+Standards+Seams; sent back to factory:changes-requested."
 
 escalation-prompt:
   posted: true

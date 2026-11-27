@@ -1,11 +1,13 @@
 name: factory-qa
 description: |
-  Shared QA round for factory-slice and factory-pr-revise — include it from a loop_group
-  body once the patch and PR exist. Runs the deterministic mechanical gate (reserved
-  folders, protected paths, repository verification, static hygiene signals), then runs
-  optional black-box browser UX verification in parallel with the consolidated independent
-  code reviewer (plus Seams & Failure-Safety on `risk:strict`), and joins them into one
-  round verdict. It never implements, fixes, or pushes, so it is not runnable on its own.
+  Shared sequential QA round for factory-slice and factory-pr-revise — include it from a
+  loop_group body once the patch and PR exist. Runs the deterministic mechanical gate
+  (reserved folders, protected paths, repository verification, static hygiene signals),
+  then optional black-box browser UX verification (skipped on Round 2+ when prior UX
+  passed and the fix delta is non-visual), then one consolidated fresh-context reviewer
+  (Code, Spec, Standards, plus Seams & Failure-Safety on `risk:strict`) that reads the
+  current-round UX report in collect-all mode, and joins them into one round verdict.
+  It never implements, fixes, or pushes, so it is not runnable on its own.
 
 inputs:
   base_sha:
@@ -21,9 +23,9 @@ inputs:
   preview_cmd:
     description: Preview server command, or empty when the contract declares none.
   contract_path:
-    description: Path to the slice contract the reviewers verify against.
+    description: Path to the slice contract the reviewer verifies against.
   review_mode:
-    description: standard, or strict to add the Seams & Failure-Safety axis.
+    description: standard, or strict to include the Seams & Failure-Safety checklist.
   repo:
     description: GitHub owner/repo.
   issue_number:
@@ -86,7 +88,9 @@ nodes:
         summary: { type: string }
       required: [passed, screenshots, findings, summary]
 
-  # Parallel Independent QA Review (strictly fresh context & read-only, runs concurrently with ux-verify)
+  # Sequential Independent QA Review (strictly fresh context & read-only).
+  # Runs after ux-verify finishes (or is skipped) in collect-all mode so it reads
+  # the current-round UX report and never duplicates visual/happy-path browser sweeps.
   - id: review-code
     command: review-code
     model: large
@@ -95,31 +99,14 @@ nodes:
     skills:
       - { name: better-interface, optional: true }
       - { name: modern-web-guidance, optional: true }
-    depends_on: [mechanical-gate]
+    depends_on: [mechanical-gate, ux-verify]
+    trigger_rule: all_done
     when: "$mechanical-gate.output.passed == true"
     with:
       contract_path: "$INPUTS.contract_path"
       base_sha: "$INPUTS.base_sha"
       review_mode: "$INPUTS.review_mode"
-      has_ux_report: "$mechanical-gate.output.effective_run_ux"
-    output_format:
-      type: object
-      properties:
-        lgtm: { type: boolean }
-        blocking_count: { type: integer }
-        summary: { type: string }
-      required: [lgtm, blocking_count, summary]
-
-  - id: review-seams-errors
-    command: review-seams-errors
-    model: large
-    context: fresh
-    mutates_checkout: false
-    depends_on: [mechanical-gate]
-    when: "$INPUTS.review_mode == 'strict' && $mechanical-gate.output.passed == true"
-    with:
-      contract_path: "$INPUTS.contract_path"
-      base_sha: "$INPUTS.base_sha"
+      has_ux_report: "$mechanical-gate.output.effective_has_ui"
     output_format:
       type: object
       properties:
@@ -131,7 +118,7 @@ nodes:
   - id: verdict
     script: round-verdict
     runtime: bun
-    depends_on: [mechanical-gate, ux-verify, review-code, review-seams-errors]
+    depends_on: [mechanical-gate, ux-verify, review-code]
     trigger_rule: all_done
     with:
       previous_round: "$INPUTS.previous_round"
@@ -151,8 +138,6 @@ nodes:
       ux_summary: { from: "$ux-verify.output.summary", if_skipped: null }
       code_lgtm: { from: "$review-code.output.lgtm", if_skipped: null }
       code_summary: { from: "$review-code.output.summary", if_skipped: null }
-      seams_lgtm: { from: "$review-seams-errors.output.lgtm", if_skipped: null }
-      seams_summary: { from: "$review-seams-errors.output.summary", if_skipped: null }
     output_format:
       type: object
       properties:

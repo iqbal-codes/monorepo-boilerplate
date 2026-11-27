@@ -54,9 +54,7 @@ function runVerdict(
       INPUTS_UX_PASSED: 'true',
       INPUTS_UX_SUMMARY: 'UX verified',
       INPUTS_CODE_LGTM: 'true',
-      INPUTS_CODE_SUMMARY: 'Code, Spec & Standards LGTM',
-      INPUTS_SEAMS_LGTM: 'true',
-      INPUTS_SEAMS_SUMMARY: 'Seams LGTM',
+      INPUTS_CODE_SUMMARY: 'Code, Spec, Standards & Seams LGTM',
       ...overrides,
     },
     stdout: 'pipe',
@@ -68,8 +66,8 @@ function runVerdict(
   return { output, feedbackMd };
 }
 
-describe('round-verdict combined UX and parallel review verdict', () => {
-  test('surfaces both UX and parallel QA review findings plus handoff checklist in the same round', () => {
+describe('round-verdict sequential UX and consolidated review verdict', () => {
+  test('surfaces both UX and consolidated review findings plus handoff checklist in the same round', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-'));
     try {
       mkdirSync(join(dir, 'evidence'), { recursive: true });
@@ -82,13 +80,6 @@ describe('round-verdict combined UX and parallel review verdict', () => {
           '',
           '## Verified Clean',
           '- `csv.ts`: RFC 4180 escaping intact',
-        ].join('\n')
-      );
-      writeFileSync(
-        join(dir, 'review', 'seams-errors.md'),
-        [
-          '[✅ LGTM]',
-          '## Examined Clean',
           '- `customers.ts:308`: auth and limit verified',
         ].join('\n')
       );
@@ -104,10 +95,11 @@ describe('round-verdict combined UX and parallel review verdict', () => {
       expect(output.ready).toBe(false);
       expect(output.reason).toBe('ux_and_review_findings');
       expect(output.summary).toContain('UX black-box verification failed');
-      expect(output.summary).toContain('Code+Spec+Standards (payload abort broken)');
+      expect(output.summary).toContain('Code+Spec+Standards+Seams (payload abort broken)');
       expect(feedbackMd).toContain('- **UX Check:** FAIL — focus contrast too low');
-      expect(feedbackMd).toContain('- **Code, Spec & Standards Review:** CHANGES REQUESTED — payload abort broken');
-      expect(feedbackMd).toContain('- **Seams & Failure-Safety Review:** LGTM — Seams LGTM');
+      expect(feedbackMd).toContain(
+        '- **Code, Spec, Standards & Seams Review:** CHANGES REQUESTED — payload abort broken'
+      );
       expect(feedbackMd).toContain('### Open Blocking Items to Verify Fixed');
       expect(feedbackMd).toContain('- [P1] Payload abort returns file');
       expect(feedbackMd).toContain('### Prior Verified Clean (Re-audit Only If Touched by Delta)');
@@ -118,7 +110,7 @@ describe('round-verdict combined UX and parallel review verdict', () => {
     }
   });
 
-  test('reports ux_verify_failed when only UX fails and all review axes pass', () => {
+  test('reports ux_verify_failed when only UX fails and consolidated review passes', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-ux-'));
     try {
       const { output, feedbackMd } = runVerdict(dir, {
@@ -129,19 +121,54 @@ describe('round-verdict combined UX and parallel review verdict', () => {
       expect(output.done).toBe(false);
       expect(output.reason).toBe('ux_verify_failed');
       expect(feedbackMd).toContain('- **UX Check:** FAIL — 320px overflow');
-      expect(feedbackMd).toContain('- **Code, Spec & Standards Review:** LGTM — Code, Spec & Standards LGTM');
+      expect(feedbackMd).toContain(
+        '- **Code, Spec, Standards & Seams Review:** LGTM — Code, Spec, Standards & Seams LGTM'
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test('marks ready when mechanical gate, UX, and all review axes pass', () => {
+  test('marks ready when mechanical gate, UX, and consolidated review pass', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-ok-'));
     try {
       const { output } = runVerdict(dir, {});
       expect(output.done).toBe(true);
       expect(output.ready).toBe(true);
       expect(output.reason).toBe('ready');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves carried-forward UX PASS status and evidence when Round 2+ skips ux-verify', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-carried-ux-'));
+    try {
+      mkdirSync(join(dir, 'evidence'), { recursive: true });
+      mkdirSync(join(dir, 'review'), { recursive: true });
+      writeFileSync(
+        join(dir, 'mechanical-gate.md'),
+        '# Mechanical Gate Report\n\n- **UX Gate Decision:** skipped (prior round UX PASS; non-visual delta)\n'
+      );
+      writeFileSync(join(dir, 'evidence', 'after-desktop.png'), 'png');
+      writeFileSync(join(dir, 'qa-testcases.md'), '| `TC-01` | Renders desktop banner | `PASS` | Round 1 UX |\n| `TC-02` | Latches 401 | `FAIL` | Round 1 |\n');
+      writeFileSync(join(dir, 'review', 'code.md'), '[✅ LGTM]\n## Test Case Results\n- TC-02: PASS — 401 latched');
+
+      const { output, feedbackMd } = runVerdict(dir, {
+        INPUTS_PREVIOUS_ROUND: '1',
+        INPUTS_RUN_UX: 'false',
+        INPUTS_EFFECTIVE_HAS_UI: 'true',
+        INPUTS_UX_PASSED: '',
+        INPUTS_UX_SUMMARY: '',
+      });
+
+      expect(output.done).toBe(true);
+      expect(output.ready).toBe(true);
+      expect(output.effective_has_ui).toBe(true);
+      expect(output.summary).toContain('UX carried forward');
+      expect(feedbackMd).toContain('- **UX Check:** skipped (prior round UX PASS — carried forward)');
+      const [record] = JSON.parse(readFileSync(join(dir, 'qa-verdicts.json'), 'utf8'));
+      expect(record.evidence.some((file: string) => file.endsWith('/evidence/after-desktop.png'))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -322,7 +349,6 @@ describe('round-verdict combined UX and parallel review verdict', () => {
         INPUTS_MECH_SUMMARY: 'verification failed',
         INPUTS_UX_PASSED: '',
         INPUTS_CODE_LGTM: '',
-        INPUTS_SEAMS_LGTM: '',
       });
 
       expect(r1Output.done).toBe(false);

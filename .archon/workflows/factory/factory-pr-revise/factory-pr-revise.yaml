@@ -227,7 +227,7 @@ nodes:
         - id: fix
           command: fix
           model: medium
-          context: { resume: revise }
+          context: fresh
           skills:
             - { name: agent-browser, optional: true }
             - { name: shadcn, optional: true }

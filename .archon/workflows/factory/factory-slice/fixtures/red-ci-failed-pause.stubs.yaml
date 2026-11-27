@@ -60,12 +60,7 @@ qa__mechanical-gate:
 qa__review-code:
   lgtm: true
   blocking_count: 0
-  summary: "Spec and standards verified."
-
-qa__review-seams-errors:
-  lgtm: true
-  blocking_count: 0
-  summary: "Ledger error handling verified."
+  summary: "Spec, standards, and ledger error handling verified."
 
 qa__verdict:
   round: 1
