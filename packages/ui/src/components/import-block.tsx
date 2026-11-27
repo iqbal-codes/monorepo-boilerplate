@@ -1,15 +1,16 @@
 /**
  * ImportBlock — template download, file selection, write-free preview, and one
- * all-or-nothing confirmation for a CSV import.
+ * all-or-nothing confirmation for a CSV or Excel (.xlsx) import.
  *
  * Domain-free by construction: the Screen supplies the column contract, the
  * blank-cell defaults, and the `validate` / `confirm` callbacks. The block never
  * touches routing, URL state, a query client, or a domain type, and it never
  * writes anything except through `confirm`.
  *
- * Parsing runs through the injected `parse` seam (the module worker by default),
- * and every request carries a monotonically increasing token so a stale
- * response cannot repopulate a preview the user already cancelled or replaced.
+ * Parsing runs through the injected `parse` / `parseXlsx` seams (the module
+ * workers by default), and every request carries a monotonically increasing
+ * token so a stale response cannot repopulate a preview the user already
+ * cancelled or replaced.
  */
 import * as React from "react";
 
@@ -45,13 +46,23 @@ import {
 } from "@monorepo-boilerplate/ui/lib/csv";
 import { parseInWorker } from "@monorepo-boilerplate/ui/lib/csv.worker";
 import { formatNumber } from "@monorepo-boilerplate/ui/lib/format";
+import {
+  XLSX_MIME_TYPE,
+  buildXlsxTemplate,
+  type XlsxParseError,
+  type XlsxParseOutcome,
+  type XlsxParser,
+} from "@monorepo-boilerplate/ui/lib/xlsx";
+import { parseXlsxInWorker } from "@monorepo-boilerplate/ui/lib/xlsx.worker";
 import { FileDownIcon, UploadIcon } from "lucide-react";
 
 export type ImportContract = {
   /** Column names in template order. Headers may arrive in any order. */
   columns: readonly string[];
-  /** Download filename for the blank template. */
+  /** Download filename for the blank CSV template. */
   filename: string;
+  /** Optional download filename for the blank Excel (.xlsx) template. */
+  xlsxFilename?: string;
 };
 
 export type ImportRecord = {
@@ -80,6 +91,8 @@ export type ImportBlockProps = {
   /** Screen-owned write. Returning `ok: false` keeps the preview open. */
   confirm: (records: ImportRecord[]) => ImportConfirmResult | Promise<ImportConfirmResult>;
   parse?: CsvParser;
+  parseXlsx?: XlsxParser;
+  cancelSignal?: AbortSignal;
   sampleLimit?: number;
   triggerLabel?: string;
   size?: "default" | "sm";
@@ -92,7 +105,9 @@ export type ImportBlockProps = {
   hideTrigger?: boolean;
 };
 
-const ACCEPTED_TYPES = new Set(["text/csv", "application/csv", "text/plain"]);
+const ACCEPTED_CSV_TYPES = new Set(["text/csv", "application/csv", "text/plain"]);
+const CSV_ACCEPT = ".csv,text/csv,application/csv,text/plain";
+const CSV_AND_XLSX_ACCEPT = `${CSV_ACCEPT},.xlsx,${XLSX_MIME_TYPE}`;
 
 function applyDefaults(
   values: Record<string, string>,
@@ -105,18 +120,36 @@ function applyDefaults(
   return merged;
 }
 
-function isSupportedFile(file: File): boolean {
+function detectSupportedFormat(file: File, allowXlsx: boolean): "csv" | "xlsx" | null {
   const type = file.type.trim().toLowerCase();
-  if (type === "") return /\.csv$/i.test(file.name);
-  return ACCEPTED_TYPES.has(type);
+  const name = file.name.trim();
+  if (allowXlsx) {
+    if (type === XLSX_MIME_TYPE) return "xlsx";
+    if ((type === "" || type === "application/octet-stream") && /\.xlsx$/i.test(name)) {
+      return "xlsx";
+    }
+  }
+  if (type === "") return /\.csv$/i.test(name) ? "csv" : null;
+  if (ACCEPTED_CSV_TYPES.has(type) && !/\.xlsx$/i.test(name)) return "csv";
+  return null;
 }
 
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many;
 }
 
-function describeParseError(error: CsvParseError): string {
+function describeParseError(error: CsvParseError | XlsxParseError): string {
   switch (error.kind) {
+    case "file-too-large":
+      return `This file is ${formatNumber(Math.ceil(error.bytes / 1024))} KiB, which is over the 5 MiB limit. Split it into smaller files.`;
+    case "malformed-workbook":
+      return "This Excel workbook is malformed or unsupported. Save it as a standard .xlsx file and try again.";
+    case "over-budget":
+      return "This Excel workbook exceeds the allowed size or complexity limits before it can be safely read. Remove unused sheets, formatting, or empty rows and try again.";
+    case "no-sheets":
+      return "This Excel workbook has no worksheets. Use a workbook with a single worksheet.";
+    case "multiple-sheets":
+      return `This Excel workbook has ${formatNumber(error.count)} worksheets. Only single-worksheet .xlsx files are supported.`;
     case "empty-file":
       return "This file has no records. Download the template and add at least one row.";
     case "missing-headers":
@@ -126,10 +159,30 @@ function describeParseError(error: CsvParseError): string {
     case "repeated-headers":
       return `This file repeats columns: ${error.headers.join(", ")}. Keep each column once.`;
     case "too-many-rows":
-      return `This file has ${formatNumber(error.total)} records. An import is limited to ${formatNumber(error.limit)} nonblank rows.`;
+      return "truncated" in error && error.truncated
+        ? `This file has more than ${formatNumber(error.limit)} records. An import is limited to ${formatNumber(error.limit)} nonblank rows.`
+        : `This file has ${formatNumber(error.total)} records. An import is limited to ${formatNumber(error.limit)} nonblank rows.`;
     case "too-many-cells":
       return `Line ${error.lineNumber} has ${formatNumber(error.cells)} cells but the file has ${formatNumber(error.headers)} columns. Quote any value that contains a comma, then try again.`;
+    case "unmapped-cell":
+      return `Line ${error.lineNumber} (${error.cellRef}) has a value outside the header columns. Move every value under a header column and try again.`;
+    case "formula-cell":
+      return `Line ${error.lineNumber} (${error.cellRef}) contains a formula. Formulas cannot be imported—replace them with literal values and try again.`;
+    case "imprecise-number":
+      return `Line ${error.lineNumber} (${error.cellRef}) contains a numeric value outside Excel's 15-digit reliable numeric precision. Format that cell as text and try again.`;
+    case "error-cell":
+      return `Line ${error.lineNumber} (${error.cellRef}) contains a spreadsheet error (${error.value}). Replace it with a valid value and try again.`;
   }
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 type Phase = "choose" | "parsing" | "validating" | "preview" | "pending";
@@ -166,6 +219,8 @@ export function ImportBlock({
   validate,
   confirm,
   parse = parseInWorker,
+  parseXlsx = parseXlsxInWorker,
+  cancelSignal,
   sampleLimit = PREVIEW_SAMPLE_ROWS,
   triggerLabel = "Import",
   size = "default",
@@ -184,6 +239,7 @@ export function ImportBlock({
   const abortRef = React.useRef<AbortController | null>(null);
   const pendingRef = React.useRef(false);
   const wasOpenRef = React.useRef(open);
+  const xlsxEnabled = Boolean(contract.xlsxFilename);
 
   const busy =
     state.phase === "parsing" || state.phase === "validating" || state.phase === "pending";
@@ -220,6 +276,22 @@ export function ImportBlock({
     [isControlled, onControlledOpenChange, reset],
   );
 
+  React.useEffect(() => {
+    if (!cancelSignal) return;
+    const onAbort = () => {
+      invalidate();
+      if (!pendingRef.current) {
+        handleOpenChange(false);
+      }
+    };
+    if (cancelSignal.aborted) {
+      onAbort();
+      return;
+    }
+    cancelSignal.addEventListener("abort", onAbort, { once: true });
+    return () => cancelSignal.removeEventListener("abort", onAbort);
+  }, [cancelSignal, handleOpenChange, invalidate]);
+
   const handleFile = React.useCallback(
     async (file: File) => {
       invalidate();
@@ -237,10 +309,13 @@ export function ImportBlock({
         conflictLineNumbers: null,
       });
 
-      if (!isSupportedFile(file)) {
+      const format = detectSupportedFormat(file, xlsxEnabled);
+      if (!format) {
         setState((previous) => ({
           ...previous,
-          error: "Choose a .csv file. Accepted types are text/csv, application/csv, or text/plain.",
+          error: xlsxEnabled
+            ? "Choose a .csv or .xlsx file. Accepted types are CSV (.csv) and Excel (.xlsx)."
+            : "Choose a .csv file. Accepted types are text/csv, application/csv, or text/plain.",
         }));
         return;
       }
@@ -254,20 +329,30 @@ export function ImportBlock({
 
       setState((previous) => ({ ...previous, phase: "parsing" }));
 
-      let outcome: CsvParseOutcome;
+      let outcome: CsvParseOutcome | XlsxParseOutcome;
       try {
-        outcome = await parse({
-          text: await file.text(),
-          columns: contract.columns,
-          signal: controller.signal,
-        });
+        outcome =
+          format === "xlsx"
+            ? await parseXlsx({
+                file,
+                columns: contract.columns,
+                signal: controller.signal,
+              })
+            : await parse({
+                text: await file.text(),
+                columns: contract.columns,
+                signal: controller.signal,
+              });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
         if (requestRef.current !== token) return;
         setState((previous) => ({
           ...previous,
           phase: "choose",
-          error: "This file could not be read. Check that it is a plain UTF-8 CSV and try again.",
+          error:
+            format === "xlsx"
+              ? "This Excel workbook could not be read. Check that it is a valid .xlsx file and try again."
+              : "This file could not be read. Check that it is a plain UTF-8 CSV and try again.",
         }));
         return;
       }
@@ -331,7 +416,7 @@ export function ImportBlock({
         conflictLineNumbers: null,
       });
     },
-    [contract.columns, defaults, invalidate, parse, validate],
+    [contract.columns, defaults, invalidate, parse, parseXlsx, validate, xlsxEnabled],
   );
 
   const handleConfirm = React.useCallback(async () => {
@@ -382,16 +467,25 @@ export function ImportBlock({
     }));
   }, [confirm, handleOpenChange, state.issues.length, state.phase, state.records]);
 
-  const downloadTemplate = React.useCallback(() => {
-    const blob = new Blob([serializeCsvTemplate(contract.columns)], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = contract.filename;
-    anchor.rel = "noopener";
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const downloadCsvTemplate = React.useCallback(() => {
+    triggerBlobDownload(
+      new Blob([serializeCsvTemplate(contract.columns)], { type: "text/csv" }),
+      contract.filename,
+    );
   }, [contract.columns, contract.filename]);
+
+  const downloadXlsxTemplate = React.useCallback(async () => {
+    if (!contract.xlsxFilename) return;
+    try {
+      const bytes = await buildXlsxTemplate(contract.columns);
+      triggerBlobDownload(new Blob([bytes], { type: XLSX_MIME_TYPE }), contract.xlsxFilename);
+    } catch {
+      setState((previous) => ({
+        ...previous,
+        error: "Could not generate the Excel template. Try again.",
+      }));
+    }
+  }, [contract.columns, contract.xlsxFilename]);
 
   const total = state.records.length;
   const sample = state.records.slice(0, sampleLimit);
@@ -422,7 +516,7 @@ export function ImportBlock({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Import customers</DialogTitle>
+            <DialogTitle className="pr-8">Import customers</DialogTitle>
             <DialogDescription>
               Download the template, fill in one row per new Customer, and review every issue before
               anything is saved. Existing Customers are never changed.
@@ -431,34 +525,58 @@ export function ImportBlock({
 
           <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain">
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>
-                <FileDownIcon aria-hidden />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
+                onClick={downloadCsvTemplate}
+              >
+                <FileDownIcon data-icon="inline-start" aria-hidden />
                 Download CSV template
               </Button>
+              {xlsxEnabled && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
+                  onClick={() => void downloadXlsxTemplate()}
+                >
+                  <FileDownIcon data-icon="inline-start" aria-hidden />
+                  Download Excel template
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
+                className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
                 disabled={state.phase === "pending"}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {state.fileName ? "Choose another file" : "Choose CSV file"}
+                {state.fileName
+                  ? "Choose another file"
+                  : xlsxEnabled
+                    ? "Choose file"
+                    : "Choose CSV file"}
               </Button>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,text/csv,application/csv,text/plain"
-                aria-label="CSV file"
+                accept={xlsxEnabled ? CSV_AND_XLSX_ACCEPT : CSV_ACCEPT}
+                aria-label={xlsxEnabled ? "CSV or Excel file" : "CSV file"}
                 tabIndex={-1}
                 className="sr-only"
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
                   if (file) void handleFile(file);
                 }}
               />
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
+              <span className="min-w-0 break-words text-xs text-muted-foreground">
                 {state.fileName ??
-                  `One .csv file, up to 5 MiB and ${formatNumber(MAX_IMPORT_ROWS)} rows`}
+                  `One ${xlsxEnabled ? ".csv or .xlsx" : ".csv"} file, up to 5 MiB and ${formatNumber(MAX_IMPORT_ROWS)} rows`}
               </span>
             </div>
 

@@ -6,6 +6,7 @@ import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { parseCsvTable, serializeCsvTemplate } from "../src/lib/csv";
+import { XLSX_MIME_TYPE, buildXlsx, parseXlsxTable } from "../src/lib/xlsx";
 
 /**
  * Base UI resolves `useIsoLayoutEffect` to `useLayoutEffect` only when
@@ -691,6 +692,196 @@ describe("ImportBlock", () => {
     try {
       expect(trigger()?.textContent?.trim()).toBe("Import customers");
       expect(trigger()?.disabled).toBe(true);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+});
+
+describe("ImportBlock Excel (.xlsx)", () => {
+  const XLSX_CONTRACT = {
+    columns: COLUMNS,
+    filename: "customers-template.csv",
+    xlsxFilename: "customers-template.xlsx",
+  };
+
+  function xlsxFile(bytes: Uint8Array, { name = "customers.xlsx", type = XLSX_MIME_TYPE } = {}) {
+    return new win.File([bytes], name, { type }) as unknown as File;
+  }
+
+  const realParseXlsx: NonNullable<ImportBlockProps["parseXlsx"]> = async ({ file, columns }) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return parseXlsxTable(bytes, columns);
+  };
+
+  test("downloads both CSV and Excel templates, previews an .xlsx file, and confirms once", async () => {
+    const blobs: Blob[] = [];
+    const downloads: string[] = [];
+    URL.createObjectURL = (blob: Blob) => {
+      blobs.push(blob);
+      return "blob:template";
+    };
+    URL.revokeObjectURL = () => {};
+    const originalClick = win.HTMLAnchorElement.prototype.click;
+    win.HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) {
+      downloads.push(this.download);
+      return undefined;
+    };
+
+    const validateCalls: ImportRecord[][] = [];
+    const confirmCalls: ImportRecord[][] = [];
+
+    const harness = await mount({
+      contract: XLSX_CONTRACT,
+      parseXlsx: realParseXlsx,
+      validate: (records) => {
+        validateCalls.push(records);
+        return [];
+      },
+      confirm: (records) => {
+        confirmCalls.push(records);
+        return { ok: true, created: records.length } satisfies ImportConfirmResult;
+      },
+    });
+
+    try {
+      await openDialog();
+      await click(buttonByText("Download Excel template"));
+      await settle();
+
+      expect(downloads).toEqual(["customers-template.xlsx"]);
+      expect(blobs).toHaveLength(1);
+      expect(blobs[0]!.type).toBe(XLSX_MIME_TYPE);
+
+      const templateBytes = new Uint8Array(await blobs[0]!.arrayBuffer());
+      const parsedTemplate = await parseXlsxTable(templateBytes, COLUMNS);
+      expect(parsedTemplate).toEqual({
+        ok: true,
+        table: { headers: [...COLUMNS], rows: [], total: 0 },
+      });
+
+      const filledBytes = await buildXlsx({
+        headers: [...COLUMNS],
+        rows: [
+          [
+            "Ada",
+            "ada@example.test",
+            "+15550100",
+            null,
+            null,
+            9_007_199_254_740_991,
+            null,
+            "=SUM(A1:A2)",
+          ],
+        ],
+      });
+
+      await chooseFile(xlsxFile(filledBytes, { name: "customers.xlsx", type: "" }));
+      await settle();
+
+      expect(dialogText()).toContain("1 record ready to import");
+      expect(validateCalls).toHaveLength(1);
+      expect(validateCalls[0]?.[0]).toEqual({
+        lineNumber: 2,
+        values: {
+          name: "Ada",
+          email: "ada@example.test",
+          phone: "+15550100",
+          company: "",
+          status: "active",
+          balanceMinor: "9007199254740991",
+          currency: "USD",
+          notes: "=SUM(A1:A2)",
+        },
+      });
+
+      await click(confirmButton());
+      await settle();
+
+      expect(confirmCalls).toHaveLength(1);
+      expect(dialog()).toBeNull();
+    } finally {
+      win.HTMLAnchorElement.prototype.click = originalClick;
+      await harness.cleanup();
+    }
+  });
+
+  test("clears a prior preview when a rejected .xlsx file is selected and aborts on cancelSignal", async () => {
+    const cleanBytes = await buildXlsx({
+      headers: [...COLUMNS],
+      rows: [["Ada", "ada@example.test", null, null, null, null, null, null]],
+    });
+    const controller = new AbortController();
+
+    const harness = await mount({
+      contract: XLSX_CONTRACT,
+      parseXlsx: realParseXlsx,
+      cancelSignal: controller.signal,
+      validate: () => [],
+      confirm: () => ({ ok: true, created: 0 }),
+    });
+
+    try {
+      await openDialog();
+      await chooseFile(xlsxFile(cleanBytes));
+      await settle();
+      expect(dialogText()).toContain("1 record");
+
+      // Bad non-zip file masquerading as .xlsx clears prior preview
+      await chooseFile(xlsxFile(new TextEncoder().encode("not an xlsx")));
+      await settle();
+      expect(dialogText()).toContain("malformed or unsupported");
+      expect(dialogText()).not.toContain("1 record");
+      expect(confirmButton()?.disabled).toBe(true);
+
+      // Unsupported extension
+      await chooseFile(
+        csvFile("nope", { name: "customers.xls", type: "application/vnd.ms-excel" }),
+      );
+      await settle();
+      expect(dialogText()).toContain("Choose a .csv or .xlsx file");
+      expect(confirmButton()?.disabled).toBe(true);
+
+      // Headers-only .xlsx workbook is rejected rather than offering Import 0
+      const headersOnlyBytes = await buildXlsx({ headers: [...COLUMNS], rows: [] });
+      await chooseFile(xlsxFile(headersOnlyBytes));
+      await settle();
+      expect(dialogText()).toContain("no records");
+      expect(confirmButton()?.disabled).toBe(true);
+
+      // Aborting cancelSignal closes and resets dialog
+      await act(async () => {
+        controller.abort();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(dialog()).toBeNull();
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test("rejects an oversized .xlsx file above 5 MiB without invoking the worker", async () => {
+    let parseXlsxCalls = 0;
+    const harness = await mount({
+      contract: XLSX_CONTRACT,
+      parseXlsx: async (req) => {
+        parseXlsxCalls += 1;
+        return realParseXlsx(req);
+      },
+      validate: () => [],
+      confirm: () => ({ ok: true, created: 0 }),
+    });
+
+    try {
+      await openDialog();
+      const bigXlsx = xlsxFile(new Uint8Array(0), { name: "huge.xlsx", type: XLSX_MIME_TYPE });
+      Object.defineProperty(bigXlsx, "size", { value: 5 * 1024 * 1024 + 1, configurable: true });
+      await chooseFile(bigXlsx);
+      await settle();
+
+      expect(parseXlsxCalls).toBe(0);
+      expect(dialogText()).toContain("5 MiB");
+      expect(confirmButton()?.disabled).toBe(true);
     } finally {
       await harness.cleanup();
     }

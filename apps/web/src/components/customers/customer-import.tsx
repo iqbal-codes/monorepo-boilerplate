@@ -49,6 +49,7 @@ export const CUSTOMER_IMPORT_DEFAULTS = {
 } as const;
 
 export const CUSTOMER_IMPORT_FILENAME = "customers-template.csv";
+export const CUSTOMER_IMPORT_XLSX_FILENAME = "customers-template.xlsx";
 
 function optionalText(value: string | undefined): string | undefined {
   const trimmed = (value ?? "").trim();
@@ -150,7 +151,8 @@ function toProcedureRows(records: readonly ImportRecord[]) {
 
 export function CustomerImport({
   onImported,
-  triggerLabel = "Import CSV",
+  cancelSignal,
+  triggerLabel = "Import",
   size,
   className,
   open,
@@ -159,6 +161,7 @@ export function CustomerImport({
 }: {
   /** Called with the created count once the batch is stored. */
   onImported: (created: number) => void;
+  cancelSignal?: AbortSignal;
   triggerLabel?: string;
   size?: "default" | "sm";
   className?: string;
@@ -168,8 +171,13 @@ export function CustomerImport({
 }) {
   return (
     <ImportBlock
-      contract={{ columns: CUSTOMER_IMPORT_COLUMNS, filename: CUSTOMER_IMPORT_FILENAME }}
+      contract={{
+        columns: CUSTOMER_IMPORT_COLUMNS,
+        filename: CUSTOMER_IMPORT_FILENAME,
+        xlsxFilename: CUSTOMER_IMPORT_XLSX_FILENAME,
+      }}
       defaults={CUSTOMER_IMPORT_DEFAULTS}
+      cancelSignal={cancelSignal}
       triggerLabel={triggerLabel}
       size={size}
       className={className}

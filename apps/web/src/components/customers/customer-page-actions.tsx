@@ -81,7 +81,7 @@ function CustomerExportFeedback({
 
 /**
  * Header action cluster for Customers: one primary action ("New customer") and
- * a secondary overflow menu for Import CSV and Export formats, keeping the
+ * a secondary overflow menu for Import and Export formats, keeping the
  * header compact on mobile and desktop.
  */
 export const CustomerPageActions = memo(function CustomerPageActions({
@@ -158,7 +158,7 @@ export const CustomerPageActions = memo(function CustomerPageActions({
                 }}
               >
                 <UploadIcon aria-hidden />
-                Import CSV
+                Import CSV / Excel
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -195,6 +195,7 @@ export const CustomerPageActions = memo(function CustomerPageActions({
         open={importOpen}
         onOpenChange={setImportOpen}
         hideTrigger
+        cancelSignal={exportCancelSignal}
         onImported={onImported}
       />
 
