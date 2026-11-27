@@ -45,7 +45,6 @@
     "@assistant-ui/vite": "^0.0.22",
     "@monorepo-boilerplate/config": "workspace:*",
     "@tanstack/react-query-devtools": "^5.107.1",
-    "@tanstack/react-router-devtools": "^1.167.3",
     "@tanstack/router-plugin": "^1.169.0",
     "@types/node": "^26.6.6",
     "@types/react": "catalog:",

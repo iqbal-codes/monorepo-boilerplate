@@ -3,7 +3,6 @@ import { TooltipProvider } from "@monorepo-boilerplate/ui/components/tooltip";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 
 import { ThemeProvider } from "@/components/theme-provider";
@@ -54,13 +53,8 @@ function RootComponent() {
           <Toaster richColors />
         </TooltipProvider>
       </ThemeProvider>
-      {/* Devtools float at fixed positions, and the shell owns every corner:
-          top-right is the theme toggle, bottom-left the sidebar user menu,
-          bottom-right the Assistant Modal trigger. Lift both chips clear. */}
-      <TanStackRouterDevtools
-        position="bottom-left"
-        toggleButtonProps={{ style: { bottom: "5.5rem" } }}
-      />
+      {/* React Query devtools floats at a fixed position; lift it clear of the
+          bottom-right Assistant Modal trigger. */}
       <div className="fixed end-18 bottom-4 z-30">
         <ReactQueryDevtools position="bottom" buttonPosition="relative" />
       </div>
