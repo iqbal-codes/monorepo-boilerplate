@@ -196,15 +196,15 @@ function renderEvidenceSection(
   const afterColumnTitle = evidence.after.length > 0 ? 'After (QA)' : 'After (Implementer)';
 
   if (evidence.before.length > 0 || primaryAfter.length > 0) {
+    if (evidence.before.length === 0 && resolvedBeforeSummary) {
+      lines.push(`- **Before:** _${resolvedBeforeSummary}_`, '');
+    }
     const rows = pairEvidenceImages(evidence.before, primaryAfter);
     lines.push(`| View | Before | ${afterColumnTitle} |`, '| :--- | :---: | :---: |');
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]!;
+    for (const row of rows) {
       const b = row.before
         ? `![${row.before.name}](${row.before.url})<br/><sub>${row.before.name}</sub>`
-        : i === 0 && evidence.before.length === 0
-          ? `_${resolvedBeforeSummary}_`
-          : '—';
+        : '—';
       const a = row.after
         ? `![${row.after.name}](${row.after.url})<br/><sub>${row.after.name}</sub>`
         : '—';

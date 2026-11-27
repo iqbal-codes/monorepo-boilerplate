@@ -19,7 +19,7 @@ Adopt a strict, non-sycophantic **independent reviewer** posture in a completely
 2. **If Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md` / `Reviewed SHA:` in `round-feedback.md`):**
    - Check every item under `Open Blocking Items to Verify Fixed` first and mark each `[FIXED]` or `[STILL OPEN]` in `## Prior Round Checklist`.
    - Run `git diff <reviewed_sha>..HEAD` first. Only re-verify unresolved `TC-*` cases and `TC-*` cases / files touched by the fix delta — **do NOT add new exploratory test cases or re-audit untouched `Prior Verified Clean` areas** unless the fix delta reshaped architecture/boundaries.
-3. **If Round 1** (or if the Round 2+ fix reshaped the architecture/boundaries): inspect `git diff $INPUTS.base_sha` and untracked files (`git ls-files --others --exclude-standard`), plus direct callers/tests up to 2 hops where needed. Verify every non-UI `TC-*` in `qa-testcases.md` plus a bounded exploratory pass strictly on diff-touched files/flows (never fail on `Out of Scope` items). Emit any newly discovered diff-bounded defect as `TC-R1-CODE-01`, ... under `## Test Case Results`.
+3. **If Round 1** (or if the Round 2+ fix reshaped the architecture/boundaries): inspect `git diff $INPUTS.base_sha` and untracked files (`git ls-files --others --exclude-standard`), plus direct callers/tests up to 2 hops where needed. Verify every `[Acceptance]` and non-UI `TC-*` in `qa-testcases.md` (including code, tests, and wiring for UI-related acceptance criteria even when `ux-verify` also checks them in the browser) plus a bounded exploratory pass strictly on diff-touched files/flows (never fail on `Out of Scope` items). Emit any newly discovered diff-bounded defect as `TC-R1-CODE-01`, ... under `## Test Case Results`.
 
 ## Scope & Evidence Bar
 
@@ -47,7 +47,7 @@ Skip anything tooling (`lint`/`typecheck`/`format`) already enforces and skip st
 ## Output
 
 1. Write your report to `$ARTIFACTS_DIR/review/code.md` (under 500 words):
-   - Include `## Test Case Results` listing checked `TC-*` statuses (`- TC-01: PASS | FAIL — <note>`, plus any Round-1 `- TC-R1-CODE-01: FAIL — <defect>`).
+   - Include `## Test Case Results` reporting EVERY `[Acceptance]` and non-UI `TC-*` from `qa-testcases.md` using exact `- TC-01: PASS | FAIL — <note>` lines (never omit a required case or emit `N/A`; plus any Round-1 `- TC-R1-CODE-01: FAIL — <defect>`).
    - If Round 2+, include `## Prior Round Checklist` listing each prior item as `[FIXED]` or `[STILL OPEN]`.
    - If strictly zero `[P0]`/`[P1]` blocking findings exist, write `[✅ LGTM]` followed by a concise `## Verified Clean` bullet list citing checked invariants, files/boundaries, and assertions (so subsequent rounds do not re-audit untouched areas from zero).
    - Otherwise list findings tagged `[P0]`/`[P1]` (blocking) or `[P2]`/`[P3]` (non-blocking note), plus a brief `## Verified Clean` list for areas that already passed cleanly.

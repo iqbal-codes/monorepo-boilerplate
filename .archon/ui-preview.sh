@@ -76,6 +76,15 @@ start_session() {
   fi
 }
 
+if [ -x "$ROOT/node_modules/.bin/vp" ]; then
+  VP_BIN="$ROOT/node_modules/.bin/vp"
+elif command -v vp >/dev/null 2>&1; then
+  VP_BIN="$(command -v vp)"
+else
+  echo "ui-preview: vp not found (node_modules not installed; run bun install first)" >&2
+  exit 1
+fi
+
 if [ ! -f "$WEB_DIR/.env" ] || [ ! -f "$SERVER_DIR/.env" ]; then
   bun "$ROOT/scripts/env-init.ts" >/dev/null 2>&1 || true
 fi
@@ -99,7 +108,7 @@ if [ "$WITH_API" = "1" ]; then
   # Supervise both children in one session (`PGID == SUP_PID`) so `kill "$PID"` tears down API, Web, and Vite children.
   start_session bash -c '
     set -euo pipefail
-    api_dir="$1" web_dir="$2" api_port="$3" web_port="$4" api_url="$5" web_url="$6" api_log="$7" web_log="$8" meta_file="$9" db_url="${10:-}"
+    api_dir="$1" web_dir="$2" api_port="$3" web_port="$4" api_url="$5" web_url="$6" api_log="$7" web_log="$8" meta_file="$9" db_url="${10:-}" vp_bin="${11}"
 
     if [ -n "$db_url" ]; then
       (cd "$api_dir" && exec env PORT="$api_port" BETTER_AUTH_URL="$api_url" CORS_ORIGIN="$web_url" DATABASE_URL="$db_url" bun run --hot src/index.ts >"$api_log" 2>&1 < /dev/null) &
@@ -108,7 +117,7 @@ if [ "$WITH_API" = "1" ]; then
     fi
     api_pid=$!
 
-    (cd "$web_dir" && exec env VITE_SERVER_URL="$api_url" bunx --bun vp dev --port "$web_port" --strictPort --host localhost >"$web_log" 2>&1 < /dev/null) &
+    (cd "$web_dir" && exec env VITE_SERVER_URL="$api_url" "$vp_bin" dev --port "$web_port" --strictPort --host localhost >"$web_log" 2>&1 < /dev/null) &
     web_pid=$!
 
     printf "SUP_PID=%s\nAPI_PID=%s\nWEB_PID=%s\n" "$$" "$api_pid" "$web_pid" >"$meta_file"
@@ -125,7 +134,7 @@ if [ "$WITH_API" = "1" ]; then
       sleep 1
     done
     cleanup
-  ' _ "$SERVER_DIR" "$WEB_DIR" "$API_PORT" "$WEB_PORT" "$API_URL" "$WEB_URL" "$API_LOG" "$WEB_LOG" "$META_FILE" "${PREVIEW_DATABASE_URL:-}" >/dev/null 2>&1 < /dev/null &
+  ' _ "$SERVER_DIR" "$WEB_DIR" "$API_PORT" "$WEB_PORT" "$API_URL" "$WEB_URL" "$API_LOG" "$WEB_LOG" "$META_FILE" "${PREVIEW_DATABASE_URL:-}" "$VP_BIN" >/dev/null 2>&1 < /dev/null &
 
   for _ in $(seq 1 40); do
     [ -s "$META_FILE" ] && break
@@ -170,8 +179,8 @@ META_FILE="$(mktemp "${TMPDIR:-/tmp}/archon-ui-meta.XXXXXX")"
 
 start_session bash -c '
   set -euo pipefail
-  web_dir="$1" port="$2" log="$3" meta_file="$4"
-  (cd "$web_dir" && exec bunx --bun vp dev --port "$port" --strictPort --host 127.0.0.1 >"$log" 2>&1 < /dev/null) &
+  web_dir="$1" port="$2" log="$3" meta_file="$4" vp_bin="$5"
+  (cd "$web_dir" && exec "$vp_bin" dev --port "$port" --strictPort --host 127.0.0.1 >"$log" 2>&1 < /dev/null) &
   web_pid=$!
   printf "SUP_PID=%s\nWEB_PID=%s\n" "$$" "$web_pid" >"$meta_file"
   cleanup() {
@@ -183,7 +192,7 @@ start_session bash -c '
   trap cleanup TERM INT EXIT
   wait "$web_pid" || true
   cleanup
-' _ "$WEB_DIR" "$PORT" "$LOG" "$META_FILE" >/dev/null 2>&1 < /dev/null &
+' _ "$WEB_DIR" "$PORT" "$LOG" "$META_FILE" "$VP_BIN" >/dev/null 2>&1 < /dev/null &
 
 for _ in $(seq 1 40); do
   [ -s "$META_FILE" ] && break

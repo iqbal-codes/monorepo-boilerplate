@@ -26,7 +26,7 @@ $INPUTS.prev_summary
 
 3. **Verify locally before handing back to `factory:review`:**
    - Prepare the worktree using the documented repository setup if needed, then run `$INPUTS.verification_command` and confirm exit code `0`.
-   - When `$INPUTS.has_ui` is `true`, `$INPUTS.preview_cmd` is non-empty, and UI behavior or routes changed, re-verify fixed states and dialogs using `$INPUTS.preview_cmd` and the repository’s browser tooling or an available browser tool. Cover the supported devices and viewports, check interaction, accessibility and runtime health, stop the preview using `PID`, then save refreshed `$ARTIFACTS_DIR/evidence/impl-<state>.png` and visually inspect the PNGs.
+   - When `$INPUTS.has_ui` is `true`, `$INPUTS.preview_cmd` is non-empty, and UI behavior or routes changed, re-verify fixed states and dialogs using `$INPUTS.preview_cmd` and `agent-browser` (when installed; reserve Playwright for persistent E2E test suites or network/CDP tracing). Cover the supported devices and viewports, check interaction, accessibility and runtime health, stop the preview using `PID`, then save refreshed `$ARTIFACTS_DIR/evidence/impl-<state>.png` and visually inspect the PNGs.
    - Update `$ARTIFACTS_DIR/implementation.md` (keeping full fix & declined-item context for QA) AND refresh `$ARTIFACTS_DIR/pr-summary.md` (`## Summary` visual/diff-sketch + `## Merge Danger` One-way/Two-way door & Blast Radius) so the PR description reflects the final shape.
    - Ensure changes are saved on disk (the publisher script will commit and push cleanly to the Draft PR).
 

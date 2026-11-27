@@ -113,7 +113,7 @@ function parseReportedTestCases(reportMarkdown: string): Array<{
   const results: Array<{ id: string; status: string; note: string; isExploratory: boolean }> = [];
   for (const line of reportMarkdown.split(/\r?\n/)) {
     const m = line.match(
-      /^\s*[-*]\s+`?(TC-(?:R\d+-)?[A-Z0-9-]+)`?\s*:\s*(PASS|FAIL|PENDING|UNVERIFIED|SKIP(?:PED)?|N\/A)\b(?:\s*(?:—|--|-|:)\s*(.+))?$/i
+      /^\s*(?:[-*]|\d+\.)\s+(?:\*\*|`)*(TC-(?:R\d+-)?[A-Z0-9-]+):?(?:\*\*|`)*\s*:?\s*(?:\*\*|`)*(PASS|FAIL|PENDING|UNVERIFIED|SKIP(?:PED)?|N\/A)\b(?:\*\*|`)*(?:\s*(?:—|--|-|:)\s*(.+))?$/i
     );
     if (!m) continue;
     const id = m[1].toUpperCase();
@@ -140,11 +140,15 @@ function mergeQaTestCasesLedger() {
     }
   }
 
-  let lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
+  const ledgerContent = readFileSync(ledgerPath, 'utf8');
+  // Freeze only after a round where QA reviewers actually ran; otherwise a Round 1 mechanical-gate
+  // failure would lock the ledger before Round 2 performs the first real QA pass.
+  const wasFrozen = /^- \*\*Freeze State:\*\*\s*`FROZEN\b/im.test(ledgerContent);
+  let lines = ledgerContent.split(/\r?\n/);
   const existingIds = new Set<string>();
 
   lines = lines.map((line) => {
-    if (round === 1 && /^- \*\*Freeze State:\*\*/i.test(line)) {
+    if (reviewsRan && /^- \*\*Freeze State:\*\*/i.test(line)) {
       return '- **Freeze State:** `FROZEN (Round 1 complete — Round 2+ must only verify failing/delta-affected TCs)`';
     }
     const rowMatch = line.match(ledgerRow);
@@ -156,7 +160,7 @@ function mergeQaTestCasesLedger() {
     return `| \`${id}\` | ${rowMatch[2]!.trim()} | \`${upd.status}\` | ${upd.note || rowMatch[4] || '—'} |`;
   });
 
-  if (round === 1) {
+  if (reviewsRan && !wasFrozen) {
     const newExploratory = [...updates.entries()].filter(
       ([id, info]) => info.isExploratory && !existingIds.has(id)
     );
@@ -203,13 +207,15 @@ function mergeQaTestCasesLedger() {
 const cases = mergeQaTestCasesLedger();
 const incompleteCases = cases.filter((item) => item.status !== 'PASS');
 const missingLedger = Boolean(text(process.env.INPUTS_CONTRACT_PATH)) && cases.length === 0;
-if (missingLedger) {
-  openHandoffItems.push('- [P1] Required QA case ledger is missing or empty. Restore it and report the case results.');
+if (reviewsRan) {
+  if (missingLedger) {
+    openHandoffItems.push('- [P1] Required QA case ledger is missing or empty. Restore it and report the case results.');
+  }
+  for (const { id, status, note } of incompleteCases) {
+    openHandoffItems.push(`- [P1] ${id}: ${status}. ${note === '—' ? 'Run the required case and report its result.' : note}`);
+  }
 }
 const caseResults = cases.map(({ id, status }) => `${id}: ${status}`);
-for (const { id, status, note } of incompleteCases) {
-  openHandoffItems.push(`- [P1] ${id}: ${status}. ${note === '—' ? 'Run the required case and report its result.' : note}`);
-}
 
 let done = false;
 let ready = false;

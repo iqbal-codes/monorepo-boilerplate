@@ -1,6 +1,11 @@
 # Browser E2E & UX Verification
 
-Load this guide when booting `.archon/ui-preview.sh --with-api` or writing Playwright checks against the web app.
+Load this guide when booting `.archon/ui-preview.sh` (or `--with-api`) for interactive UI inspection or writing/running Playwright E2E checks against the web app.
+
+## Tool Selection (`agent-browser` vs Playwright)
+
+- **Interactive UI inspection, UX verification, and screenshots (`capture-before`, `implement`, `fix`, `ux-verify`):** Prefer `agent-browser` (`open`, `snapshot`, `set viewport`, `set media light|dark`, `screenshot`, `console`, `errors`) whenever available on `PATH`.
+- **Persistent E2E regression tests & CDP tracing:** Use Playwright only when writing or running automated E2E test suites (such as `vp run test:browser:customers` in `scripts/test-browser-customers.ts`) or when a verification specifically needs network route interception (`context.route`) or Chromium CDP `Tracing`.
 
 ## Customers Regression Command
 

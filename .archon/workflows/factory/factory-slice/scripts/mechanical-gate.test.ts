@@ -5,6 +5,21 @@ import { join } from 'node:path';
 
 const script = join(import.meta.dir, 'mechanical-gate.ts');
 
+function cleanEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (
+      key.startsWith('INPUTS_') ||
+      key === 'ARTIFACTS_DIR' ||
+      key === 'FACTORY_PUBLISH_QA_STATUS' ||
+      key === 'ARGUMENTS'
+    ) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 test('a preview hook added by the first UI slice reaches the UX gate', () => {
   const dir = mkdtempSync(join(tmpdir(), 'factory-preview-gate-'));
   try {
@@ -22,7 +37,7 @@ test('a preview hook added by the first UI slice reaches the UX gate', () => {
       const result = Bun.spawnSync([process.execPath, script], {
         cwd,
         env: {
-          ...process.env,
+          ...cleanEnv(),
           ARTIFACTS_DIR: join(dir, 'artifacts'),
           INPUTS_BASE_SHA: 'HEAD',
           INPUTS_CONTRACT_HAS_UI: 'true',

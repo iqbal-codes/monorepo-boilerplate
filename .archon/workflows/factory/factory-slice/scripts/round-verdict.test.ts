@@ -5,6 +5,21 @@ import { join } from 'node:path';
 
 const script = join(import.meta.dir, 'round-verdict.ts');
 
+function cleanEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (
+      key.startsWith('INPUTS_') ||
+      key === 'ARTIFACTS_DIR' ||
+      key === 'FACTORY_PUBLISH_QA_STATUS' ||
+      key === 'ARGUMENTS'
+    ) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 function runVerdict(
   artifactsDir: string,
   overrides: Record<string, string>
@@ -22,7 +37,7 @@ function runVerdict(
 } {
   const result = Bun.spawnSync([process.execPath, script], {
     env: {
-      ...process.env,
+      ...cleanEnv(),
       ARTIFACTS_DIR: artifactsDir,
       INPUTS_PREVIOUS_ROUND: '',
       INPUTS_REPO: 'owner/repo',
@@ -275,6 +290,70 @@ describe('round-verdict combined UX and parallel review verdict', () => {
       const afterR2 = readFileSync(join(dir, 'qa-testcases.md'), 'utf8');
       expect(afterR2).toContain('| `TC-R1-UX-01` | [Round 1 Exploratory] focus ring contrast 1.3:1 | `PASS` |');
       expect(afterR2).not.toContain('TC-R2-UX-99');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps qa-testcases.md OPEN and omits PENDING P1 handoff spam when mechanical gate fails in Round 1', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-mech-fail-'));
+    try {
+      writeFileSync(
+        join(dir, 'qa-testcases.md'),
+        [
+          '# QA Test-Case Ledger — Demo',
+          '',
+          '- **Risk Tier:** `strict`',
+          '- **Freeze State:** `OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`',
+          '',
+          '## Contract Test Cases (Baseline)',
+          '| ID | Case / Expected Outcome | Status | Notes |',
+          '| :--- | :--- | :--- | :--- |',
+          '| `TC-01` | Render 404 screen | `PENDING` | — |',
+          '',
+          '## Round 1 Exploratory Cases (Frozen After Round 1)',
+          '- _(None yet — Round 1 QA may emit `TC-R1-*` lines only for concrete defects in files/flows touched by the diff.)_',
+          '',
+        ].join('\n')
+      );
+
+      const { output: r1Output, feedbackMd: r1Feedback } = runVerdict(dir, {
+        INPUTS_MECH_PASSED: 'false',
+        INPUTS_MECH_SUMMARY: 'verification failed',
+        INPUTS_UX_PASSED: '',
+        INPUTS_CODE_LGTM: '',
+        INPUTS_SEAMS_LGTM: '',
+      });
+
+      expect(r1Output.done).toBe(false);
+      expect(r1Output.reason).toBe('mechanical_gate_failed');
+      expect(readFileSync(join(dir, 'qa-testcases.md'), 'utf8')).toContain('`OPEN');
+      expect(r1Feedback).not.toContain('[P1] TC-01: PENDING');
+
+      // Round 2 is now the first real QA pass and must still accept TC-R1-* before freezing.
+      mkdirSync(join(dir, 'evidence'), { recursive: true });
+      mkdirSync(join(dir, 'review'), { recursive: true });
+      writeFileSync(
+        join(dir, 'evidence', 'ux-report.md'),
+        '## Test Case Results\n- **TC-01:** `PASS` — 404 renders\n1. TC-R1-UX-01: FAIL — clipped at 320px'
+      );
+      writeFileSync(
+        join(dir, 'review', 'code.md'),
+        '[✅ LGTM]\n## Test Case Results\n- **TC-01**: PASS — wired'
+      );
+
+      const { output: r2Output } = runVerdict(dir, {
+        INPUTS_PREVIOUS_ROUND: '1',
+        INPUTS_MECH_PASSED: 'true',
+        INPUTS_UX_PASSED: 'false',
+        INPUTS_UX_SUMMARY: 'clipped at 320px',
+      });
+
+      expect(r2Output.done).toBe(false);
+      const afterR2 = readFileSync(join(dir, 'qa-testcases.md'), 'utf8');
+      expect(afterR2).toContain('`FROZEN');
+      expect(afterR2).toContain('| `TC-01` | Render 404 screen | `PASS` |');
+      expect(afterR2).toContain('| `TC-R1-UX-01` | [Round 1 Exploratory] clipped at 320px | `FAIL` | Round 1 |');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
