@@ -2,7 +2,12 @@
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
-const TEST_FILES = ["./packages/api/src/routers/customers.integration.test.ts"];
+const TEST_FILES = [
+  "./packages/api/src/routers/customers-archive.integration.test.ts",
+  "./packages/api/src/routers/customers-import.integration.test.ts",
+  "./packages/api/src/routers/customers-export.integration.test.ts",
+  "./packages/api/src/routers/customers-events.integration.test.ts",
+];
 
 async function run(
   command: string[],

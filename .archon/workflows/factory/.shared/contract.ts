@@ -7,6 +7,13 @@ import { X_OK } from 'node:constants';
 import { accessSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { isRenderedUiFile, matchPathPattern } from './boundaries.ts';
+import { runCmd } from './exec.ts';
+
+export { auditBoundaries, expandBraces, isRenderedUiFile, matchPathPattern } from './boundaries.ts';
+export { appendMissingDocRefsNote, findMissingLocalDocRefs } from './contract-docs.ts';
+export { detectBaseBranch, detectGitRepo, emit, runCmd, text } from './exec.ts';
+
 export interface ParsedSliceContract {
   title: string;
   sliceId: string;
@@ -26,11 +33,6 @@ export interface ParsedSliceContract {
   outOfScope: string[];
 }
 
-export function text(v: string | undefined): string {
-  const s = (v ?? '').trim();
-  return s === 'null' || s === 'undefined' ? '' : s;
-}
-
 export function extractLinkedIssueNumber(prBody: string): number {
   const match = prBody.match(/(?:Closes|Fixes|Resolves|Refs)\s+#(\d+)/i);
   if (!match) return 0;
@@ -46,136 +48,6 @@ export function resolvePreviewCommand(explicit: string, cwd = process.cwd()): st
   } catch {
     return '';
   }
-}
-
-export function emit(obj: unknown): void {
-  process.stdout.write(`${JSON.stringify(obj)}\n`);
-}
-
-export function runCmd(
-  args: string[],
-  opts: { cwd?: string; env?: Record<string, string | undefined>; allowFail?: boolean } = {}
-): { code: number; stdout: string; stderr: string } {
-  const proc = Bun.spawnSync(args, {
-    cwd: opts.cwd ?? process.cwd(),
-    env: opts.env ? { ...process.env, ...opts.env } : process.env,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const stdout = new TextDecoder().decode(proc.stdout).trim();
-  const stderr = new TextDecoder().decode(proc.stderr).trim();
-  const code = proc.exitCode ?? 1;
-  if (code !== 0 && !opts.allowFail) {
-    throw new Error(`Command failed (${code}): ${args.join(' ')}\n${stderr || stdout}`);
-  }
-  return { code, stdout, stderr };
-}
-
-export function detectGitRepo(cwd = process.cwd()): string {
-  const res = runCmd(['git', 'remote', 'get-url', 'origin'], { cwd, allowFail: true });
-  if (res.code !== 0 || !res.stdout) return '';
-  const url = res.stdout.trim();
-  const sshMatch = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
-  return sshMatch ? sshMatch[1] : '';
-}
-
-export function detectBaseBranch(cwd = process.cwd()): string {
-  const sym = runCmd(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], { cwd, allowFail: true });
-  if (sym.code === 0 && sym.stdout) {
-    const parts = sym.stdout.split('/');
-    const last = parts[parts.length - 1];
-    if (last) return last;
-  }
-  return 'main';
-}
-
-export function expandBraces(pattern: string): string[] {
-  const match = pattern.match(/\{([^{}]+)\}/);
-  if (!match) return [pattern];
-  const full = match[0];
-  const options = match[1].split(',').map((s) => s.trim());
-  const out: string[] = [];
-  for (const opt of options) {
-    const replaced = pattern.replace(full, opt);
-    out.push(...expandBraces(replaced));
-  }
-  return out;
-}
-
-function globToRegExp(glob: string): RegExp {
-  const normalized = glob.replace(/^\.\//, '').replace(/\/+$/, '');
-  let re = '^';
-  let i = 0;
-  while (i < normalized.length) {
-    const ch = normalized[i];
-    if (ch === '*') {
-      if (normalized[i + 1] === '*') {
-        if (normalized[i + 2] === '/') {
-          re += '(?:.*/)?';
-          i += 3;
-        } else {
-          re += '.*';
-          i += 2;
-        }
-      } else {
-        re += '[^/]*';
-        i += 1;
-      }
-    } else if (ch === '?') {
-      re += '[^/]';
-      i += 1;
-    } else if ('\\^$.|+()[]{}'.includes(ch)) {
-      re += `\\${ch}`;
-      i += 1;
-    } else {
-      re += ch;
-      i += 1;
-    }
-  }
-  re += '$';
-  return new RegExp(re);
-}
-
-export function matchPathPattern(filePath: string, pattern: string): boolean {
-  const cleanPath = filePath.replace(/^\.\//, '');
-  for (const expanded of expandBraces(pattern.trim())) {
-    const cleanPat = expanded.replace(/^\.\//, '').replace(/\/+$/, '');
-    if (!cleanPat) continue;
-    if (globToRegExp(cleanPat).test(cleanPath)) return true;
-    // Allow directory prefix patterns like "packages/ui" or "packages/ui/"
-    if (!cleanPat.includes('*') && cleanPath.startsWith(`${cleanPat}/`)) return true;
-  }
-  return false;
-}
-
-export function isRenderedUiFile(filePath: string): boolean {
-  const clean = filePath.replace(/^\.\//, '');
-  return /\.(tsx|jsx|css|scss|html|vue|svelte|astro|qml|xaml)$/i.test(clean);
-}
-
-export function auditBoundaries(
-  changedFiles: string[],
-  allowedFolders: readonly string[],
-  forbiddenPaths: string[]
-): { ok: boolean; outOfBounds: string[]; forbiddenHits: string[] } {
-  const forbiddenHits: string[] = [];
-  const outOfBounds: string[] = [];
-
-  for (const file of changedFiles) {
-    if (forbiddenPaths.some((pat) => matchPathPattern(file, pat))) {
-      forbiddenHits.push(file);
-      continue;
-    }
-    if (allowedFolders.length > 0 && !allowedFolders.some((folder) => file.startsWith(folder))) {
-      outOfBounds.push(file);
-    }
-  }
-
-  return {
-    ok: forbiddenHits.length === 0 && outOfBounds.length === 0,
-    outOfBounds,
-    forbiddenHits,
-  };
 }
 
 function extractBlockedBy(markdown: string): number[] {
@@ -545,45 +417,4 @@ export function hasTrackedWorkAreas(workAreas: string[], cwd = process.cwd()): b
   return tracked.stdout.split('\0').some((file) =>
     file && workAreas.some((area) => matchPathPattern(file, area))
   );
-}
-
-/**
- * Finds local `docs/...` paths referenced in a contract that do not exist in `cwd`.
- * Expands brace patterns (e.g. `docs/specs/{a,b}.md`) while skipping wildcards and URLs.
- */
-export function findMissingLocalDocRefs(markdown: string, cwd = process.cwd()): string[] {
-  const missing: string[] = [];
-  const seen = new Set<string>();
-  const pattern = /(?:^|[\s(`"'\[])(docs\/[A-Za-z0-9_.{}/,-]+)/g;
-
-  for (const match of markdown.matchAll(pattern)) {
-    const raw = match[1]!.replace(/[.,;:)\]`'"]+$/, '');
-    if (!raw || raw.includes('*') || raw.includes('<')) continue;
-    for (const expanded of expandBraces(raw)) {
-      const clean = expanded.replace(/\/+$/, '');
-      if (!clean || clean === 'docs' || seen.has(clean)) continue;
-      seen.add(clean);
-      if (!existsSync(join(cwd, clean))) {
-        missing.push(expanded);
-      }
-    }
-  }
-
-  return missing;
-}
-
-export function appendMissingDocRefsNote(markdown: string, cwd = process.cwd()): string {
-  const missing = findMissingLocalDocRefs(markdown, cwd);
-  if (missing.length === 0) return markdown;
-  return [
-    markdown.trimEnd(),
-    '',
-    '## Missing Local References',
-    '',
-    'The following referenced local paths do not exist on this checkout:',
-    ...missing.map((ref) => `- \`${ref}\``),
-    '',
-    'Treat these paths as absent here — rely on the contract above and existing repo files, and skip recursive filesystem scans or repeated `gh issue view` lookups for them.',
-    '',
-  ].join('\n');
 }
