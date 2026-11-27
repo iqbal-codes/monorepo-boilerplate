@@ -307,7 +307,13 @@ function CustomersScreen() {
             value: list.searchInput,
             onChange: list.onSearchInputChange,
           }}
-          resultLabel={query.data && !query.isPlaceholderData ? `${rowCount} customers` : undefined}
+          resultLabel={
+            query.data && !query.isPlaceholderData
+              ? rowCount === 1
+                ? "1 customer"
+                : `${rowCount} customers`
+              : undefined
+          }
           isFetching={query.isFetching}
           filters={
             <Select
