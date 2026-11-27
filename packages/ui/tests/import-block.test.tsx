@@ -930,6 +930,11 @@ describe("ImportBlock Excel (.xlsx)", () => {
       expect(emailCell?.className).not.toContain("truncate");
       expect(emailCell?.className).toContain("whitespace-normal");
 
+      const previewContainer = dialog()?.querySelector('[data-slot="table-container"]');
+      expect(previewContainer?.getAttribute("aria-label")).toBe("Import preview");
+      expect(previewContainer?.className).toContain("max-h-64");
+      expect(previewContainer?.className).toContain("overflow-y-auto");
+
       const jumpButton = buttonByText("Jump to issues", dialog() ?? undefined);
       expect(jumpButton).not.toBeNull();
       await click(jumpButton);
@@ -1003,6 +1008,64 @@ describe("ImportBlock Excel (.xlsx)", () => {
       expect(new Set(attemptIds).size).toBe(1);
     } finally {
       await harness.cleanup();
+    }
+  });
+
+  test("closes via onOpenChange and restores focus to returnFocusRef when controlled", async () => {
+    const cleanBytes = await buildXlsx({
+      headers: [...COLUMNS],
+      rows: [["Ada", "ada@example.test", null, null, null, null, null, null]],
+    });
+    const host = win.document.createElement("div");
+    win.document.body.appendChild(host);
+    const root = createRoot(host);
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+
+    let latestOpen = true;
+    function ControlledHarness() {
+      const [open, setOpen] = React.useState(true);
+      latestOpen = open;
+      return (
+        <>
+          <button ref={returnFocusRef} type="button">
+            Actions
+          </button>
+          <ImportBlock
+            contract={XLSX_CONTRACT}
+            parseXlsx={realParseXlsx}
+            defaults={DEFAULTS}
+            open={open}
+            onOpenChange={setOpen}
+            hideTrigger
+            returnFocusRef={returnFocusRef}
+            validate={() => []}
+            confirm={(records) => ({ ok: true, created: records.length })}
+          />
+        </>
+      );
+    }
+
+    try {
+      await act(async () => {
+        root.render(<ControlledHarness />);
+      });
+      await settle();
+
+      expect(dialog()).not.toBeNull();
+      await chooseFile(xlsxFile(cleanBytes));
+      await settle();
+
+      await click(confirmButton());
+      await settle();
+
+      expect(latestOpen).toBe(false);
+      expect(dialog()).toBeNull();
+      expect(win.document.activeElement).toBe(returnFocusRef.current);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
     }
   });
 });

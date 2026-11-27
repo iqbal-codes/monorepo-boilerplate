@@ -119,6 +119,8 @@ export type ImportBlockProps = {
   onOpenChange?: (open: boolean) => void;
   /** Omit the built-in trigger button when opened externally. */
   hideTrigger?: boolean;
+  /** Element to return focus to when closing a dialog opened from a transient menu. */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 };
 
 const ACCEPTED_CSV_TYPES = new Set(["text/csv", "application/csv", "text/plain"]);
@@ -256,6 +258,7 @@ export function ImportBlock({
   open: controlledOpen,
   onOpenChange: onControlledOpenChange,
   hideTrigger = false,
+  returnFocusRef,
 }: ImportBlockProps) {
   const [internalOpen, setInternalOpen] = React.useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -640,7 +643,10 @@ export function ImportBlock({
       )}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl">
+        <DialogContent
+          {...(returnFocusRef ? { finalFocus: returnFocusRef } : {})}
+          className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl"
+        >
           <DialogHeader>
             <DialogTitle className="pr-8">Import customers</DialogTitle>
             <DialogDescription>
@@ -776,34 +782,32 @@ export function ImportBlock({
                         : " rows."}
                     </p>
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-16">Line</TableHead>
+                  <Table regionLabel="Import preview" containerClassName="max-h-64 overflow-y-auto">
+                    <TableHeader className="sticky top-0 z-10 bg-popover">
+                      <TableRow>
+                        <TableHead className="w-16">Line</TableHead>
+                        {contract.columns.map((column) => (
+                          <TableHead key={column}>{column}</TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sample.map((record) => (
+                        <TableRow key={record.lineNumber}>
+                          <TableCell className="align-top tabular-nums text-muted-foreground">
+                            {record.lineNumber}
+                          </TableCell>
                           {contract.columns.map((column) => (
-                            <TableHead key={column}>{column}</TableHead>
+                            <TableCell key={column} className="align-top whitespace-normal">
+                              <div className="w-max max-w-60 break-words">
+                                {record.values[column] ?? ""}
+                              </div>
+                            </TableCell>
                           ))}
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {sample.map((record) => (
-                          <TableRow key={record.lineNumber}>
-                            <TableCell className="align-top tabular-nums text-muted-foreground">
-                              {record.lineNumber}
-                            </TableCell>
-                            {contract.columns.map((column) => (
-                              <TableCell key={column} className="align-top whitespace-normal">
-                                <div className="w-max max-w-60 break-words">
-                                  {record.values[column] ?? ""}
-                                </div>
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             )}
@@ -824,7 +828,7 @@ export function ImportBlock({
                 <div
                   ref={issuesHeadingRef}
                   tabIndex={-1}
-                  className="flex flex-wrap items-center gap-2 focus:outline-none"
+                  className="flex scroll-mt-2 flex-wrap items-center gap-2 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   <p className="text-sm font-medium">
                     {formatNumber(state.issues.length)}{" "}

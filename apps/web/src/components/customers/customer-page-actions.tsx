@@ -97,6 +97,7 @@ export const CustomerPageActions = memo(function CustomerPageActions({
 }) {
   const [importOpen, setImportOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const actionsTriggerRef = useRef<HTMLButtonElement>(null);
   const exportCancelSignal = useCustomerExportCancel();
   const feedbackListenerRef = useRef<((feedback: ExportFeedback) => void) | null>(null);
 
@@ -133,6 +134,7 @@ export const CustomerPageActions = memo(function CustomerPageActions({
           <DropdownMenuTrigger
             render={
               <Button
+                ref={actionsTriggerRef}
                 type="button"
                 variant="outline"
                 size="sm"
@@ -195,6 +197,7 @@ export const CustomerPageActions = memo(function CustomerPageActions({
         open={importOpen}
         onOpenChange={setImportOpen}
         hideTrigger
+        returnFocusRef={actionsTriggerRef}
         cancelSignal={exportCancelSignal}
         onImported={onImported}
       />

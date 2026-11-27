@@ -167,6 +167,7 @@ export function CustomerImport({
   open,
   onOpenChange,
   hideTrigger,
+  returnFocusRef,
 }: {
   /** Called with the created count once the batch is stored. */
   onImported: (created: number) => void;
@@ -177,6 +178,7 @@ export function CustomerImport({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   hideTrigger?: boolean;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   return (
     <ImportBlock
@@ -193,6 +195,7 @@ export function CustomerImport({
       open={open}
       onOpenChange={onOpenChange}
       hideTrigger={hideTrigger}
+      returnFocusRef={returnFocusRef}
       validate={async (records) => {
         // Field rules are local, so a broken row is reported without a request.
         // Only a locally clean file asks the API about saved Customers, which
