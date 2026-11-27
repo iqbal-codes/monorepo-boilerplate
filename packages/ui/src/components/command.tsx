@@ -31,12 +31,14 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  finalFocus,
   ...props
 }: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
   title?: string;
   description?: string;
   className?: string;
   showCloseButton?: boolean;
+  finalFocus?: React.ComponentProps<typeof DialogContent>["finalFocus"];
   children: React.ReactNode;
 }) {
   return (
@@ -44,6 +46,7 @@ function CommandDialog({
       <DialogContent
         className={cn("top-1/3 translate-y-0 overflow-hidden p-0", className)}
         showCloseButton={showCloseButton}
+        finalFocus={finalFocus}
       >
         {/* Inside the popup: Base UI keeps Dialog Root children mounted, so a
             header outside would stay in the accessibility tree while closed. */}

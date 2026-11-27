@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowRightIcon,
+  KeyboardIcon,
   MoonIcon,
   SettingsIcon,
   SunIcon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 
 import {
   Command,
@@ -17,10 +18,16 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from "@monorepo-boilerplate/ui/components/command";
+import { Kbd } from "@monorepo-boilerplate/ui/components/kbd";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
 
-import { isCommandCenterEnterKey, isCommandCenterKey } from "@/lib/command-shortcut";
+import {
+  SHORTCUTS_HELP_KEY,
+  isCommandCenterEnterKey,
+  isCommandCenterKey,
+} from "@/lib/command-shortcut";
 import { navMain, navShortcuts, type NavRoute } from "@/lib/nav";
 import { customerListSearch } from "@/lib/use-data-table-search-params";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
@@ -75,10 +82,14 @@ export function CommandCenter({
   open,
   onOpenChange,
   onOpenSettings,
+  onOpenShortcuts,
+  finalFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenSettings?: () => void;
+  onOpenShortcuts?: () => void;
+  finalFocus?: ComponentProps<typeof CommandDialog>["finalFocus"];
 }) {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useThemeToggle();
@@ -155,17 +166,26 @@ export function CommandCenter({
     onOpenSettings?.();
   }
 
+  function openShortcutsAndClose() {
+    close();
+    onOpenShortcuts?.();
+  }
+
   const themeLabel = isDark ? "Switch to light theme" : "Switch to dark theme";
   const showThemeAction = matchesQuery(terms, themeLabel, "theme", "appearance", "dark", "light");
   const showSettingsAction =
     Boolean(onOpenSettings) &&
     matchesQuery(terms, "Open settings", "preferences", "appearance", "profile", "password");
+  const showShortcutsAction =
+    Boolean(onOpenShortcuts) &&
+    matchesQuery(terms, "Keyboard shortcuts", "shortcuts", "hotkeys", "help", SHORTCUTS_HELP_KEY);
   const ThemeIcon = isDark ? SunIcon : MoonIcon;
 
   const screens = COMMAND_SCREENS.filter((screen) =>
     matchesQuery(terms, screen.title, ...(screen.keywords ?? [])),
   );
-  const hasStaticResults = screens.length > 0 || showThemeAction || showSettingsAction;
+  const hasStaticResults =
+    screens.length > 0 || showThemeAction || showSettingsAction || showShortcutsAction;
 
   const customerRows = customers.data?.rows ?? [];
   const visibleCustomerRows = customerSearchPending ? [] : customerRows;
@@ -207,6 +227,7 @@ export function CommandCenter({
     <CommandDialog
       open={open}
       onOpenChange={handleOpenChange}
+      finalFocus={finalFocus}
       title="Command Center"
       description="Search screens and customers, or run an action."
     >
@@ -237,12 +258,21 @@ export function CommandCenter({
             </CommandGroup>
           ) : null}
 
-          {showThemeAction || showSettingsAction ? (
+          {showThemeAction || showSettingsAction || showShortcutsAction ? (
             <CommandGroup heading="Actions">
               {showSettingsAction ? (
                 <CommandItem value="action-open-settings" onSelect={openSettingsAndClose}>
                   <SettingsIcon />
                   <span>Open settings</span>
+                </CommandItem>
+              ) : null}
+              {showShortcutsAction ? (
+                <CommandItem value="action-keyboard-shortcuts" onSelect={openShortcutsAndClose}>
+                  <KeyboardIcon />
+                  <span>Keyboard shortcuts</span>
+                  <CommandShortcut>
+                    <Kbd>{SHORTCUTS_HELP_KEY}</Kbd>
+                  </CommandShortcut>
                 </CommandItem>
               ) : null}
               {showThemeAction ? (

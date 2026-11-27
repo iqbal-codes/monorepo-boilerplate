@@ -12,6 +12,15 @@ function isApplePlatform(): boolean {
   return /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 }
 
+/** Canonical Command Center key chords shared between listeners and shortcut help. */
+export const COMMAND_CENTER_SHORTCUT_KEYS = [
+  ["mod", "K"],
+  ["mod", "Enter"],
+] as const;
+
+/** Canonical keyboard shortcuts help trigger key. */
+export const SHORTCUTS_HELP_KEY = "?" as const;
+
 /** Label for the Command Center chord, matching the platform modifier. */
 export function commandShortcutLabel(): string {
   return isApplePlatform() ? "⌘K" : "Ctrl K";
@@ -23,7 +32,7 @@ export function commandShortcutLabel(): string {
  * composer or advances a form step while the user meant to open the Command
  * Center.
  */
-function isEditableTarget(target: EventTarget | null): boolean {
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
 
@@ -57,4 +66,19 @@ export function isCommandCenterKey(event: KeyboardEvent): boolean {
  */
 export function isCommandCenterEnterKey(event: KeyboardEvent): boolean {
   return event.key === "Enter" && !isEditableTarget(event.target) && isCommandChord(event);
+}
+
+/**
+ * True for a plain `?` keydown outside text-entry surfaces, opening the
+ * keyboard shortcuts reference dialog.
+ */
+export function isShortcutsHelpKey(event: KeyboardEvent): boolean {
+  return (
+    event.key === SHORTCUTS_HELP_KEY &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.isComposing &&
+    !isEditableTarget(event.target)
+  );
 }

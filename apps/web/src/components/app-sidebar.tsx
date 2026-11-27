@@ -38,7 +38,7 @@ export function AppSidebar({
   onOpenSettings,
 }: {
   currentPath: string;
-  onOpenCommandCenter: () => void;
+  onOpenCommandCenter: (launcher?: HTMLElement | null) => void;
   onOpenSettings: () => void;
 }) {
   const { state } = useSidebar();
@@ -64,7 +64,7 @@ export function AppSidebar({
               variant={state === "collapsed" ? "default" : "outline"}
               tooltip="Search or jump to"
               aria-label="Search or jump to"
-              onClick={onOpenCommandCenter}
+              onClick={(event) => onOpenCommandCenter(event.currentTarget)}
             >
               <SearchIcon />
               <span className="truncate group-data-[collapsible=icon]:hidden">

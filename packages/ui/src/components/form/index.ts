@@ -18,6 +18,13 @@ export {
 } from "./form-actions";
 export { FieldArray, type FieldArrayItemContext, type FieldArrayProps } from "./field-array";
 export {
+  UnsavedChangesGuard,
+  type FormWithDirtyStore,
+  type NavigationBlockerLike,
+  type UnsavedChangesGuardProps,
+  type UnsavedChangesGuardRenderProps,
+} from "./unsaved-changes-guard";
+export {
   useWizard,
   Wizard,
   WizardActions,
