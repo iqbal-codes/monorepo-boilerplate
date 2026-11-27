@@ -15,8 +15,10 @@ export type AppSession = typeof authClient.$Infer.Session;
 export type AppSystemBannersProps = {
   /** Route-verified session from `/_auth` `beforeLoad`, preserved only while loading or on transient refresh failure. */
   initialSession?: AppSession | null;
-  /** Called after a successful identity change (e.g. stopping impersonation) to reset identity-bound client trees before reload. */
-  onIdentityReset?: () => void;
+  /** Authoritative session returned by an in-flight identity switch (e.g. `stopImpersonating`) before `useSession` finishes refetching. */
+  sessionOverride?: AppSession | null;
+  /** Called immediately after a successful identity change (e.g. stopping impersonation) with the restored session so identity-bound client trees reset before refresh/reload. */
+  onIdentityReset?: (restoredSession: AppSession | null) => void;
   /** Override for reloading the page after stopping impersonation (defaults to `window.location.reload()`). */
   onReload?: () => void;
 };
@@ -32,6 +34,7 @@ function isUnauthorizedError(error: unknown): boolean {
  */
 export function AppSystemBanners({
   initialSession = null,
+  sessionOverride = null,
   onIdentityReset,
   onReload,
 }: AppSystemBannersProps) {
@@ -40,23 +43,28 @@ export function AppSystemBanners({
   const queryClient = useQueryClient();
   const router = useRouter();
   const [stopping, setStopping] = useState(false);
-  const [hasSettledNull, setHasSettledNull] = useState(false);
+  const [hasAuthoritativeNoSession, setHasAuthoritativeNoSession] = useState(false);
 
   const hasSessionError = Boolean(sessionError);
   const isUnauthorized = isUnauthorizedError(sessionError);
 
   useEffect(() => {
     if (liveSession !== null) {
-      setHasSettledNull(false);
-    } else if (!isPending && !hasSessionError) {
-      setHasSettledNull(true);
+      setHasAuthoritativeNoSession(false);
+    } else if (isUnauthorized || (!isPending && !hasSessionError)) {
+      setHasAuthoritativeNoSession(true);
     }
-  }, [liveSession, isPending, hasSessionError]);
+  }, [liveSession, isPending, hasSessionError, isUnauthorized]);
 
   // Honor a settled `null` (200/null expired or signed-out session) and 401s as authoritative;
-  // only fall back to the route-verified seed while loading or on transient non-401 refresh errors.
-  const canUseSeed = !hasSettledNull && !isUnauthorized && (Boolean(isPending) || hasSessionError);
-  const session = liveSession ?? (canUseSeed ? initialSession : null);
+  // latch both so a subsequent Retry (which clears Better Auth's error) never resurrects the seed.
+  const canUseSeed =
+    !hasAuthoritativeNoSession && !isUnauthorized && (Boolean(isPending) || hasSessionError);
+  const activeLiveSession =
+    sessionOverride && liveSession?.session?.id !== sessionOverride.session?.id
+      ? sessionOverride
+      : liveSession;
+  const session = activeLiveSession ?? (canUseSeed ? initialSession : null);
   const isImpersonating = Boolean(session?.session?.impersonatedBy);
 
   if (!isImpersonating && !hasSessionError && isOnline) {
@@ -73,11 +81,21 @@ export function AppSystemBanners({
         toast.error(result.error.message ?? "Could not stop impersonating");
         return;
       }
+      const restoredSession =
+        "data" in result &&
+        result.data &&
+        typeof result.data === "object" &&
+        "user" in result.data &&
+        "session" in result.data
+          ? (result.data as AppSession)
+          : null;
       queryClient.clear();
-      await refetch();
-      await router.invalidate();
-      onIdentityReset?.();
+      // Reset identity-bound client state immediately from the Stop response before
+      // awaiting background refreshes or page reload (which may stall or be cancelled).
+      onIdentityReset?.(restoredSession);
       toast.success("Stopped impersonating");
+      void refetch();
+      void router.invalidate();
       if (onReload) {
         onReload();
       } else {

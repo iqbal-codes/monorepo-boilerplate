@@ -155,8 +155,8 @@ export function UnsavedChangesGuard({
   }
 
   function handleDiscardChanges() {
+    if (pending) return;
     const wasBlockedNavigation = blocker?.status === "blocked";
-    if (pending && !wasBlockedNavigation) return;
     setClosePromptOpen(false);
     onDiscard?.();
     if (wasBlockedNavigation) {
@@ -195,6 +195,7 @@ export function UnsavedChangesGuard({
         cancelLabel={keepEditingLabel}
         confirmLabel={discardLabel}
         confirmVariant="destructive"
+        confirmDisabled={pending}
         pendingLabel="Discarding…"
         onConfirm={handleDiscardChanges}
         finalFocus={finalFocus}

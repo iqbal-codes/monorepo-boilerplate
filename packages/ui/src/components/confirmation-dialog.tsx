@@ -22,6 +22,7 @@ export function ConfirmationDialog({
   confirmVariant = "default",
   pendingLabel,
   pending = false,
+  confirmDisabled = false,
   error,
   onConfirm,
   finalFocus,
@@ -35,6 +36,7 @@ export function ConfirmationDialog({
   confirmVariant?: ComponentProps<typeof AlertDialogAction>["variant"];
   pendingLabel: string;
   pending?: boolean;
+  confirmDisabled?: boolean;
   error?: string;
   onConfirm: () => void;
   finalFocus?: ComponentProps<typeof AlertDialogContent>["finalFocus"];
@@ -68,9 +70,10 @@ export function ConfirmationDialog({
           <AlertDialogAction
             type="button"
             variant={confirmVariant}
-            aria-disabled={pending}
+            disabled={confirmDisabled}
+            aria-disabled={pending || confirmDisabled}
             onClick={() => {
-              if (!pending) onConfirm();
+              if (!pending && !confirmDisabled) onConfirm();
             }}
           >
             {pending && <Spinner aria-hidden data-icon="inline-start" />}

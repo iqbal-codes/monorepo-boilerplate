@@ -482,4 +482,57 @@ describe("UnsavedChangesGuard", () => {
       await view.cleanup();
     }
   });
+
+  test("disables Discard changes during pending save while keeping Keep editing enabled", async () => {
+    let discardCalls = 0;
+    let proceedCalls = 0;
+    let resetCalls = 0;
+
+    const view = await renderInDom(
+      <UnsavedChangesGuard
+        isDirty
+        enabled
+        pending
+        onDiscard={() => {
+          discardCalls += 1;
+        }}
+        blocker={{
+          status: "blocked",
+          proceed: () => {
+            proceedCalls += 1;
+          },
+          reset: () => {
+            resetCalls += 1;
+          },
+        }}
+      />,
+    );
+
+    try {
+      const dialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(dialog).not.toBeNull();
+      const buttons = Array.from(dialog?.querySelectorAll("button") ?? []) as HTMLButtonElement[];
+      const keepBtn = buttons.find((btn) => btn.textContent?.includes("Keep editing"));
+      const discardBtn = buttons.find((btn) => btn.textContent?.includes("Discard changes"));
+
+      expect(keepBtn?.disabled).toBe(false);
+      expect(discardBtn?.disabled).toBe(true);
+      expect(discardBtn?.getAttribute("aria-disabled")).toBe("true");
+
+      await act(async () => {
+        discardBtn?.click();
+      });
+      expect(discardCalls).toBe(0);
+      expect(proceedCalls).toBe(0);
+
+      await act(async () => {
+        keepBtn?.click();
+      });
+      expect(resetCalls).toBe(1);
+      expect(discardCalls).toBe(0);
+      expect(proceedCalls).toBe(0);
+    } finally {
+      await view.cleanup();
+    }
+  });
 });

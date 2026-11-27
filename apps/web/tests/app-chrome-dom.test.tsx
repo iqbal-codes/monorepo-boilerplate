@@ -97,7 +97,14 @@ let sessionHookState: {
   refetch: async () => {},
 };
 
-let stopImpersonatingImpl: () => Promise<{ error?: { message?: string } | null }> = async () => ({
+let stopImpersonatingImpl: () => Promise<{
+  data?: {
+    user: { id: string; name: string; email: string; role?: string };
+    session: { id: string; impersonatedBy?: string | null };
+  } | null;
+  error?: { message?: string } | null;
+}> = async () => ({
+  data: null,
   error: null,
 });
 
@@ -440,6 +447,178 @@ describe("AppSystemBanners seam safety", () => {
       host.remove();
     }
   });
+
+  test("latches 401 so Retry (error cleared -> 500) never resurrects the stale impersonation seed", async () => {
+    const impersonatedInitial = {
+      user: { id: "u-target", name: "Target User", email: "target@example.com" },
+      session: { id: "s-imp", impersonatedBy: "admin-1" },
+    } as never;
+
+    let refetchCalls = 0;
+    sessionHookState = {
+      data: null,
+      error: { status: 401, message: "Unauthorized" },
+      isPending: false,
+      refetch: async () => {
+        refetchCalls += 1;
+      },
+    };
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { createRoot: makeRoot } = await import("react-dom/client");
+    const root = makeRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <AppSystemBanners initialSession={impersonatedInitial} />
+          </QueryClientProvider>,
+        );
+      });
+      expect(host.textContent).not.toContain("Viewing as Target User");
+      expect(host.textContent).not.toContain("Stop impersonating");
+
+      // Better Auth clears `error` when Retry begins (isPending: true), then returns 500.
+      const retryBtn = Array.from(host.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.includes("Retry"),
+      );
+      expect(retryBtn).toBeDefined();
+      await act(async () => {
+        retryBtn?.click();
+      });
+      expect(refetchCalls).toBe(1);
+
+      sessionHookState = {
+        data: null,
+        error: null,
+        isPending: true,
+        refetch: sessionHookState.refetch,
+      };
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <AppSystemBanners initialSession={impersonatedInitial} />
+          </QueryClientProvider>,
+        );
+      });
+      expect(host.textContent).not.toContain("Viewing as Target User");
+
+      sessionHookState = {
+        data: null,
+        error: { status: 500, message: "Internal Server Error" },
+        isPending: false,
+        refetch: sessionHookState.refetch,
+      };
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <AppSystemBanners initialSession={impersonatedInitial} />
+          </QueryClientProvider>,
+        );
+      });
+      expect(host.textContent).not.toContain("Viewing as Target User");
+      expect(host.textContent).not.toContain("Stop impersonating");
+      expect(host.textContent).toContain("Could not refresh session status");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+    }
+  });
+
+  test("unmounts target identity subtree immediately from Stop response even when refetch stalls and reload is suppressed", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["assistant", "threads"], [{ id: "private-target-thread" }]);
+
+    const targetSession = {
+      user: { id: "u-target", name: "Target User", email: "target@example.com" },
+      session: { id: "s-imp", impersonatedBy: "admin-1" },
+    };
+    const adminSession = {
+      user: { id: "admin-1", name: "Admin", email: "admin@example.com", role: "admin" },
+      session: { id: "s-admin", impersonatedBy: null },
+    };
+
+    // Stalled GET /get-session that never resolves during the assertion window.
+    let refetchStarted = false;
+    sessionHookState = {
+      data: targetSession,
+      error: null,
+      isPending: false,
+      refetch: () => {
+        refetchStarted = true;
+        return new Promise<void>(() => {});
+      },
+    };
+    stopImpersonatingImpl = async () => ({
+      data: adminSession,
+      error: null,
+    });
+
+    let targetUnmounts = 0;
+    function IdentityScopedChild({ userId }: { userId: string }) {
+      React.useEffect(() => {
+        return () => {
+          if (userId === "u-target") targetUnmounts += 1;
+        };
+      }, [userId]);
+      return <div data-testid="identity-subtree">{userId}</div>;
+    }
+
+    function StopHarness() {
+      const [restored, setRestored] = React.useState<typeof adminSession | null>(null);
+      const [epoch, setEpoch] = React.useState(0);
+      const activeUserId = restored?.user.id ?? targetSession.user.id;
+      return (
+        <div key={`${activeUserId}:${epoch}`}>
+          <AppSystemBanners
+            initialSession={restored ?? (targetSession as never)}
+            sessionOverride={restored as never}
+            onIdentityReset={(next) => {
+              setRestored((next as typeof adminSession | null) ?? null);
+              setEpoch((n) => n + 1);
+            }}
+            onReload={() => {
+              // Suppressed reload (e.g. cancelled beforeunload)
+            }}
+          />
+          <IdentityScopedChild userId={activeUserId} />
+        </div>
+      );
+    }
+
+    const view = await renderWithQuery(<StopHarness />, queryClient);
+    try {
+      expect(view.host.textContent).toContain("Viewing as Target User");
+      expect(view.host.querySelector('[data-testid="identity-subtree"]')?.textContent).toBe(
+        "u-target",
+      );
+
+      const stopBtn = Array.from(view.host.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.includes("Stop impersonating"),
+      );
+      expect(stopBtn).toBeDefined();
+
+      await act(async () => {
+        stopBtn?.click();
+        await Promise.resolve();
+      });
+
+      expect(targetUnmounts).toBe(1);
+      expect(refetchStarted).toBe(true);
+      expect(queryClient.getQueryData(["assistant", "threads"])).toBeUndefined();
+      expect(view.host.querySelector('[data-testid="identity-subtree"]')?.textContent).toBe(
+        "admin-1",
+      );
+      expect(view.host.textContent).not.toContain("Viewing as Target User");
+    } finally {
+      await view.cleanup();
+    }
+  });
 });
 
 describe("CustomerFormDrawer pending save and Escape guard", () => {
@@ -593,7 +772,24 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
       await act(async () => {
         view.host.querySelector<HTMLButtonElement>('[data-testid="trigger-back"]')?.click();
       });
-      expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(true);
+      const alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(Boolean(alertDialog)).toBe(true);
+
+      // While save is in flight, Discard changes must be disabled and must not proceed/reset,
+      // while Keep editing remains enabled.
+      const discardBtn = Array.from(alertDialog?.querySelectorAll("button") ?? []).find((btn) =>
+        btn.textContent?.includes("Discard changes"),
+      ) as HTMLButtonElement | undefined;
+      const keepBtn = Array.from(alertDialog?.querySelectorAll("button") ?? []).find((btn) =>
+        btn.textContent?.includes("Keep editing"),
+      ) as HTMLButtonElement | undefined;
+      expect(discardBtn?.disabled).toBe(true);
+      expect(keepBtn?.disabled).toBe(false);
+      await act(async () => {
+        discardBtn?.click();
+      });
+      expect(proceedCalls).toBe(0);
+      expect(nameInput?.value).toBe("Save During Back");
 
       // Save resolves successfully: drawer AND discard confirmation must both close cleanly.
       await act(async () => {

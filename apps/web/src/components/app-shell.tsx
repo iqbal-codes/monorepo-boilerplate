@@ -24,11 +24,13 @@ import { AppSettingsDialog } from "@/components/settings/app-settings-dialog";
 export function AppShell({
   children,
   initialSession = null,
+  sessionOverride = null,
   onIdentityReset,
 }: {
   children: ReactNode;
   initialSession?: AppSession | null;
-  onIdentityReset?: () => void;
+  sessionOverride?: AppSession | null;
+  onIdentityReset?: (restoredSession: AppSession | null) => void;
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [commandOpen, setCommandOpen] = useState(false);
@@ -90,7 +92,11 @@ export function AppShell({
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
-          <AppSystemBanners initialSession={initialSession} onIdentityReset={onIdentityReset} />
+          <AppSystemBanners
+            initialSession={initialSession}
+            sessionOverride={sessionOverride}
+            onIdentityReset={onIdentityReset}
+          />
           <AppTopbar onOpenCommandCenter={openCommandCenter} />
           <div
             data-slot="app-content"
