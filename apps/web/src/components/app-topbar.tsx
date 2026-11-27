@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { MoonIcon, SunIcon } from "lucide-react";
+import { MoonIcon, SearchIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import {
@@ -25,8 +25,11 @@ import { activeMainItem } from "@/lib/nav";
  * `staticData.pageTitle`, so every screen names itself without passing props
  * through the layout. The section crumb comes from `nav.ts` and is omitted on a
  * section's index route, which would otherwise read "Customers / Customers".
+ *
+ * Below `md` the sidebar is a Sheet, so the top bar carries an icon-only
+ * Command Center trigger; above `md` the trigger lives in the sidebar header.
  */
-export function AppTopbar() {
+export function AppTopbar({ onOpenCommandCenter }: { onOpenCommandCenter: () => void }) {
   const { resolvedTheme, setTheme } = useTheme();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const pageTitle = useRouterState({
@@ -74,6 +77,15 @@ export function AppTopbar() {
         </Breadcrumb>
       </div>
       <div className="ml-auto flex items-center gap-1 px-4">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="md:hidden"
+          aria-label="Search or jump to"
+          onClick={onOpenCommandCenter}
+        >
+          <SearchIcon aria-hidden />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"

@@ -1,9 +1,10 @@
-import type * as React from "react";
+import { useState, type ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 
 import { SidebarInset, SidebarProvider } from "@monorepo-boilerplate/ui/components/sidebar";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { CommandCenter } from "@/components/command-center";
 import { PageTitleProvider } from "@/components/page-title";
 import { AppTopbar } from "@/components/app-topbar";
 
@@ -17,15 +18,16 @@ import { AppTopbar } from "@/components/app-topbar";
  * Fixing the height makes the content pane the scroll container, which is what
  * lets `AppTopbar` stay put while rows scroll under it.
  */
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const [commandOpen, setCommandOpen] = useState(false);
 
   return (
     <PageTitleProvider>
       <SidebarProvider className="h-svh min-h-0 overflow-hidden">
-        <AppSidebar currentPath={pathname} />
+        <AppSidebar currentPath={pathname} onOpenCommandCenter={() => setCommandOpen(true)} />
         <SidebarInset className="min-w-0 overflow-hidden">
-          <AppTopbar />
+          <AppTopbar onOpenCommandCenter={() => setCommandOpen(true)} />
           <div
             data-slot="app-content"
             className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 md:gap-6 md:p-6"
@@ -33,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </SidebarInset>
+        <CommandCenter open={commandOpen} onOpenChange={setCommandOpen} />
       </SidebarProvider>
     </PageTitleProvider>
   );

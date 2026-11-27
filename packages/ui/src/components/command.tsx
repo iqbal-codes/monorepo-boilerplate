@@ -41,14 +41,16 @@ function CommandDialog({
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
       <DialogContent
         className={cn("top-1/3 translate-y-0 overflow-hidden p-0", className)}
         showCloseButton={showCloseButton}
       >
+        {/* Inside the popup: Base UI keeps Dialog Root children mounted, so a
+            header outside would stay in the accessibility tree while closed. */}
+        <DialogHeader className="sr-only">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         {children}
       </DialogContent>
     </Dialog>

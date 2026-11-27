@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { GalleryVerticalEndIcon } from "lucide-react";
+import { GalleryVerticalEndIcon, SearchIcon } from "lucide-react";
 
+import { Kbd } from "@monorepo-boilerplate/ui/components/kbd";
 import {
   Sidebar,
   SidebarContent,
@@ -15,6 +16,7 @@ import {
 import { NavMain } from "@/components/sidebar/nav-main";
 import { NavShortcuts } from "@/components/sidebar/nav-shortcuts";
 import { NavUser } from "@/components/sidebar/nav-user";
+import { commandShortcutLabel } from "@/lib/command-shortcut";
 import { activeMainItem, navMain, navShortcuts } from "@/lib/nav";
 
 /**
@@ -26,8 +28,16 @@ import { activeMainItem, navMain, navShortcuts } from "@/lib/nav";
  *   team picker would be a control with nothing behind it.
  * - **Real session** in `NavUser` instead of sample data.
  * - **Typed router links** instead of `<a href="#">`.
+ * - **Command Center trigger** below the brand, keeping search with navigation;
+ *   it collapses to the search icon and gains a tooltip in icon mode.
  */
-export function AppSidebar({ currentPath }: { currentPath: string }) {
+export function AppSidebar({
+  currentPath,
+  onOpenCommandCenter,
+}: {
+  currentPath: string;
+  onOpenCommandCenter: () => void;
+}) {
   const active = activeMainItem(currentPath);
 
   return (
@@ -43,6 +53,23 @@ export function AppSidebar({ currentPath }: { currentPath: string }) {
                 <span className="truncate font-medium">monorepo-boilerplate</span>
                 <span className="truncate text-xs text-muted-foreground">Internal tools</span>
               </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem className="max-md:hidden">
+            <SidebarMenuButton
+              type="button"
+              variant="outline"
+              tooltip="Search or jump to"
+              aria-label="Search or jump to"
+              onClick={onOpenCommandCenter}
+            >
+              <SearchIcon />
+              <span className="truncate group-data-[collapsible=icon]:hidden">
+                Search or jump to…
+              </span>
+              <Kbd className="ml-auto group-data-[collapsible=icon]:hidden">
+                {commandShortcutLabel()}
+              </Kbd>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
