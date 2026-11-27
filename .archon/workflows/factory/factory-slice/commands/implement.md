@@ -6,7 +6,7 @@ Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD i
 
 1. **Read repo standards, contract, and anchored specs first:**
    - Read repository guidance and follow the architecture, modularity, and UI rules it declares. Ground tooling in the approved spec and repository configuration. For a new project, use the agreed stack choices and surface unresolved decisions in the contract.
-   - Read `$INPUTS.contract_path` in full and any linked UI brief.
+   - Read `$INPUTS.contract_path` in full, `$ARTIFACTS_DIR/qa-testcases.md` (if present), and any linked UI brief.
    - If a product screen in scope has visual artifacts in `$INPUTS.contract_path` or `ui-design-brief.md` (links to image files or screenshots from any design tool), **open and inspect those image files with your file-reading tool before coding** and use them to match layout, proportions, and visual hierarchy while implementing all `Required UI States` with the project’s existing UI conventions.
    - Read only the referenced sections of linked design docs, `Archetype Reference`, and directory `README.md` contracts along your target paths.
    - If an `Archetype Reference` is listed, mirror its folder/layer conventions (while strictly applying any newer standards in `AGENTS.md`).
@@ -20,7 +20,7 @@ Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD i
    - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
    - Keep entrypoints thin and decompose complex modules according to repository conventions. Update the corresponding lockfile when dependencies change, subject to the same ownership rules.
 3. **TDD & Domain-Appropriate UI Execution:**
-   - For behavior changes, write failing tests at the declared `Test Seam(s)` first, then implement and refactor. For scaffolds, use the upstream generator for the baseline and verify the integration checks in the handoff; do not use guessed filenames as tests of scaffold correctness.
+   - For behavior changes, write failing tests at the declared `Test Seam(s)` covering every applicable `TC-*` in `$ARTIFACTS_DIR/qa-testcases.md` first, then implement and refactor (leaving `Out of Scope` baseline behavior untouched). For scaffolds, use the upstream generator for the baseline and verify the integration checks in the handoff; do not use guessed filenames as tests of scaffold correctness.
    - For product UI within the slice, implement the contract’s flows, states, and layout. Reuse the project’s components and style conventions where they exist. Preserve accessible names, keyboard/focus behavior, readable contrast, and recovery from errors on the supported devices.
    - Verify calls and data formats across the boundaries changed by the slice. Use the owning contracts and domain helpers.
    - Avoid speculative abstractions (no YAGNI), silent fallbacks, or hand-synced duplicate types when an owning schema/contract already exists.

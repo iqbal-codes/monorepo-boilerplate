@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  buildQaTestCasesMarkdown,
   detectGitRepo,
   emit,
   extractLinkedIssueNumber,
@@ -298,6 +299,7 @@ const forbiddenPaths = resolveForbiddenPaths(policyBase, parsed.forbiddenPaths);
 
 const contractPath = join(artifactsDir, 'contract.md');
 writeFileSync(contractPath, contractMarkdown, 'utf8');
+writeFileSync(join(artifactsDir, 'qa-testcases.md'), buildQaTestCasesMarkdown(parsed), 'utf8');
 
 const feedbackLines: string[] = [
   `# Human Maintainer Feedback for PR #${pr.number}`,

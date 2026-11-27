@@ -5,7 +5,7 @@
  * Writes full evidence to $ARTIFACTS_DIR/mechanical-gate.md.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { auditBoundaries, emit, isRenderedUiFile, resolvePreviewCommand, runCmd, text } from '../../.shared/contract.ts';
 import { deliveryPaths, parseAllowedFolders } from '../../.shared/ownership.ts';
@@ -13,7 +13,7 @@ import { deliveryPaths, parseAllowedFolders } from '../../.shared/ownership.ts';
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 mkdirSync(artifactsDir, { recursive: true });
 // Clear stale review reports from any prior iteration before running this round's gate
-for (const stale of ['spec.md', 'standards.md', 'seams-errors.md']) {
+for (const stale of ['code.md', 'spec.md', 'standards.md', 'seams-errors.md']) {
   rmSync(join(artifactsDir, 'review', stale), { force: true });
 }
 
@@ -93,7 +93,64 @@ if (boundary.outOfBounds.length > 0) {
   reportLines.push('');
 }
 
+function collectStaticHygieneSignals(files: string[], base: string): string[] {
+  const signals: string[] = [];
+  const oversized: string[] = [];
+  const uiSmells: string[] = [];
+
+  for (const relPath of files) {
+    if (!existsSync(relPath)) continue;
+    if (/\.(md|json|yaml|yml|lock|svg|png|jpg|css)$/i.test(relPath)) continue;
+    if (/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[jt]sx?$/i.test(relPath)) continue;
+
+    const lineCount = readFileSync(relPath, 'utf8').split(/\r?\n/).length;
+    const isUi = isRenderedUiFile(relPath);
+    const limit = isUi ? 300 : 400;
+    if (lineCount > limit) {
+      oversized.push(`\`${relPath}\` (${lineCount} lines > ${limit})`);
+    }
+    if (isUi) {
+      const diffRes = runCmd(['git', 'diff', '-U0', base, '--', relPath], { allowFail: true });
+      if (diffRes.code === 0 && diffRes.stdout) {
+        const added = diffRes.stdout
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith('+') && !l.startsWith('+++'));
+        if (added.some((l) => /\bspace-[xy]-/.test(l))) {
+          uiSmells.push(`\`${relPath}\`: added \`space-x-*\`/\`space-y-*\` utility`);
+        }
+        if (added.some((l) => /<(button|input|select)\b/.test(l))) {
+          uiSmells.push(`\`${relPath}\`: added raw HTML \`<button>\`/\`<input>\`/\`<select>\``);
+        }
+        if (added.some((l) => /#[0-9a-fA-F]{3,8}\b/.test(l))) {
+          uiSmells.push(`\`${relPath}\`: added hardcoded hex color`);
+        }
+      }
+    }
+  }
+
+  const wsCheck = runCmd(['git', 'diff', '--check', base], { allowFail: true });
+  signals.push(`- **Oversized changed files:** ${oversized.length > 0 ? oversized.join(', ') : 'none'}`);
+  signals.push(`- **UI primitive/spacing signals:** ${uiSmells.length > 0 ? uiSmells.join('; ') : 'none'}`);
+  signals.push(
+    `- **Diff whitespace/conflict check:** ${wsCheck.code === 0 ? 'clean' : wsCheck.stdout.split(/\r?\n/).slice(0, 5).join(' | ') || 'issues detected'}`
+  );
+  return signals;
+}
+
+const prevFeedbackPath = join(artifactsDir, 'round-feedback.md');
+const prevShaMatch = existsSync(prevFeedbackPath)
+  ? readFileSync(prevFeedbackPath, 'utf8').match(/\*\*Reviewed SHA:\*\*\s*`([a-f0-9]{7,40})`/i)
+  : null;
+const prevSha = prevShaMatch?.[1] || '';
+
 reportLines.push('## Diff Stat', '```text', diffStat, '```', '');
+if (prevSha) {
+  const deltaStat = runCmd(['git', 'diff', '--stat', `${prevSha}..HEAD`], { allowFail: true }).stdout;
+  if (deltaStat) {
+    reportLines.push(`## Delta Since Last Round (\`${prevSha.slice(0, 7)}..HEAD\`)`, '```text', deltaStat, '```', '');
+  }
+}
+reportLines.push('## Static Hygiene Signals (0 LLM tokens)', ...collectStaticHygieneSignals(changedFiles, baseSha), '');
 reportLines.push('## Verification Output (tail)', '```text', checksOutput, '```', '');
 
 writeFileSync(join(artifactsDir, 'mechanical-gate.md'), reportLines.join('\n'), 'utf8');

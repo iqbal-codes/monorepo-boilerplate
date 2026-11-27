@@ -22,6 +22,8 @@ export interface ParsedSliceContract {
   archetypeRef: string;
   hasUi: boolean;
   uiStates: string[];
+  testCases: Array<{ id: string; description: string }>;
+  outOfScope: string[];
 }
 
 export function text(v: string | undefined): string {
@@ -369,6 +371,58 @@ export function parseSliceContract(
     labels.includes('ui') ||
     workAreas.some(isRenderedUiFile);
 
+  const testCases: Array<{ id: string; description: string }> = [];
+  const tcSectionMatch = markdown.match(
+    /\*\*Test Case Checklist[^:]*:\*\*([\s\S]*?)(?:\n#{1,6}\s|\n\s*[-*]\s+\*\*|\n\*\*|$)/i
+  );
+  if (tcSectionMatch) {
+    let seq = 1;
+    for (const line of tcSectionMatch[1].split(/\r?\n/)) {
+      const m = line.match(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?(?:`?(TC-[A-Z0-9-]+)`?\s*[:\-–]?\s*)?(.+)$/i);
+      if (!m) continue;
+      const desc = m[2].trim();
+      if (!desc || /^<!--/.test(desc) || /^n\/a$/i.test(desc)) continue;
+      const id = (m[1] || `TC-${String(seq).padStart(2, '0')}`).toUpperCase();
+      testCases.push({ id, description: desc });
+      seq++;
+    }
+  }
+  if (testCases.length === 0) {
+    let seq = 1;
+    for (const state of uiStates) {
+      testCases.push({
+        id: `TC-${String(seq++).padStart(2, '0')}`,
+        description: `[UI] ${state}`,
+      });
+    }
+    const acBlock = acceptanceSection?.[1] ?? markdown;
+    for (const line of acBlock.split(/\r?\n/)) {
+      const m = line.match(/^\s*[-*]\s+\[[ xX]\]\s+(.+)$/);
+      if (!m) continue;
+      const desc = m[1].trim();
+      if (desc && !/^\*\*/.test(desc)) {
+        testCases.push({
+          id: `TC-${String(seq++).padStart(2, '0')}`,
+          description: `[Acceptance] ${desc}`,
+        });
+      }
+      if (testCases.length >= 12) break;
+    }
+  }
+
+  const outOfScope: string[] = [];
+  const oosSectionMatch = markdown.match(
+    /\*\*Out of Scope[^:]*:\*\*([\s\S]*?)(?:\n#{1,6}\s|\n\s*[-*]\s+\*\*|\n\*\*|$)/i
+  );
+  if (oosSectionMatch) {
+    for (const line of oosSectionMatch[1].split(/\r?\n/)) {
+      const m = line.match(/^\s*[-*]\s+(.+)$/);
+      if (!m) continue;
+      const val = m[1].trim();
+      if (val && !/^<!--/.test(val) && !/^n\/a$/i.test(val)) outOfScope.push(val);
+    }
+  }
+
   return {
     title,
     sliceId,
@@ -384,7 +438,45 @@ export function parseSliceContract(
     archetypeRef,
     hasUi,
     uiStates,
+    testCases,
+    outOfScope,
   };
+}
+
+/**
+ * Generates the initial `$ARTIFACTS_DIR/qa-testcases.md` ledger used by implementers (TDD)
+ * and QA reviewers (Round 1 execution + freeze, Round 2+ regression-only).
+ */
+export function buildQaTestCasesMarkdown(parsed: ParsedSliceContract): string {
+  const escCell = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n+/g, ' ').trim();
+  const rows =
+    parsed.testCases.length > 0
+      ? parsed.testCases.map((tc) => `| \`${tc.id}\` | ${escCell(tc.description)} | \`PENDING\` | — |`)
+      : ['| `TC-01` | [Acceptance] Verify all contract deliverables and invariants pass | `PENDING` | — |'];
+  const oosLines =
+    parsed.outOfScope.length > 0
+      ? parsed.outOfScope.map((item) => `- ${item}`)
+      : ['- Existing baseline behavior outside this slice’s deliverables unless explicitly broken by the diff.'];
+
+  return [
+    `# QA Test-Case Ledger — ${parsed.title}`,
+    '',
+    `- **Risk Tier:** \`${parsed.riskTier}\``,
+    '- **Freeze State:** `OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`',
+    '- **Scope Rule:** Only `TC-*` items in this ledger are blocking QA scope. Do NOT fail on items listed under Out of Scope.',
+    '',
+    '## Contract Test Cases (Baseline)',
+    '| ID | Case / Expected Outcome | Status | Notes |',
+    '| :--- | :--- | :--- | :--- |',
+    ...rows,
+    '',
+    '## Out of Scope (Do Not Fail On)',
+    ...oosLines,
+    '',
+    '## Round 1 Exploratory Cases (Frozen After Round 1)',
+    '- _(None yet — Round 1 QA may emit `TC-R1-*` lines only for concrete defects in files/flows touched by the diff.)_',
+    '',
+  ].join('\n');
 }
 
 // Existing contracts can omit the command when the repository declares a script

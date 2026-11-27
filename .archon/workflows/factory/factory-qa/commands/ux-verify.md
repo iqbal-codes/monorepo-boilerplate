@@ -4,6 +4,7 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 
 ## Inputs
 - Slice contract (read `Visual & UI Contract` — `Layout Pattern`, `Anti-Patterns`, `UI Design References`, `Required UI States` — and `Scope & Deliverables`): `$INPUTS.contract_path`
+- QA test-case ledger (strictly read-only for you; `round-verdict` merges your statuses after parallel QA finishes): `$ARTIFACTS_DIR/qa-testcases.md`
 - Optional UI brief and visual references linked from the contract.
 - Preview runner command: `$INPUTS.preview_cmd`
 - Before evidence (if present): `$ARTIFACTS_DIR/evidence/before.md`
@@ -12,8 +13,9 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 
 ## Procedure
 
-1. Read `$INPUTS.contract_path` (plus the linked UI brief and visual references when present) to collect every **Required UI State**, declared **Layout Pattern**, **Anti-Pattern**, performance budget, and viewport requirement.
-   - If `$ARTIFACTS_DIR/round-feedback.md` or `$ARTIFACTS_DIR/evidence/ux-report.md` exists from a prior round, list every previously reported UX defect so you verify them explicitly first, then complete the full sweep below for regressions.
+1. Read `$INPUTS.contract_path`, `$ARTIFACTS_DIR/qa-testcases.md`, and linked UI brief/references to collect every **Required UI State**, `TC-*` test case, **Out of Scope** boundary, declared **Layout Pattern**, **Anti-Pattern**, performance budget, and viewport requirement.
+   - **Round 1:** Verify every UI-applicable `TC-*` in `qa-testcases.md`, plus one bounded exploratory check over the UI surfaces touched by this change (never fail on items listed under `Out of Scope`). Emit any newly discovered diff-bounded UX defect as `TC-R1-UX-01`, `TC-R1-UX-02`, ... under `## Test Case Results`.
+   - **Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md`):** Check `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`), reuse `$ARTIFACTS_DIR/evidence/ux-check.mjs` if present, and **only** re-verify previously `FAIL` `TC-*` cases plus `TC-*` cases affected by the fix delta — do NOT invent new exploratory cases on untouched areas.
 2. Start the preview server via `$INPUTS.preview_cmd` and parse `URL=...` and `PID=...`. Always stop `PID` before exiting, even on failure.
 3. **Exhaustive single-pass browser audit (do NOT stop after the first defect):**
    Use the repository’s browser tooling when documented, or an available browser tool. If `$ARTIFACTS_DIR/evidence/ux-check.mjs` (or equivalent saved verification script) already exists from Round 1, inspect and reuse/extend it instead of rebuilding setup, auth, and selectors from scratch; otherwise save your main deterministic verification script to `$ARTIFACTS_DIR/evidence/ux-check.mjs` so subsequent rounds can reuse it.
@@ -25,6 +27,8 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 4. Capture 2–4 representative **After** screenshots to `$ARTIFACTS_DIR/evidence/after-<state>.png` with explicit viewport tags (e.g. `after-desktop.png`, `after-mobile-320.png`, `after-desktop-<state>.png`, `after-mobile-<state>.png`) so Before/After comparisons pair by viewport, then stop the preview server using `PID`.
 5. Open and inspect every captured screenshot. For a launch-only preview, check the static marker and scope. For product UI, evaluate layout, hierarchy, readable contrast, accessible names, keyboard paths and focus, error recovery, and fidelity to the supplied references. Treat failures that block a required user task or violate an explicit requirement as blocking.
 6. Write a concise black-box report to `$ARTIFACTS_DIR/evidence/ux-report.md` listing:
+   - `## Test Case Results` (`- TC-01: PASS | FAIL — <note>`, plus `- TC-R1-UX-01: FAIL — <note>` only on Round 1 if a new diff-bounded defect was found)
+   - Prior round UX checklist (`[FIXED]` / `[STILL OPEN]`, if Round 2+)
    - Flows exercised and states verified (PASS / FAIL)
    - Visual hierarchy, surface contrast (including measured focus-ring contrast), and layout-metaphor assessment (citing exact screenshot filenames)
    - Console / network errors observed (if any)

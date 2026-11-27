@@ -57,15 +57,10 @@ qa__mechanical-gate:
   diff_stat: "2 files changed, 40 insertions(+)"
   summary: "boundary clean & checks passed"
 
-qa__review-spec:
+qa__review-code:
   lgtm: true
   blocking_count: 0
-  summary: "All maintainer comments and tests verified."
-
-qa__review-standards:
-  lgtm: true
-  blocking_count: 0
-  summary: "Follows coding standards."
+  summary: "All maintainer comments, tests, and coding standards verified."
 
 qa__verdict:
   round: 1

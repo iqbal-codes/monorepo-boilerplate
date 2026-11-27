@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   auditBoundaries,
+  buildQaTestCasesMarkdown,
   extractNativeBlockedByNumbers,
   isRenderedUiFile,
   parseSliceContract,
@@ -100,5 +101,35 @@ describe('Slice contract and boundary guards', () => {
         ],
       })
     ).toEqual({ open: [10], all: [10, 11] });
+  });
+
+  test('parses Test Case Checklist and Out of Scope and builds qa-testcases ledger', () => {
+    const md = [
+      '# Export Customers as XLSX',
+      '- **Risk Tier:** `strict`',
+      '- **Verification Command:** `bun test`',
+      '- **Required UI States:**',
+      '  - Desktop & 320px export menu',
+      '## Acceptance Criteria & Verification Gate',
+      '- [ ] Excel downloads literal strings',
+      '- **Test Case Checklist (Outcome-Based):**',
+      '  - `TC-01` `[UI]` Desktop & 320px menu opens without overflow -> menu fits cleanly',
+      '  - `TC-02` `[Boundary]` 10,001 rows -> shows PAYLOAD_TOO_LARGE alert',
+      '- **Out of Scope (Do Not Fail QA On):**',
+      '  - Existing Import CSV dialog copy',
+    ].join('\n');
+
+    const parsed = parseSliceContract(md);
+    expect(parsed.testCases).toEqual([
+      { id: 'TC-01', description: '`[UI]` Desktop & 320px menu opens without overflow -> menu fits cleanly' },
+      { id: 'TC-02', description: '`[Boundary]` 10,001 rows -> shows PAYLOAD_TOO_LARGE alert' },
+    ]);
+    expect(parsed.outOfScope).toEqual(['Existing Import CSV dialog copy']);
+
+    const ledger = buildQaTestCasesMarkdown(parsed);
+    expect(ledger).toContain('| `TC-01` |');
+    expect(ledger).toContain('| `TC-02` |');
+    expect(ledger).toContain('Existing Import CSV dialog copy');
+    expect(ledger).toContain('`OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`');
   });
 });

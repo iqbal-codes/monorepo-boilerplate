@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -51,6 +51,9 @@ test('a preview hook added by the first UI slice reaches the UX gate', () => {
     const explicit = gate('node scripts/preview.mjs');
     expect(explicit.effective_run_ux).toBe(true);
     expect(explicit.preview_cmd).toBe('node scripts/preview.mjs');
+
+    const report = readFileSync(join(dir, 'artifacts', 'mechanical-gate.md'), 'utf8');
+    expect(report).toContain('## Static Hygiene Signals (0 LLM tokens)');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

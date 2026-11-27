@@ -2,10 +2,10 @@ name: factory-qa
 description: |
   Shared QA round for factory-slice and factory-pr-revise — include it from a loop_group
   body once the patch and PR exist. Runs the deterministic mechanical gate (reserved
-  folders, protected paths, repository verification), then runs optional black-box
-  browser UX verification in parallel with the independent fresh-context review axes
-  (2 on `standard`, plus Seams & Failure-Safety on `risk:strict`), and joins them into
-  one round verdict. It never implements, fixes, or pushes, so it is not runnable on its own.
+  folders, protected paths, repository verification, static hygiene signals), then runs
+  optional black-box browser UX verification in parallel with the consolidated independent
+  code reviewer (plus Seams & Failure-Safety on `risk:strict`), and joins them into one
+  round verdict. It never implements, fixes, or pushes, so it is not runnable on its own.
 
 inputs:
   base_sha:
@@ -66,7 +66,7 @@ nodes:
 
   - id: ux-verify
     command: ux-verify
-    model: large
+    model: medium
     context: fresh
     mutates_checkout: false
     skills:
@@ -87,27 +87,8 @@ nodes:
       required: [passed, screenshots, findings, summary]
 
   # Parallel Independent QA Review (strictly fresh context & read-only, runs concurrently with ux-verify)
-  - id: review-spec
-    command: review-spec
-    model: large
-    context: fresh
-    mutates_checkout: false
-    depends_on: [mechanical-gate]
-    when: "$mechanical-gate.output.passed == true"
-    with:
-      contract_path: "$INPUTS.contract_path"
-      base_sha: "$INPUTS.base_sha"
-      has_ux_report: "$mechanical-gate.output.effective_run_ux"
-    output_format:
-      type: object
-      properties:
-        lgtm: { type: boolean }
-        blocking_count: { type: integer }
-        summary: { type: string }
-      required: [lgtm, blocking_count, summary]
-
-  - id: review-standards
-    command: review-standards
+  - id: review-code
+    command: review-code
     model: large
     context: fresh
     mutates_checkout: false
@@ -120,6 +101,7 @@ nodes:
       contract_path: "$INPUTS.contract_path"
       base_sha: "$INPUTS.base_sha"
       review_mode: "$INPUTS.review_mode"
+      has_ux_report: "$mechanical-gate.output.effective_run_ux"
     output_format:
       type: object
       properties:
@@ -149,7 +131,7 @@ nodes:
   - id: verdict
     script: round-verdict
     runtime: bun
-    depends_on: [mechanical-gate, ux-verify, review-spec, review-standards, review-seams-errors]
+    depends_on: [mechanical-gate, ux-verify, review-code, review-seams-errors]
     trigger_rule: all_done
     with:
       previous_round: "$INPUTS.previous_round"
@@ -166,10 +148,8 @@ nodes:
       mech_diff_stat: { from: "$mechanical-gate.output.diff_stat", if_skipped: null }
       ux_passed: { from: "$ux-verify.output.passed", if_skipped: null }
       ux_summary: { from: "$ux-verify.output.summary", if_skipped: null }
-      spec_lgtm: { from: "$review-spec.output.lgtm", if_skipped: null }
-      spec_summary: { from: "$review-spec.output.summary", if_skipped: null }
-      std_lgtm: { from: "$review-standards.output.lgtm", if_skipped: null }
-      std_summary: { from: "$review-standards.output.summary", if_skipped: null }
+      code_lgtm: { from: "$review-code.output.lgtm", if_skipped: null }
+      code_summary: { from: "$review-code.output.summary", if_skipped: null }
       seams_lgtm: { from: "$review-seams-errors.output.lgtm", if_skipped: null }
       seams_summary: { from: "$review-seams-errors.output.summary", if_skipped: null }
     output_format:

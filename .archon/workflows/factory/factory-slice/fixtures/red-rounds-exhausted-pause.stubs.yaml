@@ -57,15 +57,10 @@ qa__mechanical-gate:
   diff_stat: "4 files changed, 205 insertions(+)"
   summary: "boundary clean & checks passed"
 
-qa__review-spec:
+qa__review-code:
   lgtm: true
   blocking_count: 0
-  summary: "Spec verified."
-
-qa__review-standards:
-  lgtm: true
-  blocking_count: 0
-  summary: "Standards verified."
+  summary: "Spec and standards verified."
 
 qa__review-seams-errors:
   lgtm: false

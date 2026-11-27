@@ -49,6 +49,11 @@ Ground the raw/vague request in `$INPUTS.request_path` against the live reposito
 - **Verification Command:** `<exact runnable repo command>`
 - [ ] *(If bug/crash report)* Regression test reproduces the reported failure/stack condition red -> green
 - [ ] <concrete verifiable acceptance criterion>
+- **Test Case Checklist (Outcome-Based):**
+  - `TC-01` `[Functional|UI|Boundary|Error]` <precondition / input> -> <expected observable outcome>
+  <!-- Translate ticket into 5-8 outcome-focused TCs for standard, 8-12 for strict (happy + negative/boundary per deliverable, plus 320px/keyboard focus if UI). Avoid naming internal functions. -->
+- **Out of Scope (Do Not Fail QA On):**
+  - <2-3 adjacent baseline behaviors or unrelated screens QA must not block on unless broken by this change>
 ```
 
 5. Set `ready: true` when scope, expected behavior, and verification are settled. For scaffold work, the handoff below must also be complete. Otherwise set `ready: false`, record the blocking decisions or missing evidence in `open_questions`, and leave the draft as an artifact.

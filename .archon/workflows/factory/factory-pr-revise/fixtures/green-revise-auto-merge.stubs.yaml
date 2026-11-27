@@ -57,15 +57,10 @@ qa__mechanical-gate:
   diff_stat: "2 files changed, 22 insertions(+)"
   summary: "boundary clean & checks passed"
 
-qa__review-spec:
+qa__review-code:
   lgtm: true
   blocking_count: 0
-  summary: "Verified offset clamping."
-
-qa__review-standards:
-  lgtm: true
-  blocking_count: 0
-  summary: "Clean."
+  summary: "Verified offset clamping and standards."
 
 qa__verdict:
   round: 1

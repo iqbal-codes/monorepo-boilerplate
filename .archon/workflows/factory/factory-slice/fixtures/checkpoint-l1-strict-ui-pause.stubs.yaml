@@ -64,15 +64,10 @@ qa__ux-verify:
   findings: []
   summary: "All 3 required UI states verified via agent-browser."
 
-qa__review-spec:
+qa__review-code:
   lgtm: true
   blocking_count: 0
-  summary: "Spec and tests clean."
-
-qa__review-standards:
-  lgtm: true
-  blocking_count: 0
-  summary: "Standards clean."
+  summary: "Spec, tests, and standards clean."
 
 qa__review-seams-errors:
   lgtm: true

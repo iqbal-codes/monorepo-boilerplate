@@ -8,7 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { emit, text } from '../../.shared/contract.ts';
+import { emit, runCmd, text } from '../../.shared/contract.ts';
 import { postPrComment, setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import {
@@ -40,11 +40,8 @@ const mechDiffStat = text(process.env.INPUTS_MECH_DIFF_STAT);
 const uxPassed = text(process.env.INPUTS_UX_PASSED) === 'true';
 const uxSummary = text(process.env.INPUTS_UX_SUMMARY);
 
-const specLgtm = text(process.env.INPUTS_SPEC_LGTM) === 'true';
-const specSummary = text(process.env.INPUTS_SPEC_SUMMARY);
-
-const stdLgtm = text(process.env.INPUTS_STD_LGTM) === 'true';
-const stdSummary = text(process.env.INPUTS_STD_SUMMARY);
+const codeLgtm = text(process.env.INPUTS_CODE_LGTM) === 'true';
+const codeSummary = text(process.env.INPUTS_CODE_SUMMARY);
 
 const seamsLgtm = text(process.env.INPUTS_SEAMS_LGTM) === 'true';
 const seamsSummary = text(process.env.INPUTS_SEAMS_SUMMARY);
@@ -67,8 +64,7 @@ if (fixBlocked) {
 } else {
   const uxFailed = runUx && !uxPassed;
   const missingReviews: string[] = [];
-  if (!specLgtm) missingReviews.push(`Spec+Tests (${specSummary || 'findings open'})`);
-  if (!stdLgtm) missingReviews.push(`Standards+Code (${stdSummary || 'findings open'})`);
+  if (!codeLgtm) missingReviews.push(`Code+Spec+Standards (${codeSummary || 'findings open'})`);
   if (reviewMode === 'strict' && !seamsLgtm) {
     missingReviews.push(`Seams+Errors (${seamsSummary || 'findings open'})`);
   }
@@ -101,8 +97,8 @@ if (fixBlocked) {
     reason = 'ready';
     const axes =
       reviewMode === 'strict'
-        ? 'Spec+Tests, Standards+Code, Seams+Errors'
-        : 'Spec+Tests, Standards+Code';
+        ? 'Code+Spec+Standards, Seams+Errors'
+        : 'Code+Spec+Standards';
     summary = `Round ${round} passed: mechanical gate green${runUx ? ', UX verified' : ''}, QA LGTM (${axes}).`;
   }
 }
@@ -112,33 +108,177 @@ function readFullOptional(filePath: string): string {
   return readFileSync(filePath, 'utf8').trim();
 }
 
+function extractCleanBullets(markdown: string): string[] {
+  if (!markdown.trim()) return [];
+  const lines = markdown.split(/\r?\n/);
+  const bullets: string[] = [];
+  let inClean = false;
+  for (const line of lines) {
+    if (/^#{1,3}\s+.*(verified clean|examined clean)/i.test(line)) {
+      inClean = true;
+      continue;
+    }
+    if (/^#{1,3}\s+/.test(line)) {
+      inClean = false;
+      continue;
+    }
+    if (inClean && /^\s*[-*]\s+/.test(line)) {
+      bullets.push(line.trim());
+    }
+  }
+  return bullets;
+}
+
+const headShaRes = runCmd(['git', 'rev-parse', 'HEAD'], { allowFail: true });
+const reviewedSha = headShaRes.code === 0 ? headShaRes.stdout.trim() : '';
+
 const mechRaw = readFullOptional(join(artifactsDir, 'mechanical-gate.md'));
 const uxRaw = runUx ? readFullOptional(join(artifactsDir, 'evidence', 'ux-report.md')) : '';
 const reviewsRan = !fixBlocked && mechPassed;
-const specRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'spec.md')) : '';
-const stdRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'standards.md')) : '';
+const codeRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'code.md')) : '';
 const seamsRaw =
   reviewsRan && reviewMode === 'strict'
     ? readFullOptional(join(artifactsDir, 'review', 'seams-errors.md'))
     : '';
+
+const openHandoffItems: string[] = [];
+if (mechPassed && runUx && !uxPassed) {
+  const uxBlockers = extractUxBlockingFindings(uxRaw);
+  if (uxBlockers) openHandoffItems.push('**UX:**', uxBlockers);
+}
+if (reviewsRan && !codeLgtm) {
+  const codeBlockers = extractBlockingFindings(codeRaw, 4000);
+  if (codeBlockers) openHandoffItems.push('**Code / Spec / Standards:**', codeBlockers);
+}
+if (reviewsRan && reviewMode === 'strict' && !seamsLgtm) {
+  const seamsBlockers = extractBlockingFindings(seamsRaw, 4000);
+  if (seamsBlockers) openHandoffItems.push('**Seams & Failure-Safety:**', seamsBlockers);
+}
+
+const cleanBullets = [
+  ...extractCleanBullets(codeRaw),
+  ...extractCleanBullets(seamsRaw),
+];
+
+function parseReportedTestCases(reportMarkdown: string): Array<{
+  id: string;
+  status: string;
+  note: string;
+  isExploratory: boolean;
+}> {
+  if (!reportMarkdown.trim()) return [];
+  const results: Array<{ id: string; status: string; note: string; isExploratory: boolean }> = [];
+  for (const line of reportMarkdown.split(/\r?\n/)) {
+    const m = line.match(
+      /^\s*[-*]\s+`?(TC-(?:R\d+-)?[A-Z0-9-]+)`?\s*:\s*(PASS|FAIL|SKIP(?:PED)?|N\/A)\b(?:\s*(?:—|--|-|:)\s*(.+))?$/i
+    );
+    if (!m) continue;
+    const id = m[1].toUpperCase();
+    const status = m[2].toUpperCase();
+    const note = (m[3] || '').trim().replace(/\|/g, '\\|');
+    results.push({ id, status, note, isExploratory: /^TC-R\d+-/i.test(id) });
+  }
+  return results;
+}
+
+function mergeQaTestCasesLedger(): void {
+  const ledgerPath = join(artifactsDir, 'qa-testcases.md');
+  if (!existsSync(ledgerPath)) return;
+
+  const updates = new Map<string, { status: string; note: string; isExploratory: boolean }>();
+  for (const raw of [uxRaw, codeRaw, seamsRaw]) {
+    for (const entry of parseReportedTestCases(raw)) {
+      const prev = updates.get(entry.id);
+      if (!prev || entry.status === 'FAIL' || (prev.status !== 'FAIL' && entry.status === 'PASS')) {
+        updates.set(entry.id, entry);
+      }
+    }
+  }
+
+  let lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
+  const existingIds = new Set<string>();
+
+  lines = lines.map((line) => {
+    if (round === 1 && /^- \*\*Freeze State:\*\*/i.test(line)) {
+      return '- **Freeze State:** `FROZEN (Round 1 complete — Round 2+ must only verify failing/delta-affected TCs)`';
+    }
+    const rowMatch = line.match(/^\|\s*`(TC-[A-Z0-9-]+)`\s*\|\s*(.*?)\s*\|\s*`?[^|`]+`?\s*\|\s*(.*?)\s*\|$/i);
+    if (!rowMatch) return line;
+    const id = rowMatch[1].toUpperCase();
+    existingIds.add(id);
+    const upd = updates.get(id);
+    if (!upd) return line;
+    return `| \`${id}\` | ${rowMatch[2]} | \`${upd.status}\` | ${upd.note || rowMatch[3] || '—'} |`;
+  });
+
+  if (round === 1) {
+    const newExploratory = [...updates.entries()].filter(
+      ([id, info]) => info.isExploratory && !existingIds.has(id)
+    );
+    if (newExploratory.length > 0) {
+      const headerIdx = lines.findIndex((l) => /^##\s+Round 1 Exploratory Cases/i.test(l));
+      const newRows = newExploratory.map(
+        ([id, info]) =>
+          `| \`${id}\` | [Round 1 Exploratory] ${info.note || 'Diff-bounded defect'} | \`${info.status}\` | Round 1 |`
+      );
+      if (headerIdx !== -1) {
+        const placeholderIdx = lines.findIndex(
+          (l, idx) => idx > headerIdx && /_\(None yet/i.test(l)
+        );
+        if (placeholderIdx !== -1) {
+          lines.splice(
+            placeholderIdx,
+            1,
+            '| ID | Case / Expected Outcome | Status | Notes |',
+            '| :--- | :--- | :--- | :--- |',
+            ...newRows
+          );
+        } else {
+          lines.splice(headerIdx + 1, 0, ...newRows);
+        }
+      } else {
+        lines.push(
+          '',
+          '## Round 1 Exploratory Cases (Frozen After Round 1)',
+          '| ID | Case / Expected Outcome | Status | Notes |',
+          '| :--- | :--- | :--- | :--- |',
+          ...newRows
+        );
+      }
+    }
+  }
+
+  writeFileSync(ledgerPath, lines.join('\n'), 'utf8');
+}
+
+mergeQaTestCasesLedger();
 
 const feedbackMd = [
   `# Round ${round} Verdict`,
   '',
   `- **Ready:** ${ready}`,
   `- **Reason:** \`${reason}\``,
+  ...(reviewedSha ? [`- **Reviewed SHA:** \`${reviewedSha}\``] : []),
   `- **Mechanical Gate:** ${mechPassed ? 'PASS' : 'FAIL'} — ${mechSummary}`,
   runUx
     ? `- **UX Check:** ${uxPassed ? 'PASS' : 'FAIL'} — ${uxSummary}`
     : '- **UX Check:** skipped (non-UI or no preview hook)',
-  `- **Spec & Regression Review:** ${reviewsRan ? (specLgtm ? 'LGTM' : 'CHANGES REQUESTED') : 'SKIPPED'} — ${specSummary}`,
-  `- **Standards & Code Review:** ${reviewsRan ? (stdLgtm ? 'LGTM' : 'CHANGES REQUESTED') : 'SKIPPED'} — ${stdSummary}`,
+  `- **Code, Spec & Standards Review:** ${reviewsRan ? (codeLgtm ? 'LGTM' : 'CHANGES REQUESTED') : 'SKIPPED'} — ${codeSummary}`,
   reviewMode === 'strict'
     ? `- **Seams & Failure-Safety Review:** ${reviewsRan ? (seamsLgtm ? 'LGTM' : 'CHANGES REQUESTED') : 'SKIPPED'} — ${seamsSummary}`
-    : '- **Seams & Failure-Safety Review:** merged into Standards axis (standard risk)',
+    : '- **Seams & Failure-Safety Review:** skipped (standard risk)',
   '',
   '## Next Action',
   summary,
+  '',
+  '## Round Handoff Checklist',
+  ...(reviewedSha ? [`- **Delta Command:** \`git diff ${reviewedSha}..HEAD\``] : []),
+  '',
+  '### Open Blocking Items to Verify Fixed',
+  ...(openHandoffItems.length > 0 ? openHandoffItems : ['- None.']),
+  '',
+  '### Prior Verified Clean (Re-audit Only If Touched by Delta)',
+  ...(cleanBullets.length > 0 ? cleanBullets : ['- None recorded.']),
 ].join('\n');
 
 writeFileSync(join(artifactsDir, 'round-feedback.md'), feedbackMd, 'utf8');
@@ -148,7 +288,7 @@ if (repo && prNumber > 0) {
   if (ready) {
     const uxBadge = runUx ? ' · UX: PASS' : '';
     const axesLabel =
-      reviewMode === 'strict' ? 'Spec, Standards, Seams' : 'Spec, Standards';
+      reviewMode === 'strict' ? 'Code+Spec+Standards, Seams' : 'Code+Spec+Standards';
     commentLines.push(
       round === 1
         ? `### ✅ Round 1 Approved — Gate: PASS${uxBadge} · QA Review (${axesLabel}): LGTM`
@@ -183,20 +323,11 @@ if (repo && prNumber > 0) {
       );
     }
 
-    if (reviewsRan && !specLgtm) {
-      const blockers = extractBlockingFindings(specRaw);
+    if (reviewsRan && !codeLgtm) {
+      const blockers = extractBlockingFindings(codeRaw);
       commentLines.push(
-        `#### ❌ Axis 1: Spec & Regression — ${specSummary}`,
-        blockers || '_See `$ARTIFACTS_DIR/review/spec.md`._',
-        ''
-      );
-    }
-
-    if (reviewsRan && !stdLgtm) {
-      const blockers = extractBlockingFindings(stdRaw);
-      commentLines.push(
-        `#### ❌ Axis 2: Standards & Code — ${stdSummary}`,
-        blockers || '_See `$ARTIFACTS_DIR/review/standards.md`._',
+        `#### ❌ Axis 1: Code, Spec & Standards — ${codeSummary}`,
+        blockers || '_See `$ARTIFACTS_DIR/review/code.md`._',
         ''
       );
     }
@@ -204,7 +335,7 @@ if (repo && prNumber > 0) {
     if (reviewsRan && reviewMode === 'strict' && !seamsLgtm) {
       const blockers = extractBlockingFindings(seamsRaw);
       commentLines.push(
-        `#### ❌ Axis 3: Seams & Failure-Safety — ${seamsSummary}`,
+        `#### ❌ Axis 2: Seams & Failure-Safety — ${seamsSummary}`,
         blockers || '_See `$ARTIFACTS_DIR/review/seams-errors.md`._',
         ''
       );

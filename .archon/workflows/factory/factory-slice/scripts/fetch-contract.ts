@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  buildQaTestCasesMarkdown,
   detectBaseBranch,
   detectGitRepo,
   emit,
@@ -171,6 +172,7 @@ const branchName =
 
 const contractPath = join(artifactsDir, 'contract.md');
 writeFileSync(contractPath, markdown, 'utf8');
+writeFileSync(join(artifactsDir, 'qa-testcases.md'), buildQaTestCasesMarkdown(parsed), 'utf8');
 
 if (source === 'issue' && repoInput && issueNumber > 0) {
   if (!contractOk) {

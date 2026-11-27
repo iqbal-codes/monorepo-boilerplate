@@ -6,7 +6,7 @@ You are revising an existing Factory pull request (`$INPUTS.pr_url`) inside its 
 
 1. **Read repository standards, contract, and human feedback first:**
    - Read `AGENTS.md` and `CODING_STANDARDS.md` (if present).
-   - Read `$INPUTS.contract_path` in full for the accepted outcome, acceptance criteria, invariants, and UI requirements.
+   - Read `$INPUTS.contract_path` in full and `$ARTIFACTS_DIR/qa-testcases.md` (if present) for the accepted outcome, acceptance criteria, invariants, and UI requirements.
    - Read `$INPUTS.feedback_path` in full (`CHANGES_REQUESTED` reviews, inline diff comments, and `/fix` / `/revise` directives).
 
 2. **Confirm ownership before editing:**

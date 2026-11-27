@@ -4,7 +4,7 @@ description: |
   implementation (factory:in-progress), opens a draft PR (factory:review), executes
   deterministic folder-reservation, protected-path, and verification gates, optional black-box
   browser UX verification, and independent fresh-context parallel
-  QA review (2 axes on standard, 3 axes on risk:strict). When QA finds defects,
+  QA review (1 consolidated Code+Spec+Standards reviewer on standard, plus Seams & Failure-Safety on risk:strict). When QA finds defects,
   it posts round findings to the PR, moves to factory:changes-requested, and sends
   back to the implementer resuming its prior session (`context: { resume: implement }`).
   Once all gates & QA pass LGTM (factory:approved), finalizes the PR with
