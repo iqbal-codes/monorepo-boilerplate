@@ -135,6 +135,7 @@ nodes:
     trigger_rule: all_done
     with:
       previous_round: "$INPUTS.previous_round"
+      contract_path: "$INPUTS.contract_path"
       repo: "$INPUTS.repo"
       issue_number: "$INPUTS.issue_number"
       pr_number: "$INPUTS.pr_number"

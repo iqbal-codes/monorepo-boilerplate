@@ -6,8 +6,8 @@
  *   factory:review -> factory:approved (all gates & QA LGTM)
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { emit, runCmd, text } from '../../.shared/contract.ts';
 import { postPrComment, setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
@@ -45,6 +45,171 @@ const codeSummary = text(process.env.INPUTS_CODE_SUMMARY);
 
 const seamsLgtm = text(process.env.INPUTS_SEAMS_LGTM) === 'true';
 const seamsSummary = text(process.env.INPUTS_SEAMS_SUMMARY);
+
+function readFullOptional(filePath: string): string {
+  if (!existsSync(filePath)) return '';
+  return readFileSync(filePath, 'utf8').trim();
+}
+
+function extractCleanBullets(markdown: string): string[] {
+  if (!markdown.trim()) return [];
+  const lines = markdown.split(/\r?\n/);
+  const bullets: string[] = [];
+  let inClean = false;
+  for (const line of lines) {
+    if (/^#{1,3}\s+.*(verified clean|examined clean)/i.test(line)) {
+      inClean = true;
+      continue;
+    }
+    if (/^#{1,3}\s+/.test(line)) {
+      inClean = false;
+      continue;
+    }
+    if (inClean && /^\s*[-*]\s+/.test(line)) {
+      bullets.push(line.trim());
+    }
+  }
+  return bullets;
+}
+
+const headShaRes = runCmd(['git', 'rev-parse', 'HEAD'], { allowFail: true });
+const reviewedSha = headShaRes.code === 0 ? headShaRes.stdout.trim() : '';
+
+const mechRaw = readFullOptional(join(artifactsDir, 'mechanical-gate.md'));
+const reviewsRan = !fixBlocked && mechPassed;
+const uxRaw = reviewsRan && runUx ? readFullOptional(join(artifactsDir, 'evidence', 'ux-report.md')) : '';
+const codeRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'code.md')) : '';
+const seamsRaw =
+  reviewsRan && reviewMode === 'strict'
+    ? readFullOptional(join(artifactsDir, 'review', 'seams-errors.md'))
+    : '';
+
+const openHandoffItems: string[] = [];
+if (mechPassed && runUx && !uxPassed) {
+  const uxBlockers = extractUxBlockingFindings(uxRaw);
+  if (uxBlockers) openHandoffItems.push('**UX:**', uxBlockers);
+}
+if (reviewsRan && !codeLgtm) {
+  const codeBlockers = extractBlockingFindings(codeRaw, 4000);
+  if (codeBlockers) openHandoffItems.push('**Code / Spec / Standards:**', codeBlockers);
+}
+if (reviewsRan && reviewMode === 'strict' && !seamsLgtm) {
+  const seamsBlockers = extractBlockingFindings(seamsRaw, 4000);
+  if (seamsBlockers) openHandoffItems.push('**Seams & Failure-Safety:**', seamsBlockers);
+}
+
+const cleanBullets = [
+  ...extractCleanBullets(codeRaw),
+  ...extractCleanBullets(seamsRaw),
+];
+
+function parseReportedTestCases(reportMarkdown: string): Array<{
+  id: string;
+  status: string;
+  note: string;
+  isExploratory: boolean;
+}> {
+  if (!reportMarkdown.trim()) return [];
+  const results: Array<{ id: string; status: string; note: string; isExploratory: boolean }> = [];
+  for (const line of reportMarkdown.split(/\r?\n/)) {
+    const m = line.match(
+      /^\s*[-*]\s+`?(TC-(?:R\d+-)?[A-Z0-9-]+)`?\s*:\s*(PASS|FAIL|PENDING|UNVERIFIED|SKIP(?:PED)?|N\/A)\b(?:\s*(?:—|--|-|:)\s*(.+))?$/i
+    );
+    if (!m) continue;
+    const id = m[1].toUpperCase();
+    const status = m[2].toUpperCase();
+    const note = (m[3] || '').trim().replace(/\|/g, '\\|');
+    results.push({ id, status, note, isExploratory: /^TC-R\d+-/i.test(id) });
+  }
+  return results;
+}
+
+const ledgerRow = /^\|\s*`(TC-[A-Z0-9-]+)`\s*\|\s*((?:\\\||[^|])*)\|\s*`?([^|`]+)`?\s*\|\s*(.*?)\s*\|$/i;
+
+function mergeQaTestCasesLedger() {
+  const ledgerPath = join(artifactsDir, 'qa-testcases.md');
+  if (!existsSync(ledgerPath)) return [];
+
+  const updates = new Map<string, { status: string; note: string; isExploratory: boolean }>();
+  for (const raw of [uxRaw, codeRaw, seamsRaw]) {
+    for (const entry of parseReportedTestCases(raw)) {
+      const prev = updates.get(entry.id);
+      if (!prev || entry.status === 'FAIL' || (prev.status !== 'FAIL' && entry.status === 'PASS')) {
+        updates.set(entry.id, entry);
+      }
+    }
+  }
+
+  let lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
+  const existingIds = new Set<string>();
+
+  lines = lines.map((line) => {
+    if (round === 1 && /^- \*\*Freeze State:\*\*/i.test(line)) {
+      return '- **Freeze State:** `FROZEN (Round 1 complete — Round 2+ must only verify failing/delta-affected TCs)`';
+    }
+    const rowMatch = line.match(ledgerRow);
+    if (!rowMatch) return line;
+    const id = rowMatch[1].toUpperCase();
+    existingIds.add(id);
+    const upd = updates.get(id);
+    if (!upd) return line;
+    return `| \`${id}\` | ${rowMatch[2]!.trim()} | \`${upd.status}\` | ${upd.note || rowMatch[4] || '—'} |`;
+  });
+
+  if (round === 1) {
+    const newExploratory = [...updates.entries()].filter(
+      ([id, info]) => info.isExploratory && !existingIds.has(id)
+    );
+    if (newExploratory.length > 0) {
+      const headerIdx = lines.findIndex((l) => /^##\s+Round 1 Exploratory Cases/i.test(l));
+      const newRows = newExploratory.map(
+        ([id, info]) =>
+          `| \`${id}\` | [Round 1 Exploratory] ${info.note || 'Diff-bounded defect'} | \`${info.status}\` | Round 1 |`
+      );
+      if (headerIdx !== -1) {
+        const placeholderIdx = lines.findIndex(
+          (l, idx) => idx > headerIdx && /_\(None yet/i.test(l)
+        );
+        if (placeholderIdx !== -1) {
+          lines.splice(
+            placeholderIdx,
+            1,
+            '| ID | Case / Expected Outcome | Status | Notes |',
+            '| :--- | :--- | :--- | :--- |',
+            ...newRows
+          );
+        } else {
+          lines.splice(headerIdx + 1, 0, ...newRows);
+        }
+      } else {
+        lines.push(
+          '',
+          '## Round 1 Exploratory Cases (Frozen After Round 1)',
+          '| ID | Case / Expected Outcome | Status | Notes |',
+          '| :--- | :--- | :--- | :--- |',
+          ...newRows
+        );
+      }
+    }
+  }
+
+  writeFileSync(ledgerPath, lines.join('\n'), 'utf8');
+  return lines.flatMap((line) => {
+    const row = line.match(ledgerRow);
+    return row ? [{ id: row[1]!.toUpperCase(), status: row[3]!.trim().toUpperCase(), note: row[4]! }] : [];
+  });
+}
+
+const cases = mergeQaTestCasesLedger();
+const incompleteCases = cases.filter((item) => item.status !== 'PASS');
+const missingLedger = Boolean(text(process.env.INPUTS_CONTRACT_PATH)) && cases.length === 0;
+if (missingLedger) {
+  openHandoffItems.push('- [P1] Required QA case ledger is missing or empty. Restore it and report the case results.');
+}
+const caseResults = cases.map(({ id, status }) => `${id}: ${status}`);
+for (const { id, status, note } of incompleteCases) {
+  openHandoffItems.push(`- [P1] ${id}: ${status}. ${note === '—' ? 'Run the required case and report its result.' : note}`);
+}
 
 let done = false;
 let ready = false;
@@ -91,6 +256,11 @@ if (fixBlocked) {
       reason = 'review_findings';
     }
     summary = `Round ${round}: ${summaryParts.join(' ')}`;
+  } else if (missingLedger || incompleteCases.length > 0) {
+    reason = 'qa_cases_incomplete';
+    summary = missingLedger
+      ? `Round ${round}: required QA case ledger is missing or empty.`
+      : `Round ${round}: required QA cases need a passing result (${incompleteCases.map(({ id, status }) => `${id}: ${status}`).join(', ')}).`;
   } else {
     done = true;
     ready = true;
@@ -102,156 +272,6 @@ if (fixBlocked) {
     summary = `Round ${round} passed: mechanical gate green${runUx ? ', UX verified' : ''}, QA LGTM (${axes}).`;
   }
 }
-
-function readFullOptional(filePath: string): string {
-  if (!existsSync(filePath)) return '';
-  return readFileSync(filePath, 'utf8').trim();
-}
-
-function extractCleanBullets(markdown: string): string[] {
-  if (!markdown.trim()) return [];
-  const lines = markdown.split(/\r?\n/);
-  const bullets: string[] = [];
-  let inClean = false;
-  for (const line of lines) {
-    if (/^#{1,3}\s+.*(verified clean|examined clean)/i.test(line)) {
-      inClean = true;
-      continue;
-    }
-    if (/^#{1,3}\s+/.test(line)) {
-      inClean = false;
-      continue;
-    }
-    if (inClean && /^\s*[-*]\s+/.test(line)) {
-      bullets.push(line.trim());
-    }
-  }
-  return bullets;
-}
-
-const headShaRes = runCmd(['git', 'rev-parse', 'HEAD'], { allowFail: true });
-const reviewedSha = headShaRes.code === 0 ? headShaRes.stdout.trim() : '';
-
-const mechRaw = readFullOptional(join(artifactsDir, 'mechanical-gate.md'));
-const uxRaw = runUx ? readFullOptional(join(artifactsDir, 'evidence', 'ux-report.md')) : '';
-const reviewsRan = !fixBlocked && mechPassed;
-const codeRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'code.md')) : '';
-const seamsRaw =
-  reviewsRan && reviewMode === 'strict'
-    ? readFullOptional(join(artifactsDir, 'review', 'seams-errors.md'))
-    : '';
-
-const openHandoffItems: string[] = [];
-if (mechPassed && runUx && !uxPassed) {
-  const uxBlockers = extractUxBlockingFindings(uxRaw);
-  if (uxBlockers) openHandoffItems.push('**UX:**', uxBlockers);
-}
-if (reviewsRan && !codeLgtm) {
-  const codeBlockers = extractBlockingFindings(codeRaw, 4000);
-  if (codeBlockers) openHandoffItems.push('**Code / Spec / Standards:**', codeBlockers);
-}
-if (reviewsRan && reviewMode === 'strict' && !seamsLgtm) {
-  const seamsBlockers = extractBlockingFindings(seamsRaw, 4000);
-  if (seamsBlockers) openHandoffItems.push('**Seams & Failure-Safety:**', seamsBlockers);
-}
-
-const cleanBullets = [
-  ...extractCleanBullets(codeRaw),
-  ...extractCleanBullets(seamsRaw),
-];
-
-function parseReportedTestCases(reportMarkdown: string): Array<{
-  id: string;
-  status: string;
-  note: string;
-  isExploratory: boolean;
-}> {
-  if (!reportMarkdown.trim()) return [];
-  const results: Array<{ id: string; status: string; note: string; isExploratory: boolean }> = [];
-  for (const line of reportMarkdown.split(/\r?\n/)) {
-    const m = line.match(
-      /^\s*[-*]\s+`?(TC-(?:R\d+-)?[A-Z0-9-]+)`?\s*:\s*(PASS|FAIL|SKIP(?:PED)?|N\/A)\b(?:\s*(?:—|--|-|:)\s*(.+))?$/i
-    );
-    if (!m) continue;
-    const id = m[1].toUpperCase();
-    const status = m[2].toUpperCase();
-    const note = (m[3] || '').trim().replace(/\|/g, '\\|');
-    results.push({ id, status, note, isExploratory: /^TC-R\d+-/i.test(id) });
-  }
-  return results;
-}
-
-function mergeQaTestCasesLedger(): void {
-  const ledgerPath = join(artifactsDir, 'qa-testcases.md');
-  if (!existsSync(ledgerPath)) return;
-
-  const updates = new Map<string, { status: string; note: string; isExploratory: boolean }>();
-  for (const raw of [uxRaw, codeRaw, seamsRaw]) {
-    for (const entry of parseReportedTestCases(raw)) {
-      const prev = updates.get(entry.id);
-      if (!prev || entry.status === 'FAIL' || (prev.status !== 'FAIL' && entry.status === 'PASS')) {
-        updates.set(entry.id, entry);
-      }
-    }
-  }
-
-  let lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
-  const existingIds = new Set<string>();
-
-  lines = lines.map((line) => {
-    if (round === 1 && /^- \*\*Freeze State:\*\*/i.test(line)) {
-      return '- **Freeze State:** `FROZEN (Round 1 complete — Round 2+ must only verify failing/delta-affected TCs)`';
-    }
-    const rowMatch = line.match(/^\|\s*`(TC-[A-Z0-9-]+)`\s*\|\s*(.*?)\s*\|\s*`?[^|`]+`?\s*\|\s*(.*?)\s*\|$/i);
-    if (!rowMatch) return line;
-    const id = rowMatch[1].toUpperCase();
-    existingIds.add(id);
-    const upd = updates.get(id);
-    if (!upd) return line;
-    return `| \`${id}\` | ${rowMatch[2]} | \`${upd.status}\` | ${upd.note || rowMatch[3] || '—'} |`;
-  });
-
-  if (round === 1) {
-    const newExploratory = [...updates.entries()].filter(
-      ([id, info]) => info.isExploratory && !existingIds.has(id)
-    );
-    if (newExploratory.length > 0) {
-      const headerIdx = lines.findIndex((l) => /^##\s+Round 1 Exploratory Cases/i.test(l));
-      const newRows = newExploratory.map(
-        ([id, info]) =>
-          `| \`${id}\` | [Round 1 Exploratory] ${info.note || 'Diff-bounded defect'} | \`${info.status}\` | Round 1 |`
-      );
-      if (headerIdx !== -1) {
-        const placeholderIdx = lines.findIndex(
-          (l, idx) => idx > headerIdx && /_\(None yet/i.test(l)
-        );
-        if (placeholderIdx !== -1) {
-          lines.splice(
-            placeholderIdx,
-            1,
-            '| ID | Case / Expected Outcome | Status | Notes |',
-            '| :--- | :--- | :--- | :--- |',
-            ...newRows
-          );
-        } else {
-          lines.splice(headerIdx + 1, 0, ...newRows);
-        }
-      } else {
-        lines.push(
-          '',
-          '## Round 1 Exploratory Cases (Frozen After Round 1)',
-          '| ID | Case / Expected Outcome | Status | Notes |',
-          '| :--- | :--- | :--- | :--- |',
-          ...newRows
-        );
-      }
-    }
-  }
-
-  writeFileSync(ledgerPath, lines.join('\n'), 'utf8');
-}
-
-mergeQaTestCasesLedger();
 
 const feedbackMd = [
   `# Round ${round} Verdict`,
@@ -268,6 +288,7 @@ const feedbackMd = [
     ? `- **Seams & Failure-Safety Review:** ${reviewsRan ? (seamsLgtm ? 'LGTM' : 'CHANGES REQUESTED') : 'SKIPPED'} — ${seamsSummary}`
     : '- **Seams & Failure-Safety Review:** skipped (standard risk)',
   '',
+  ...(cases.length > 0 ? ['## Test Case Results', ...caseResults.map((item) => `- ${item}`), ''] : []),
   '## Next Action',
   summary,
   '',
@@ -283,7 +304,44 @@ const feedbackMd = [
 
 writeFileSync(join(artifactsDir, 'round-feedback.md'), feedbackMd, 'utf8');
 
-if (repo && prNumber > 0) {
+const prUrl = repo && prNumber > 0 ? `https://github.com/${repo}/pull/${prNumber}` : null;
+const evidenceSource = [
+  'round-feedback.md',
+  'qa-testcases.md',
+  'mechanical-gate.md',
+  ...(runUx && reviewsRan && existsSync(join(artifactsDir, 'evidence'))
+    ? readdirSync(join(artifactsDir, 'evidence'), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /\.(?:md|json|png|zip|json\.gz)$/i.test(entry.name))
+        .map((entry) => `evidence/${entry.name}`)
+    : []),
+  ...(reviewsRan ? ['review/code.md'] : []),
+  ...(reviewsRan && reviewMode === 'strict' ? ['review/seams-errors.md'] : []),
+].filter((path) => existsSync(join(artifactsDir, path)));
+const evidence = evidenceSource.map((file) => {
+  const path = `qa-evidence/${reviewedSha || 'unresolved'}/round-${round}/${file}`;
+  const destination = join(artifactsDir, path);
+  mkdirSync(dirname(destination), { recursive: true });
+  copyFileSync(join(artifactsDir, file), destination);
+  return path;
+});
+const record = { round, reviewed_sha: reviewedSha, ready, reason, summary, cases, evidence, pr_url: prUrl };
+const historyPath = join(artifactsDir, 'qa-verdicts.json');
+const previous = readFullOptional(historyPath);
+const history: Array<typeof record> = previous ? JSON.parse(previous) : [];
+const records = history.filter((item) => item.round !== round || item.reviewed_sha !== reviewedSha);
+writeFileSync(historyPath, JSON.stringify([...records, record], null, 2) + '\n', 'utf8');
+
+if (prUrl) {
+  if (process.env.FACTORY_PUBLISH_QA_STATUS === 'true') {
+    if (!/^[0-9a-f]{40}$/.test(reviewedSha)) throw new Error('Factory QA could not resolve the reviewed commit.');
+    runCmd([
+      'gh', 'api', '--method', 'POST', `repos/${repo}/statuses/${reviewedSha}`,
+      '-f', 'context=factory/qa',
+      '-f', `state=${ready ? 'success' : 'failure'}`,
+      '-f', `description=${ready ? 'Factory QA passed' : 'Factory QA requires changes'} (round ${round})`,
+      '-f', `target_url=${prUrl}`,
+    ]);
+  }
   const commentLines: string[] = [];
   if (ready) {
     const uxBadge = runUx ? ' · UX: PASS' : '';
@@ -344,6 +402,7 @@ if (repo && prNumber > 0) {
     setFactoryState(repo, { issueNumber, prNumber }, FACTORY_LABELS.changesRequested);
   }
 
+  commentLines.splice(1, 0, '', `Reviewed commit \`${reviewedSha}\``, ...caseResults.map((item) => `- ${item}`), '');
   postPrComment(repo, prNumber, commentLines.join('\n').slice(0, 55000), artifactsDir);
 }
 
