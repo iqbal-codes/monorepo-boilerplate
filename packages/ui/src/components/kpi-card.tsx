@@ -50,26 +50,26 @@ const SIZE_CLASSES: Record<"sm" | "default", string> = {
 
 const TONE_ICON_CLASSES: Record<KpiTone, string> = {
   default: "border-border/70 bg-muted/50 text-muted-foreground",
-  info: "border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  success: "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  warning: "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  danger: "border-destructive/25 bg-destructive/10 text-destructive",
+  info: "border-info/25 bg-info-subtle text-info-subtle-foreground",
+  success: "border-success/25 bg-success-subtle text-success-subtle-foreground",
+  warning: "border-warning/25 bg-warning-subtle text-warning-subtle-foreground",
+  danger: "border-destructive/25 bg-destructive-subtle text-destructive-subtle-foreground",
 };
 
 const TONE_BAR_CLASSES: Record<KpiTone, string> = {
   default: "bg-foreground/70",
-  info: "bg-sky-500 dark:bg-sky-400",
-  success: "bg-emerald-600 dark:bg-emerald-400",
-  warning: "bg-amber-500 dark:bg-amber-400",
+  info: "bg-info",
+  success: "bg-success",
+  warning: "bg-warning",
   danger: "bg-destructive",
 };
 
 const TONE_SPARK_CLASSES: Record<KpiTone, string> = {
   default: "text-muted-foreground",
-  info: "text-sky-600 dark:text-sky-400",
-  success: "text-emerald-600 dark:text-emerald-400",
-  warning: "text-amber-600 dark:text-amber-400",
-  danger: "text-destructive",
+  info: "text-info-subtle-foreground",
+  success: "text-success-subtle-foreground",
+  warning: "text-warning-subtle-foreground",
+  danger: "text-destructive-subtle-foreground",
 };
 
 function resolveProgress(progress: KpiProgress | undefined) {
@@ -154,8 +154,9 @@ export function KpiCard({
               className={cn(
                 "inline-flex items-center gap-0.5 border px-1.5 py-0.5 text-[0.6875rem] leading-none font-medium tabular-nums",
                 direction > 0 &&
-                  "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-                direction < 0 && "border-destructive/20 bg-destructive/10 text-destructive",
+                  "border-success/25 bg-success-subtle text-success-subtle-foreground",
+                direction < 0 &&
+                  "border-destructive/25 bg-destructive-subtle text-destructive-subtle-foreground",
                 direction === 0 && "border-border bg-muted text-muted-foreground",
               )}
             >
