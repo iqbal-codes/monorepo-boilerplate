@@ -85,6 +85,11 @@ export type ImportBlockProps = {
   size?: "default" | "sm";
   className?: string;
   disabled?: boolean;
+  /** Controlled open state when triggered from an external menu or button. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Omit the built-in trigger button when opened externally. */
+  hideTrigger?: boolean;
 };
 
 const ACCEPTED_TYPES = new Set(["text/csv", "application/csv", "text/plain"]);
@@ -166,13 +171,19 @@ export function ImportBlock({
   size = "default",
   className,
   disabled = false,
+  open: controlledOpen,
+  onOpenChange: onControlledOpenChange,
+  hideTrigger = false,
 }: ImportBlockProps) {
-  const [open, setOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
   const [state, setState] = React.useState<ImportState>(INITIAL_STATE);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const requestRef = React.useRef(0);
   const abortRef = React.useRef<AbortController | null>(null);
   const pendingRef = React.useRef(false);
+  const wasOpenRef = React.useRef(open);
 
   const busy =
     state.phase === "parsing" || state.phase === "validating" || state.phase === "pending";
@@ -192,13 +203,21 @@ export function ImportBlock({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [invalidate]);
 
+  React.useEffect(() => {
+    if (open && !wasOpenRef.current && isControlled) {
+      reset();
+    }
+    wasOpenRef.current = open;
+  }, [isControlled, open, reset]);
+
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
       if (!next && pendingRef.current) return;
       if (!next) reset();
-      setOpen(next);
+      if (!isControlled) setInternalOpen(next);
+      onControlledOpenChange?.(next);
     },
-    [reset],
+    [isControlled, onControlledOpenChange, reset],
   );
 
   const handleFile = React.useCallback(
@@ -341,8 +360,7 @@ export function ImportBlock({
     if (requestRef.current !== token) return;
 
     if (result.ok) {
-      reset();
-      setOpen(false);
+      handleOpenChange(false);
       return;
     }
 
@@ -362,7 +380,7 @@ export function ImportBlock({
       phase: "preview",
       conflictLineNumbers: result.conflictLineNumbers,
     }));
-  }, [confirm, reset, state.issues.length, state.phase, state.records]);
+  }, [confirm, handleOpenChange, state.issues.length, state.phase, state.records]);
 
   const downloadTemplate = React.useCallback(() => {
     const blob = new Blob([serializeCsvTemplate(contract.columns)], { type: "text/csv" });
@@ -381,22 +399,25 @@ export function ImportBlock({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size={size}
-        data-slot="import-trigger"
-        aria-haspopup="dialog"
-        className={className}
-        disabled={disabled || busy}
-        onClick={() => {
-          reset();
-          setOpen(true);
-        }}
-      >
-        <UploadIcon data-icon="inline-start" aria-hidden />
-        {triggerLabel}
-      </Button>
+      {!hideTrigger && (
+        <Button
+          type="button"
+          variant="outline"
+          size={size}
+          data-slot="import-trigger"
+          aria-haspopup="dialog"
+          className={className}
+          disabled={disabled || busy}
+          onClick={() => {
+            reset();
+            if (!isControlled) setInternalOpen(true);
+            onControlledOpenChange?.(true);
+          }}
+        >
+          <UploadIcon data-icon="inline-start" aria-hidden />
+          {triggerLabel}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl">

@@ -1,10 +1,26 @@
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import {
-  ExportButton,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@monorepo-boilerplate/ui/components/dropdown-menu";
+import {
+  useExportAction,
   type ExportFeedback,
 } from "@monorepo-boilerplate/ui/components/export-button";
-import { PlusIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
+import {
+  ChevronDownIcon,
+  DownloadIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  UploadIcon,
+} from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CustomerImport } from "@/components/customers/customer-import";
 import {
@@ -15,8 +31,8 @@ import {
 } from "@/lib/customer-export";
 
 const EXPORT_FORMATS = [
-  { format: "xlsx", label: "Excel (.xlsx)" },
-  { format: "csv", label: "CSV (.csv)" },
+  { format: "xlsx", label: "Export Excel (.xlsx)" },
+  { format: "csv", label: "Export CSV (.csv)" },
 ] as const;
 
 const INITIAL_FEEDBACK: ExportFeedback = {
@@ -64,8 +80,9 @@ function CustomerExportFeedback({
 }
 
 /**
- * Header action cluster for Customers. Owns export cancellation and live-region
- * state locally so starting or updating an export never re-renders the list.
+ * Header action cluster for Customers: one primary action ("New customer") and
+ * a secondary overflow menu for Import CSV and Export formats, keeping the
+ * header compact on mobile and desktop.
  */
 export const CustomerPageActions = memo(function CustomerPageActions({
   search,
@@ -78,8 +95,9 @@ export const CustomerPageActions = memo(function CustomerPageActions({
   onImported: (created: number) => void;
   onNewCustomer: () => void;
 }) {
+  const [importOpen, setImportOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const exportCancelSignal = useCustomerExportCancel();
-  const exportHintId = useId();
   const feedbackListenerRef = useRef<((feedback: ExportFeedback) => void) | null>(null);
 
   const handleFeedbackChange = useCallback((next: ExportFeedback) => {
@@ -101,28 +119,85 @@ export const CustomerPageActions = memo(function CustomerPageActions({
     [search, status, sortBy, sortDir],
   );
 
+  const exportAction = useExportAction({
+    getFilename: customerExportFilename,
+    fetchExport,
+    cancelSignal: exportCancelSignal,
+    onFeedbackChange: handleFeedbackChange,
+  });
+
   return (
-    <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:items-end">
-      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-        <CustomerImport size="sm" className="flex-1 sm:flex-none" onImported={onImported} />
-        <ExportButton
-          label="Export"
-          formats={EXPORT_FORMATS}
-          buttonClassName="flex-1 sm:flex-none"
-          describedById={exportHintId}
-          onFeedbackChange={handleFeedbackChange}
-          getFilename={customerExportFilename}
-          cancelSignal={exportCancelSignal}
-          fetchExport={fetchExport}
-        />
-        <Button size="sm" className="w-full sm:w-auto" onClick={onNewCustomer}>
+    <div className="flex min-w-0 flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="More customer actions"
+                aria-busy={exportAction.busy || undefined}
+              />
+            }
+          >
+            {exportAction.busy ? (
+              <Spinner data-icon="inline-start" aria-hidden />
+            ) : (
+              <MoreHorizontalIcon className="sm:hidden" aria-hidden />
+            )}
+            <span className="hidden sm:inline">Actions</span>
+            <ChevronDownIcon className="hidden sm:inline" data-icon="inline-end" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => {
+                  setMenuOpen(false);
+                  setImportOpen(true);
+                }}
+              >
+                <UploadIcon aria-hidden />
+                Import CSV
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Export</DropdownMenuLabel>
+              {EXPORT_FORMATS.map((option) => (
+                <DropdownMenuItem
+                  key={option.format}
+                  disabled={exportAction.busy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void exportAction.start(option.format);
+                  }}
+                >
+                  <DownloadIcon aria-hidden />
+                  {option.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <p className="px-3 py-1.5 text-xs leading-snug text-muted-foreground">
+              Excel preserves literal text and balances; CSV escaping may change literal text.
+            </p>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Button size="sm" onClick={onNewCustomer}>
           <PlusIcon data-icon="inline-start" aria-hidden />
           New customer
         </Button>
       </div>
-      <p id={exportHintId} className="text-xs text-muted-foreground sm:text-end">
-        Excel preserves literal text and balances; CSV escaping may change literal text.
-      </p>
+
+      <CustomerImport
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        hideTrigger
+        onImported={onImported}
+      />
+
       <CustomerExportFeedback onBind={bindFeedback} />
     </div>
   );

@@ -56,8 +56,9 @@ function CustomerDetailScreen() {
       <PageHeader
         title={customer.name}
         description={customer.email}
+        keepDescriptionOnMobile
         actions={
-          <Button variant="outline" onClick={() => setEditOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
             Edit
           </Button>
         }

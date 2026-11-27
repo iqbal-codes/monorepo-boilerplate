@@ -4,6 +4,8 @@ import { cn } from "cn";
 type PageHeaderProps = {
   title: React.ReactNode;
   description?: React.ReactNode;
+  /** Keep the subtitle visible on narrow/mobile viewports (e.g. when it shows identifying data like an email). */
+  keepDescriptionOnMobile?: boolean;
   actions?: React.ReactNode;
   /** Breadcrumb trail rendered above the title. */
   breadcrumbs?: React.ReactNode;
@@ -14,22 +16,30 @@ type PageHeaderProps = {
 export function PageHeader({
   title,
   description,
+  keepDescriptionOnMobile = false,
   actions,
   breadcrumbs,
   className,
 }: PageHeaderProps) {
   return (
-    <div data-slot="page-header" className={cn("flex flex-col gap-3", className)}>
+    <div data-slot="page-header" className={cn("flex flex-col gap-2 sm:gap-3", className)}>
       {breadcrumbs}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-[min(100%,14rem)] flex-1 flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-balance">{title}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h1 className="text-xl font-semibold tracking-tight text-balance sm:text-2xl">{title}</h1>
           {description ? (
-            <p className="text-sm text-pretty text-muted-foreground">{description}</p>
+            <p
+              className={cn(
+                "text-sm text-pretty text-muted-foreground",
+                !keepDescriptionOnMobile && "hidden sm:block",
+              )}
+            >
+              {description}
+            </p>
           ) : null}
         </div>
         {actions ? (
-          <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="flex max-w-full min-w-0 shrink-0 flex-wrap items-center gap-2">
             {actions}
           </div>
         ) : null}

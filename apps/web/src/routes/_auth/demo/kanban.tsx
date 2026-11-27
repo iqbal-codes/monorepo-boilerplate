@@ -14,13 +14,29 @@ import { Avatar, AvatarFallback } from "@monorepo-boilerplate/ui/components/avat
 import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@monorepo-boilerplate/ui/components/dropdown-menu";
+import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
 } from "@monorepo-boilerplate/ui/components/empty";
-import { Field, FieldLabel } from "@monorepo-boilerplate/ui/components/field";
+import {
+  Field,
+  FieldContent,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@monorepo-boilerplate/ui/components/field";
 import { Input } from "@monorepo-boilerplate/ui/components/input";
 import {
   KanbanBoard,
@@ -37,6 +53,7 @@ import {
 import { KpiCard, KpiGrid } from "@monorepo-boilerplate/ui/components/kpi-card";
 import { ListToolbar } from "@monorepo-boilerplate/ui/components/list-toolbar";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
+import { RadioGroup, RadioGroupItem } from "@monorepo-boilerplate/ui/components/radio-group";
 import {
   Select,
   SelectContent,
@@ -525,22 +542,50 @@ function KanbanDemo() {
         description="Controlled Kanban Board block in CRM pipeline and task management modes. Deletable demo."
         actions={
           <>
-            <ToggleGroup
-              aria-label="Board state preview"
-              size="sm"
-              value={[previewMode]}
-              onValueChange={(next) => {
-                const mode = next[0] as PreviewMode | undefined;
-                if (mode) setPreviewMode(mode);
-              }}
-            >
-              <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
-              <ToggleGroupItem value="loading">Loading</ToggleGroupItem>
-              <ToggleGroupItem value="empty">Empty</ToggleGroupItem>
-            </ToggleGroup>
+            <div className="hidden items-center gap-2 sm:flex">
+              <ToggleGroup
+                aria-label="Board state preview"
+                size="sm"
+                value={[previewMode]}
+                onValueChange={(next) => {
+                  const mode = next[0] as PreviewMode | undefined;
+                  if (mode) setPreviewMode(mode);
+                }}
+              >
+                <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
+                <ToggleGroupItem value="loading">Loading</ToggleGroupItem>
+                <ToggleGroupItem value="empty">Empty</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button type="button" variant="outline" size="sm" className="sm:hidden">
+                    Preview: {previewMode}
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Board state</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={previewMode}
+                    onValueChange={(value) => {
+                      if (value === "ready" || value === "loading" || value === "empty") {
+                        setPreviewMode(value);
+                      }
+                    }}
+                  >
+                    <DropdownMenuRadioItem value="ready">Ready</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="loading">Loading</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="empty">Empty</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button type="button" variant="outline" size="sm" onClick={handleResetDemo}>
               <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
-              Reset board
+              Reset
             </Button>
           </>
         }
@@ -701,7 +746,11 @@ function KanbanDemo() {
                   if (value !== null) setTaskPriority(value);
                 }}
               >
-                <SelectTrigger className="w-40" aria-label="Filter by priority">
+                <SelectTrigger
+                  size="sm"
+                  className="w-40 border border-input px-3"
+                  aria-label="Filter by priority"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -715,6 +764,39 @@ function KanbanDemo() {
                 </SelectContent>
               </Select>
             }
+            filterSheet={{
+              activeCount: taskPriority === "all" ? 0 : 1,
+              title: "Filter tasks",
+              description: "Show tasks matching the selected priority.",
+              onReset: () => setTaskPriority("all"),
+              resetDisabled: taskPriority === "all",
+              content: (
+                <FieldSet>
+                  <FieldLegend variant="label">Priority</FieldLegend>
+                  <RadioGroup
+                    value={taskPriority}
+                    onValueChange={(value) => {
+                      if (typeof value === "string") setTaskPriority(value);
+                    }}
+                    className="grid gap-2"
+                  >
+                    {PRIORITY_ITEMS.map((item) => {
+                      const optionId = `kanban-priority-${item.value}`;
+                      return (
+                        <FieldLabel key={item.value} htmlFor={optionId}>
+                          <Field orientation="horizontal">
+                            <FieldContent>
+                              <FieldTitle>{item.label}</FieldTitle>
+                            </FieldContent>
+                            <RadioGroupItem id={optionId} value={item.value} />
+                          </Field>
+                        </FieldLabel>
+                      );
+                    })}
+                  </RadioGroup>
+                </FieldSet>
+              ),
+            }}
           />
 
           <KanbanBoard

@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <AppTopbar />
           <div
             data-slot="app-content"
-            className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain p-4 md:p-6"
+            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 md:gap-6 md:p-6"
           >
             {children}
           </div>

@@ -25,7 +25,15 @@
  */
 import * as React from "react";
 import { cn } from "cn";
-import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, LoaderIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsUpDownIcon,
+  LoaderIcon,
+} from "lucide-react";
 import {
   columnVisibilityFeature,
   createColumnHelper,
@@ -131,6 +139,8 @@ export type DataTableProps<TData extends RowData> = {
   pageSizeOptions?: readonly number[];
   /** Row height. The app supplies this from its UI-preferences store. */
   density?: "comfortable" | "compact";
+  /** Accessible name for the scrollable table region. */
+  regionLabel?: string;
 };
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
@@ -153,6 +163,7 @@ export function DataTable<TData extends RowData>({
   className,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   density = "comfortable",
+  regionLabel = "Data table",
 }: DataTableProps<TData>) {
   const table = useTable({
     features: dataTableFeatures,
@@ -205,10 +216,179 @@ export function DataTable<TData extends RowData>({
     selection.onChange(next);
   }
 
+  const sortableHeaders = table
+    .getFlatHeaders()
+    .filter((header) => !header.isPlaceholder && header.column.getCanSort());
+  const activeSort = sorting?.[0];
+
   return (
-    <div data-slot="data-table" className={cn("flex flex-col gap-3", className)}>
-      <div className="overflow-hidden rounded-lg border">
-        <Table>
+    <div data-slot="data-table" className={cn("@container flex flex-col gap-3", className)}>
+      {/* Narrow-container stacked card list */}
+      <div className="flex flex-col gap-2 @lg:hidden">
+        {(selection || sortableHeaders.length > 0) && (
+          <div className="flex items-center justify-between gap-2 px-1">
+            {selection ? (
+              <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Checkbox
+                  aria-label={selection.pageLabel}
+                  checked={allSelected}
+                  indeterminate={selectedCount > 0 && !allSelected}
+                  disabled={selection.disabled || isLoading || pageIds.length === 0}
+                  className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
+                  onCheckedChange={(checked) => changeSelection(pageIds, checked)}
+                />
+                <span>Select all</span>
+              </label>
+            ) : (
+              <span />
+            )}
+            {sortableHeaders.length > 0 ? (
+              <div className="flex items-center gap-1.5">
+                <Select
+                  value={activeSort?.id ?? ""}
+                  onValueChange={(columnId) => {
+                    if (!columnId) return;
+                    const nextDesc = activeSort?.id === columnId ? !activeSort.desc : false;
+                    onSortingChange?.([{ id: columnId, desc: nextDesc }]);
+                  }}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-8 w-auto min-w-28 border border-input px-2.5 text-xs"
+                    aria-label="Sort by"
+                  >
+                    <ArrowUpDownIcon className="size-3 text-muted-foreground" aria-hidden />
+                    <SelectValue placeholder="Sort">
+                      {(value) => {
+                        const header = sortableHeaders.find((h) => h.column.id === value);
+                        return header
+                          ? stringifyHeader(header.column.columnDef.header, header.id)
+                          : "Sort";
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {sortableHeaders.map((header) => (
+                      <SelectItem key={header.column.id} value={header.column.id}>
+                        {stringifyHeader(header.column.columnDef.header, header.id)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {activeSort ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label={
+                      activeSort.desc
+                        ? "Sort descending, switch to ascending"
+                        : "Sort ascending, switch to descending"
+                    }
+                    onClick={() =>
+                      onSortingChange?.([{ id: activeSort.id, desc: !activeSort.desc }])
+                    }
+                  >
+                    {activeSort.desc ? <ArrowDownIcon aria-hidden /> : <ArrowUpIcon aria-hidden />}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="flex flex-col divide-y rounded-lg border">
+            {Array.from({ length: Math.min(currentSize, 5) }, (_, index) => (
+              <div key={`mobile-skeleton-${index}`} className="flex flex-col gap-2 p-3">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-28" />
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="rounded-lg border">
+            {emptyState ?? (
+              <Empty className="border-0 py-10">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <LoaderIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>No results</EmptyTitle>
+                  <EmptyDescription>
+                    Nothing matches the current filters. Adjust them and try again.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col divide-y rounded-lg border">
+            {rows.map((row) => {
+              const cells = row.getVisibleCells();
+              const [primaryCell, ...secondaryCells] = cells;
+              const rowId = selection?.getId(row.original);
+              const isSelectable = selection
+                ? selection.canSelect?.(row.original) !== false
+                : false;
+
+              return (
+                <div
+                  key={`mobile-${row.id}`}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  className={cn(
+                    "flex items-start gap-3 p-3 transition-colors",
+                    onRowClick && "cursor-pointer hover:bg-muted/50",
+                    rowClassName?.(row.original),
+                  )}
+                >
+                  {selection && (
+                    <div className="pt-0.5" onClick={(event) => event.stopPropagation()}>
+                      {isSelectable && rowId !== undefined ? (
+                        <Checkbox
+                          aria-label={selection.getLabel(row.original)}
+                          checked={selection.ids.has(rowId)}
+                          disabled={selection.disabled}
+                          onCheckedChange={(checked) => changeSelection([rowId], checked)}
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    {primaryCell ? (
+                      <div className="min-w-0">
+                        <table.FlexRender cell={primaryCell} />
+                      </div>
+                    ) : null}
+                    {secondaryCells.length > 0 ? (
+                      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                        {secondaryCells.map((cell) => (
+                          <div key={cell.id} className="flex min-w-0 flex-col gap-0.5">
+                            <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                              {stringifyHeader(cell.column.columnDef.header, cell.column.id)}
+                            </dt>
+                            <dd className="min-w-0 truncate">
+                              <table.FlexRender cell={cell} />
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Wide-container table */}
+      <div className="hidden overflow-hidden rounded-lg border @lg:block">
+        <Table regionLabel={regionLabel}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup, index, groups) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
@@ -233,7 +413,7 @@ export function DataTable<TData extends RowData>({
                         <button
                           type="button"
                           onClick={header.column.getToggleSortingHandler()}
-                          className="-mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium tracking-wider uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          className="-mx-1 inline-flex min-h-8 items-center gap-1 rounded px-1 py-1 text-xs font-medium tracking-wider uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                           aria-label={`Sort by ${stringifyHeader(header.column.columnDef.header, header.id)}`}
                         >
                           <table.FlexRender header={header} />
@@ -319,9 +499,11 @@ export function DataTable<TData extends RowData>({
         </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
-        <p aria-live="polite">{total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}</p>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm">
+        <p aria-live="polite" className="tabular-nums">
+          {total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}
+        </p>
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           <span className="hidden sm:inline">Rows per page</span>
           <Select
             value={String(currentSize)}
@@ -330,7 +512,11 @@ export function DataTable<TData extends RowData>({
               onPaginationChange?.({ pageIndex: 0, pageSize });
             }}
           >
-            <SelectTrigger size="sm" className="w-[5.5rem]" aria-label="Rows per page">
+            <SelectTrigger
+              size="sm"
+              className="w-16 border border-input px-2.5"
+              aria-label="Rows per page"
+            >
               <SelectValue>{(value) => String(value)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -344,25 +530,36 @@ export function DataTable<TData extends RowData>({
           <Button
             variant="outline"
             size="sm"
+            className="px-2 sm:px-3"
+            aria-label="Previous page"
             onClick={() =>
               onPaginationChange?.({ pageIndex: currentIndex - 1, pageSize: currentSize })
             }
             disabled={!table.getCanPreviousPage()}
           >
-            Previous
+            <ChevronLeftIcon className="sm:hidden" aria-hidden />
+            <span className="hidden sm:inline">Previous</span>
           </Button>
-          <span className="tabular-nums">
-            Page {pageCount === 0 ? 0 : currentIndex + 1} of {pageCount}
+          <span className="px-1 tabular-nums">
+            <span className="sm:hidden">
+              {pageCount === 0 ? 0 : currentIndex + 1}/{pageCount}
+            </span>
+            <span className="hidden sm:inline">
+              Page {pageCount === 0 ? 0 : currentIndex + 1} of {pageCount}
+            </span>
           </span>
           <Button
             variant="outline"
             size="sm"
+            className="px-2 sm:px-3"
+            aria-label="Next page"
             onClick={() =>
               onPaginationChange?.({ pageIndex: currentIndex + 1, pageSize: currentSize })
             }
             disabled={!table.getCanNextPage()}
           >
-            Next
+            <ChevronRightIcon className="sm:hidden" aria-hidden />
+            <span className="hidden sm:inline">Next</span>
           </Button>
         </div>
       </div>

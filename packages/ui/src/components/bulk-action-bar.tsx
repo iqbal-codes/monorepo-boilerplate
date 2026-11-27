@@ -15,7 +15,7 @@ export function BulkActionBar({
     <div
       data-slot="bulk-action-bar"
       className={
-        count > 0 ? "flex flex-wrap items-center gap-2 border bg-muted px-3 py-2" : "relative"
+        count > 0 ? "flex flex-wrap items-center gap-2 border bg-muted px-3 py-2" : "sr-only"
       }
     >
       <p

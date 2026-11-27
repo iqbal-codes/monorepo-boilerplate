@@ -76,23 +76,7 @@ function exportFormatLabel(format: ExportFormat): string {
   return format === "xlsx" ? "Excel" : "CSV";
 }
 
-export function ExportButton({
-  label,
-  formats,
-  getFilename,
-  fetchExport,
-  hint,
-  describedById,
-  onFeedbackChange,
-  disabled = false,
-  cancelSignal,
-  onExported,
-  className,
-  buttonClassName,
-}: {
-  label: React.ReactNode;
-  /** Optional format choices rendered as a dropdown menu instead of a one-tap button. */
-  formats?: readonly ExportFormatOption[];
+export type UseExportActionOptions = {
   /** Called once per activation; the returned name is never recomputed mid-run. */
   getFilename: (activatedAt: Date, format: ExportFormat) => string;
   /**
@@ -101,10 +85,6 @@ export function ExportButton({
    * the main thread.
    */
   fetchExport: (signal: AbortSignal) => Promise<ExportSource>;
-  /** Visible caveat, associated with the button. */
-  hint?: React.ReactNode;
-  /** External description element ID when the Screen renders the hint outside this block. */
-  describedById?: string;
   /** External feedback listener when the Screen renders export status/errors outside this block. */
   onFeedbackChange?: (feedback: ExportFeedback) => void;
   disabled?: boolean;
@@ -119,14 +99,23 @@ export function ExportButton({
    */
   cancelSignal?: AbortSignal;
   onExported?: (file: File, rowCount: number) => void;
-  className?: string;
-  buttonClassName?: string;
-}) {
+};
+
+/**
+ * Reusable export runner hook backed by the off-main-thread export worker.
+ * Shared by `ExportButton` and custom overflow menus.
+ */
+export function useExportAction({
+  getFilename,
+  fetchExport,
+  onFeedbackChange,
+  disabled = false,
+  cancelSignal,
+  onExported,
+}: UseExportActionOptions) {
   const [busy, setBusy] = React.useState(false);
-  const [menuOpen, setMenuOpen] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
-  const hintId = React.useId();
   const inFlight = React.useRef(false);
   const abortRef = React.useRef<AbortController | null>(null);
   const workerRef = React.useRef<ExportWorker | null>(null);
@@ -217,13 +206,27 @@ export function ExportButton({
     };
   }, [cancelRun, revokeAllUrls]);
 
+  function downloadFile(file: File) {
+    const url = URL.createObjectURL(file);
+    urlsRef.current.add(url);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.name;
+    anchor.rel = "noopener";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    // Let the browser start the download before the URL disappears. `revokeUrl`
+    // is idempotent, so a teardown that wins this race revokes exactly once.
+    setTimeout(() => revokeUrl(url), 0);
+  }
+
   async function start(
     format: ExportFormat = "csv",
     optionGetFilename?: (activatedAt: Date) => string,
   ) {
     if (inFlight.current || disabled || cancelSignalRef.current?.aborted) return;
     inFlight.current = true;
-    setMenuOpen(false);
     setBusy(true);
     setError(null);
     setMessage("Preparing the export.");
@@ -340,21 +343,6 @@ export function ExportButton({
     return () => cancelSignal.removeEventListener("abort", cancelRun);
   }, [cancelSignal, cancelRun]);
 
-  function downloadFile(file: File) {
-    const url = URL.createObjectURL(file);
-    urlsRef.current.add(url);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.name;
-    anchor.rel = "noopener";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    // Let the browser start the download before the URL disappears. `revokeUrl`
-    // is idempotent, so a teardown that wins this race revokes exactly once.
-    setTimeout(() => revokeUrl(url), 0);
-  }
-
   const busyLabel = message || "Preparing the export.";
   const onFeedbackChangeRef = React.useRef(onFeedbackChange);
   onFeedbackChangeRef.current = onFeedbackChange;
@@ -366,6 +354,58 @@ export function ExportButton({
       error,
     });
   }, [busy, busyLabel, message, error]);
+
+  return {
+    busy,
+    busyLabel,
+    message,
+    error,
+    start,
+  };
+}
+
+export function ExportButton({
+  label,
+  formats,
+  getFilename,
+  fetchExport,
+  hint,
+  describedById,
+  onFeedbackChange,
+  disabled = false,
+  cancelSignal,
+  onExported,
+  className,
+  buttonClassName,
+}: UseExportActionOptions & {
+  label: React.ReactNode;
+  /** Optional format choices rendered as a dropdown menu instead of a one-tap button. */
+  formats?: readonly ExportFormatOption[];
+  /** Visible caveat, associated with the button. */
+  hint?: React.ReactNode;
+  /** External description element ID when the Screen renders the hint outside this block. */
+  describedById?: string;
+  className?: string;
+  buttonClassName?: string;
+}) {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const hintId = React.useId();
+  const { busy, busyLabel, message, error, start } = useExportAction({
+    getFilename,
+    fetchExport,
+    onFeedbackChange,
+    disabled,
+    cancelSignal,
+    onExported,
+  });
+
+  const handleStart = (
+    format: ExportFormat = "csv",
+    optionGetFilename?: (activatedAt: Date) => string,
+  ) => {
+    setMenuOpen(false);
+    void start(format, optionGetFilename);
+  };
 
   const hasFormats = Boolean(formats && formats.length > 0);
   const triggerIcon = busy ? (
@@ -409,8 +449,7 @@ export function ExportButton({
               key={option.format}
               disabled={disabled || busy}
               onClick={() => {
-                setMenuOpen(false);
-                void start(option.format, option.getFilename);
+                handleStart(option.format, option.getFilename);
               }}
             >
               {option.label}
@@ -420,7 +459,7 @@ export function ExportButton({
       </DropdownMenuContent>
     </DropdownMenu>
   ) : (
-    <Button {...buttonProps} onClick={() => void start("csv")}>
+    <Button {...buttonProps} onClick={() => handleStart("csv")}>
       {triggerIcon}
       {label}
     </Button>

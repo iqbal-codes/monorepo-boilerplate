@@ -10,7 +10,16 @@ import {
   Empty,
   EmptyContent,
 } from "@monorepo-boilerplate/ui/components/empty";
+import {
+  Field,
+  FieldContent,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@monorepo-boilerplate/ui/components/field";
 import { ListToolbar } from "@monorepo-boilerplate/ui/components/list-toolbar";
+import { RadioGroup, RadioGroupItem } from "@monorepo-boilerplate/ui/components/radio-group";
 import {
   Select,
   SelectContent,
@@ -225,7 +234,7 @@ function CustomersScreen() {
   const confirmCount = confirmation?.ids.length ?? 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Customers"
         description="Server-driven table: sorting, filtering, and paging all run in the API."
@@ -265,7 +274,11 @@ function CustomersScreen() {
                 if (value !== null) list.setStatus(value);
               }}
             >
-              <SelectTrigger className="w-40" aria-label="Filter by status">
+              <SelectTrigger
+                size="sm"
+                className="w-40 border border-input px-3"
+                aria-label="Filter by status"
+              >
                 <SelectValue>{STATUS_LABELS[list.status]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -279,6 +292,41 @@ function CustomersScreen() {
               </SelectContent>
             </Select>
           }
+          filterSheet={{
+            activeCount: list.status === "all" ? 0 : 1,
+            title: "Filter customers",
+            description: "Choose which customer records to show.",
+            onReset: () => list.setStatus("all"),
+            resetDisabled: list.status === "all",
+            content: (
+              <FieldSet>
+                <FieldLegend variant="label">Status</FieldLegend>
+                <RadioGroup
+                  value={list.status}
+                  onValueChange={(value) => {
+                    if (typeof value === "string") {
+                      list.setStatus(value as CustomerStatusFilter);
+                    }
+                  }}
+                  className="grid gap-2"
+                >
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => {
+                    const optionId = `customer-status-filter-${value}`;
+                    return (
+                      <FieldLabel key={value} htmlFor={optionId}>
+                        <Field orientation="horizontal">
+                          <FieldContent>
+                            <FieldTitle>{label}</FieldTitle>
+                          </FieldContent>
+                          <RadioGroupItem id={optionId} value={value} />
+                        </Field>
+                      </FieldLabel>
+                    );
+                  })}
+                </RadioGroup>
+              </FieldSet>
+            ),
+          }}
         />
         <p role="status" className={notice && !notice.error ? "text-sm" : "sr-only"}>
           {notice && !notice.error ? notice.text : ""}

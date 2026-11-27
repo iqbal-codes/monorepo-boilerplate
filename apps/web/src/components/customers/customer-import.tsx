@@ -153,12 +153,18 @@ export function CustomerImport({
   triggerLabel = "Import CSV",
   size,
   className,
+  open,
+  onOpenChange,
+  hideTrigger,
 }: {
   /** Called with the created count once the batch is stored. */
   onImported: (created: number) => void;
   triggerLabel?: string;
   size?: "default" | "sm";
   className?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
   return (
     <ImportBlock
@@ -167,6 +173,9 @@ export function CustomerImport({
       triggerLabel={triggerLabel}
       size={size}
       className={className}
+      open={open}
+      onOpenChange={onOpenChange}
+      hideTrigger={hideTrigger}
       validate={async (records) => {
         // Field rules are local, so a broken row is reported without a request.
         // Only a locally clean file asks the API about saved Customers, which
