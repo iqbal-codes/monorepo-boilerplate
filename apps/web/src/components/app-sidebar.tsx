@@ -11,6 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@monorepo-boilerplate/ui/components/sidebar";
 
 import { NavMain } from "@/components/sidebar/nav-main";
@@ -39,6 +40,7 @@ export function AppSidebar({
   onOpenCommandCenter: () => void;
 }) {
   const active = activeMainItem(currentPath);
+  const { state } = useSidebar();
 
   return (
     <Sidebar collapsible="icon">
@@ -58,7 +60,7 @@ export function AppSidebar({
           <SidebarMenuItem className="max-md:hidden">
             <SidebarMenuButton
               type="button"
-              variant="outline"
+              variant={state === "collapsed" ? "default" : "outline"}
               tooltip="Search or jump to"
               aria-label="Search or jump to"
               onClick={onOpenCommandCenter}
