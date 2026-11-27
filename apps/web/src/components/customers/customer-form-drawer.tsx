@@ -1,3 +1,7 @@
+import {
+  STORED_ASSET_PATH_ERROR,
+  storedAssetPathSchema,
+} from "@monorepo-boilerplate/api/asset-path";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
 import {
@@ -19,7 +23,7 @@ import { isValidPhoneNumber } from "@monorepo-boilerplate/ui/lib/phone";
 import { useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -45,9 +49,40 @@ const customerFormSchema = z.object({
   status: z.enum(["active", "inactive", "archived"]),
   balanceMinor: z.number().int().optional(),
   currency: z.string().length(3),
+  tags: z.array(z.string().trim().min(1).max(64)).max(50),
   notes: z.string().max(2000),
-  avatarUrl: z.string().max(2048),
+  avatarUrl: z
+    .string()
+    .refine(
+      (val) => val === "" || storedAssetPathSchema.safeParse(val).success,
+      STORED_ASSET_PATH_ERROR,
+    ),
 });
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+function buildCustomerEditPatch(value: CustomerFormValues, snapshot: CustomerFormValues) {
+  return {
+    ...(value.name !== snapshot.name ? { name: value.name } : {}),
+    ...(value.email !== snapshot.email ? { email: value.email } : {}),
+    ...(value.phone.trim() && value.phone !== snapshot.phone ? { phone: value.phone } : {}),
+    ...(value.company.trim() && value.company !== snapshot.company
+      ? { company: value.company }
+      : {}),
+    ...(value.status !== snapshot.status ? { status: value.status } : {}),
+    ...((value.balanceMinor ?? 0) !== (snapshot.balanceMinor ?? 0)
+      ? { balanceMinor: value.balanceMinor ?? 0 }
+      : {}),
+    ...(value.currency !== snapshot.currency ? { currency: value.currency } : {}),
+    ...(!arraysEqual(value.tags, snapshot.tags) ? { tags: value.tags } : {}),
+    ...(value.notes.trim() && value.notes !== snapshot.notes ? { notes: value.notes } : {}),
+    ...(value.avatarUrl !== snapshot.avatarUrl
+      ? { avatarUrl: value.avatarUrl ? value.avatarUrl : null }
+      : {}),
+  };
+}
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
@@ -59,9 +94,36 @@ const EMPTY_VALUES: CustomerFormValues = {
   status: "active",
   balanceMinor: 0,
   currency: DEFAULT_CURRENCY,
+  tags: [],
   notes: "",
   avatarUrl: "",
 };
+
+function toFormValues(row: {
+  name: string;
+  email: string;
+  phone: string | null;
+  company: string | null;
+  status: "active" | "inactive" | "archived";
+  balanceMinor: number;
+  currency: string;
+  tags?: string[] | null;
+  notes: string | null;
+  avatarUrl: string | null;
+}): CustomerFormValues {
+  return {
+    name: row.name,
+    email: row.email,
+    phone: row.phone ?? "",
+    company: row.company ?? "",
+    status: row.status,
+    balanceMinor: row.balanceMinor,
+    currency: row.currency,
+    tags: row.tags ?? [],
+    notes: row.notes ?? "",
+    avatarUrl: row.avatarUrl ?? "",
+  };
+}
 
 type CustomerFormDrawerProps = {
   open: boolean;
@@ -73,11 +135,28 @@ type CustomerFormDrawerProps = {
 export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerFormDrawerProps) {
   const queryClient = useQueryClient();
   const isEditing = customerId !== null;
+  const [tagInputValue, setTagInputValue] = useState("");
 
   const detail = useQuery({
     ...trpc.customers.byId.queryOptions({ id: customerId ?? "" }),
     enabled: open && isEditing,
   });
+
+  const tagsQuery = useQuery({
+    ...trpc.customers.tags.queryOptions(),
+    enabled: open,
+  });
+
+  const initialCachedSnapshot =
+    open && isEditing && detail.data && detail.data.id === customerId
+      ? toFormValues(detail.data)
+      : EMPTY_VALUES;
+  const [snapshot, setSnapshot] = useState<CustomerFormValues>(() => initialCachedSnapshot);
+  const hydratedSessionRef = useRef<string | null>(
+    open && (!isEditing || (detail.data && detail.data.id === customerId))
+      ? (customerId ?? "__new__")
+      : null,
+  );
 
   const blockerRef = useRef<{ status: string; reset?: () => void } | null>(null);
 
@@ -85,7 +164,10 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     trpc.customers.create.mutationOptions({
       onSuccess: () => {
         toast.success("Customer created");
-        form.reset();
+        setSnapshot(EMPTY_VALUES);
+        form.reset(EMPTY_VALUES);
+        setTagInputValue("");
+        hydratedSessionRef.current = null;
         if (blockerRef.current?.status === "blocked") {
           blockerRef.current.reset?.();
         }
@@ -100,7 +182,10 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     trpc.customers.update.mutationOptions({
       onSuccess: () => {
         toast.success("Customer updated");
-        form.reset();
+        setSnapshot(EMPTY_VALUES);
+        form.reset(EMPTY_VALUES);
+        setTagInputValue("");
+        hydratedSessionRef.current = null;
         if (blockerRef.current?.status === "blocked") {
           blockerRef.current.reset?.();
         }
@@ -112,28 +197,43 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   );
 
   const form = useAppForm({
-    defaultValues: EMPTY_VALUES,
+    defaultValues: snapshot,
     validators: {
       onChange: customerFormSchema,
       onSubmit: customerFormSchema,
     },
     onSubmit: async ({ value }) => {
-      const payload = {
-        name: value.name,
-        email: value.email,
-        status: value.status,
-        balanceMinor: value.balanceMinor ?? 0,
-        currency: value.currency,
-        ...(value.phone ? { phone: value.phone } : {}),
-        ...(value.company ? { company: value.company } : {}),
-        ...(value.notes ? { notes: value.notes } : {}),
-        ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
-      };
       try {
         if (isEditing && customerId) {
-          await update.mutateAsync({ id: customerId, ...payload });
+          const patch = buildCustomerEditPatch(value, snapshot);
+          if (Object.keys(patch).length === 0) {
+            setSnapshot(EMPTY_VALUES);
+            form.reset(EMPTY_VALUES);
+            setTagInputValue("");
+            hydratedSessionRef.current = null;
+            if (blockerRef.current?.status === "blocked") {
+              blockerRef.current.reset?.();
+            }
+            onOpenChange(false);
+            return;
+          }
+          await update.mutateAsync({
+            id: customerId,
+            ...patch,
+          });
         } else {
-          await create.mutateAsync(payload);
+          await create.mutateAsync({
+            name: value.name,
+            email: value.email,
+            status: value.status,
+            balanceMinor: value.balanceMinor ?? 0,
+            currency: value.currency,
+            tags: value.tags,
+            ...(value.phone ? { phone: value.phone } : {}),
+            ...(value.company ? { company: value.company } : {}),
+            ...(value.notes ? { notes: value.notes } : {}),
+            ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
+          });
         }
       } catch {
         // Surfaced via mutation onError toast and FormError (create.error / update.error).
@@ -141,26 +241,37 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     },
   });
 
-  // Reset the form whenever the drawer opens for a different record.
+  // Snapshot initial values once per drawer open/record session so background or
+  // focus refetches never overwrite in-progress local edits.
   useEffect(() => {
-    if (!open) return;
-    if (isEditing && detail.data) {
-      const row = detail.data;
-      form.reset({
-        name: row.name,
-        email: row.email,
-        phone: row.phone ?? "",
-        company: row.company ?? "",
-        status: row.status,
-        balanceMinor: row.balanceMinor,
-        currency: row.currency,
-        notes: row.notes ?? "",
-        avatarUrl: row.avatarUrl ?? "",
-      });
-    } else if (!isEditing) {
+    if (!open) {
+      hydratedSessionRef.current = null;
+      setSnapshot(EMPTY_VALUES);
       form.reset(EMPTY_VALUES);
+      setTagInputValue("");
+      return;
     }
-    // `form` is stable; re-running on data arrival is the point.
+
+    const sessionKey = customerId ?? "__new__";
+    if (hydratedSessionRef.current === sessionKey) {
+      return;
+    }
+
+    if (!isEditing) {
+      hydratedSessionRef.current = sessionKey;
+      setSnapshot(EMPTY_VALUES);
+      form.reset(EMPTY_VALUES);
+      setTagInputValue("");
+      return;
+    }
+
+    if (detail.data && detail.data.id === customerId) {
+      const nextSnapshot = toFormValues(detail.data);
+      hydratedSessionRef.current = sessionKey;
+      setSnapshot(nextSnapshot);
+      form.reset(nextSnapshot);
+      setTagInputValue("");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEditing, customerId, detail.data]);
 
@@ -168,13 +279,15 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     state.isDirty,
     state.isSubmitting,
   ]);
+  const hasPendingTagText = tagInputValue.trim().length > 0;
+  const hasUnsavedChanges = isDirty || hasPendingTagText;
   const submitting = create.isPending || update.isPending || isFormSubmitting;
   const currency = form.getFieldValue("currency") || DEFAULT_CURRENCY;
 
   const blocker = useBlocker({
-    shouldBlockFn: () => open && (isDirty || submitting),
-    enableBeforeUnload: () => open && (isDirty || submitting),
-    disabled: !(open && (isDirty || submitting)),
+    shouldBlockFn: () => open && (hasUnsavedChanges || submitting),
+    enableBeforeUnload: () => open && (hasUnsavedChanges || submitting),
+    disabled: !(open && (hasUnsavedChanges || submitting)),
     withResolver: true,
   });
   blockerRef.current = blocker;
@@ -182,11 +295,17 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
   return (
     <UnsavedChangesGuard
       form={form}
+      isDirty={hasUnsavedChanges}
       enabled={open}
       pending={submitting}
       blocker={blocker}
       onOpenChange={onOpenChange}
-      onDiscard={() => form.reset()}
+      onDiscard={() => {
+        setSnapshot(EMPTY_VALUES);
+        form.reset(EMPTY_VALUES);
+        setTagInputValue("");
+        hydratedSessionRef.current = null;
+      }}
       title="Discard unsaved changes?"
       description="You have unsaved changes to this customer. Leaving now will discard them."
     >
@@ -246,11 +365,26 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
                   </form.AppField>
                 </div>
 
+                <form.AppField name="tags">
+                  {(field) => (
+                    <field.TagField
+                      label="Tags"
+                      placeholder="Add a tag…"
+                      suggestions={tagsQuery.data ?? []}
+                      maxTags={20}
+                      inputValue={tagInputValue}
+                      onInputValueChange={setTagInputValue}
+                      description="Press Enter or comma to add tags."
+                    />
+                  )}
+                </form.AppField>
+
                 <form.AppField name="avatarUrl">
                   {(field) => (
                     <field.UploadField
                       label="Avatar"
                       hint="PNG, JPEG, WebP, or GIF up to 5 MB"
+                      removeLabel="Remove avatar"
                       accept="image/png,image/jpeg,image/webp,image/gif"
                       upload={uploadFile}
                       resolvePreviewUrl={assetUrl}

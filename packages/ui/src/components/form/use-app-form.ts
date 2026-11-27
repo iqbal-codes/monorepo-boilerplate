@@ -12,6 +12,7 @@ import { DateField, DateRangeField, DateTimeField } from "./fields/date-fields";
 import { CurrencyField, NumberField, SliderField } from "./fields/numeric-fields";
 import { PhoneField } from "./fields/phone-field";
 import { OtpField, UploadField } from "./fields/special-fields";
+import { TagField } from "./fields/tag-field";
 import { PasswordField, TextareaField, TextField } from "./fields/text-fields";
 import { FormError, ResetButton, SubmitButton } from "./form-actions";
 import { fieldContext, formContext } from "./form-context";
@@ -47,6 +48,7 @@ export const { useAppForm, withForm, withFieldGroup, useTypedAppFormContext, ext
       SliderField,
       OtpField,
       UploadField,
+      TagField,
       FieldArray,
     },
     formComponents: {

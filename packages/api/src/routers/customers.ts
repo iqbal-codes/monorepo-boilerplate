@@ -7,8 +7,11 @@ import {
 import { customerStatus } from "@monorepo-boilerplate/db/schema/customer";
 import { z } from "zod";
 
+import { storedAssetPathSchema } from "../asset-path";
 import { protectedProcedure, router } from "../index";
 import { adminProcedure } from "../procedures";
+
+export { storedAssetPathSchema };
 
 const MAX_CUSTOMER_PAGE_SIZE = 100;
 
@@ -78,7 +81,9 @@ function toExportBalanceMinor(balanceMinor: string): number {
   return Number(exact);
 }
 
-const customerBaseInput = z.object({
+const TAG_REGEX = /^.+$/;
+
+const customerBaseFields = {
   name: z.string().trim().min(1).max(200),
   email: z.email().max(320),
   phone: z.string().trim().max(40).optional(),
@@ -87,17 +92,23 @@ const customerBaseInput = z.object({
   balanceMinor: z.number().int().min(-MAX_BALANCE_MINOR).max(MAX_BALANCE_MINOR),
   currency: z.string().length(3),
   notes: z.string().max(2000).optional(),
-  avatarUrl: z.string().max(2048).optional(),
+  avatarUrl: storedAssetPathSchema.optional(),
+  tags: z.array(z.string().trim().min(1).max(64).regex(TAG_REGEX)).max(50).optional(),
+};
+
+export const customerCreateInput = z.object({
+  ...customerBaseFields,
+  status: customerBaseFields.status.default("active"),
+  currency: customerBaseFields.currency.default("USD"),
 });
 
-export const customerCreateInput = customerBaseInput.extend({
-  status: customerBaseInput.shape.status.default("active"),
-  currency: customerBaseInput.shape.currency.default("USD"),
-});
-
-export const customerUpdateInput = customerBaseInput.partial().extend({
-  id: z.string().min(1),
-});
+export const customerUpdateInput = z
+  .object(customerBaseFields)
+  .partial()
+  .extend({
+    id: z.string().min(1),
+    avatarUrl: storedAssetPathSchema.nullable().optional(),
+  });
 
 /**
  * A CSV row as the Import block sends it: the original 1-based line plus the
@@ -330,10 +341,44 @@ function toCustomerInsert(draft: CustomerImportDraft) {
   return { ...values, id: crypto.randomUUID() };
 }
 
+function toActor(user: { id: string; name: string; image?: string | null }) {
+  return {
+    id: user.id,
+    name: user.name,
+    avatarUrl: user.image ?? null,
+  };
+}
+
 export const customersRouter = router({
   list: protectedProcedure.input(customerListInput).query(({ ctx, input }) => {
     const query: CustomerListQuery = input;
     return customerQueries(ctx.db).list(query);
+  }),
+
+  tags: protectedProcedure.query(({ ctx }) => customerQueries(ctx.db).distinctTags()),
+
+  events: router({
+    list: protectedProcedure
+      .input(z.object({ customerId: z.string().min(1) }))
+      .query(({ ctx, input }) => customerQueries(ctx.db).listEvents(input.customerId)),
+
+    addNote: protectedProcedure
+      .input(
+        z.object({
+          customerId: z.string().min(1),
+          body: z.string().trim().min(1, "Note cannot be empty.").max(2000),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const created = await customerQueries(ctx.db).addNote(input, toActor(ctx.session.user));
+        if (!created) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Customer not found.",
+          });
+        }
+        return created;
+      }),
   }),
 
   /**
@@ -372,18 +417,31 @@ export const customersRouter = router({
     .query(({ ctx, input }) => customerQueries(ctx.db).byId(input.id)),
 
   create: protectedProcedure.input(customerCreateInput).mutation(({ ctx, input }) => {
-    return customerQueries(ctx.db).create({ ...input, id: crypto.randomUUID() });
+    return customerQueries(ctx.db).create(
+      { ...input, id: crypto.randomUUID() },
+      toActor(ctx.session.user),
+    );
   }),
 
-  update: protectedProcedure.input(customerUpdateInput).mutation(({ ctx, input }) => {
+  update: protectedProcedure.input(customerUpdateInput).mutation(async ({ ctx, input }) => {
     const { id, ...patch } = input;
-    return customerQueries(ctx.db).update(id, patch);
+    const updated = await customerQueries(ctx.db).update(id, patch, toActor(ctx.session.user));
+    if (!updated) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Customer not found.",
+      });
+    }
+    return updated;
   }),
 
   archiveMany: protectedProcedure
     .input(z.object({ ids: z.array(z.string().min(1)).min(1).max(MAX_CUSTOMER_PAGE_SIZE) }))
     .mutation(async ({ ctx, input }) => {
-      const archived = await customerQueries(ctx.db).archiveMany(input.ids);
+      const archived = await customerQueries(ctx.db).archiveMany(
+        input.ids,
+        toActor(ctx.session.user),
+      );
       if (!archived) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -444,6 +502,7 @@ export const customersRouter = router({
       if (issues.length === 0) {
         const { created, conflictEmails } = await customerQueries(ctx.db).importMany(
           drafts.map(toCustomerInsert),
+          toActor(ctx.session.user),
         );
         if (conflictEmails.length === 0 && created.length === drafts.length) {
           return { ok: true as const, created: created.length };

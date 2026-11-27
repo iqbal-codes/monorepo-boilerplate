@@ -1,7 +1,14 @@
 import { and, asc, count, desc, eq, ilike, inArray, ne, or, sum, sql } from "drizzle-orm";
 
 import type { Database } from "../index";
-import { customer, type Customer, type NewCustomer } from "../schema/customer";
+import {
+  customer,
+  customerEvent,
+  type Customer,
+  type CustomerEvent,
+  type NewCustomer,
+  type NewCustomerEvent,
+} from "../schema/customer";
 
 const sortableColumns = {
   name: customer.name,
@@ -12,6 +19,12 @@ const sortableColumns = {
 } as const;
 
 export type SortableColumn = keyof typeof sortableColumns;
+
+export type CustomerEventActor = {
+  id?: string | null;
+  name?: string | null;
+  avatarUrl?: string | null;
+};
 
 /**
  * The list scope shared by `customers.list` and `customers.export`: what to
@@ -54,9 +67,16 @@ export interface CustomerQueries {
    */
   exportRows(query: CustomerScopeQuery): Promise<CustomerExportRow[]>;
   byId(id: string): Promise<Customer | null>;
-  create(values: NewCustomer): Promise<Customer>;
-  update(id: string, patch: Partial<NewCustomer>): Promise<Customer>;
-  archiveMany(ids: readonly string[]): Promise<{ count: number } | null>;
+  create(values: NewCustomer, actor?: CustomerEventActor): Promise<Customer>;
+  update(
+    id: string,
+    patch: Partial<NewCustomer>,
+    actor?: CustomerEventActor,
+  ): Promise<Customer | null>;
+  archiveMany(
+    ids: readonly string[],
+    actor?: CustomerEventActor,
+  ): Promise<{ count: number } | null>;
   remove(id: string): Promise<{ id: string }>;
   stats(): Promise<{ total: number; active: number; balanceMinor: number }>;
   /**
@@ -70,7 +90,13 @@ export interface CustomerQueries {
    * conflicting email, so an existing Customer is never updated and a partial
    * batch can never be committed.
    */
-  importMany(rows: readonly NewCustomer[]): Promise<ImportManyResult>;
+  importMany(rows: readonly NewCustomer[], actor?: CustomerEventActor): Promise<ImportManyResult>;
+  listEvents(customerId: string): Promise<CustomerEvent[]>;
+  addNote(
+    input: { customerId: string; body: string },
+    actor?: CustomerEventActor,
+  ): Promise<CustomerEvent | null>;
+  distinctTags(): Promise<string[]>;
 }
 
 /** Postgres unique-violation, raised by the `customer_email_unique` index. */
@@ -90,6 +116,62 @@ export function isUniqueViolation(error: unknown): boolean {
   }
   return false;
 }
+
+export function normalizeTags(tags: readonly string[] | undefined): string[] {
+  if (!tags || tags.length === 0) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const raw of tags) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function actorFields(actor?: CustomerEventActor) {
+  return {
+    actorId: actor?.id ?? null,
+    actorName: actor?.name ?? null,
+    actorAvatarUrl: actor?.avatarUrl ?? null,
+  };
+}
+
+function buildEvent(
+  customerId: string,
+  type: NewCustomerEvent["type"],
+  summary: string,
+  actor?: CustomerEventActor,
+  extra?: { body?: string | null; metadata?: Record<string, unknown> | null },
+): NewCustomerEvent {
+  return {
+    id: crypto.randomUUID(),
+    customerId,
+    type,
+    ...actorFields(actor),
+    summary,
+    body: extra?.body ?? null,
+    metadata: extra?.metadata ?? null,
+  };
+}
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
+
+const TRACKED_PROFILE_FIELDS = [
+  "name",
+  "email",
+  "phone",
+  "company",
+  "balanceMinor",
+  "currency",
+  "notes",
+] as const;
 
 export type CustomerExportRow = {
   name: string;
@@ -194,35 +276,146 @@ export function customerQueries(db: Database): CustomerQueries {
       return row ?? null;
     },
 
-    async create(values: NewCustomer) {
-      const [row] = await db.insert(customer).values(values).returning();
-      if (!row) throw new Error("Customer insert returned no row");
-      return row;
+    async create(values: NewCustomer, actor?: CustomerEventActor) {
+      const normalizedValues: NewCustomer = {
+        ...values,
+        tags: normalizeTags(values.tags),
+      };
+
+      return db.transaction(async (tx) => {
+        const [row] = await tx.insert(customer).values(normalizedValues).returning();
+        if (!row) throw new Error("Customer insert returned no row");
+
+        await tx.insert(customerEvent).values(
+          buildEvent(row.id, "created", "Created customer", actor, {
+            metadata: {
+              status: row.status,
+              ...(row.tags.length > 0 ? { tags: row.tags } : {}),
+            },
+          }),
+        );
+
+        return row;
+      });
     },
 
-    async update(id: string, patch: Partial<NewCustomer>) {
-      const [row] = await db.update(customer).set(patch).where(eq(customer.id, id)).returning();
-      if (!row) throw new Error(`Customer ${id} not found`);
-      return row;
+    async update(id: string, patch: Partial<NewCustomer>, actor?: CustomerEventActor) {
+      const normalizedPatch: Partial<NewCustomer> = {
+        ...patch,
+        ...(patch.tags !== undefined ? { tags: normalizeTags(patch.tags) } : {}),
+      };
+
+      return db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(customer)
+          .where(eq(customer.id, id))
+          .for("update");
+        if (!existing) return null;
+        if (Object.keys(normalizedPatch).length === 0) return existing;
+
+        const [updated] = await tx
+          .update(customer)
+          .set(normalizedPatch)
+          .where(eq(customer.id, id))
+          .returning();
+        if (!updated) return null;
+
+        const eventsToInsert: NewCustomerEvent[] = [];
+
+        if (existing.avatarUrl !== updated.avatarUrl) {
+          if (updated.avatarUrl === null) {
+            eventsToInsert.push(
+              buildEvent(id, "avatar_removed", "Removed avatar", actor, {
+                metadata: { previousAvatarUrl: existing.avatarUrl },
+              }),
+            );
+          } else {
+            eventsToInsert.push(
+              buildEvent(id, "avatar_updated", "Updated avatar", actor, {
+                metadata: { avatarUrl: updated.avatarUrl },
+              }),
+            );
+          }
+        }
+
+        let statusHandledByLifecycle = false;
+        if (existing.status !== updated.status) {
+          if (updated.status === "archived") {
+            statusHandledByLifecycle = true;
+            eventsToInsert.push(
+              buildEvent(id, "archived", "Archived customer", actor, {
+                metadata: { from: existing.status, to: "archived" },
+              }),
+            );
+          } else if (existing.status === "archived") {
+            statusHandledByLifecycle = true;
+            eventsToInsert.push(
+              buildEvent(id, "restored", `Restored customer as ${updated.status}`, actor, {
+                metadata: { from: "archived", to: updated.status },
+              }),
+            );
+          }
+        }
+
+        const changes: Record<string, { from: unknown; to: unknown }> = {};
+        for (const field of TRACKED_PROFILE_FIELDS) {
+          if (existing[field] !== updated[field]) {
+            changes[field] = { from: existing[field], to: updated[field] };
+          }
+        }
+        if (!arraysEqual(existing.tags, updated.tags)) {
+          changes.tags = { from: existing.tags, to: updated.tags };
+        }
+        if (!statusHandledByLifecycle && existing.status !== updated.status) {
+          changes.status = { from: existing.status, to: updated.status };
+        }
+
+        if (Object.keys(changes).length > 0) {
+          eventsToInsert.push(
+            buildEvent(id, "updated", "Updated customer details", actor, {
+              metadata: { changes },
+            }),
+          );
+        }
+
+        if (eventsToInsert.length > 0) {
+          await tx.insert(customerEvent).values(eventsToInsert);
+        }
+
+        return updated;
+      });
     },
 
-    async archiveMany(ids) {
+    async archiveMany(ids, actor?: CustomerEventActor) {
       const distinct = [...new Set(ids)];
       return db.transaction(async (tx) => {
         // Lock in a consistent order so a concurrent delete or archive cannot
         // invalidate the existence check before this transaction commits.
         const rows = await tx
-          .select({ id: customer.id })
+          .select({ id: customer.id, status: customer.status })
           .from(customer)
           .where(inArray(customer.id, distinct))
           .orderBy(asc(customer.id))
           .for("update");
         if (rows.length !== distinct.length) return null;
 
-        await tx
-          .update(customer)
-          .set({ status: "archived" })
-          .where(and(inArray(customer.id, distinct), ne(customer.status, "archived")));
+        const archivable = rows.filter((row) => row.status !== "archived");
+        if (archivable.length > 0) {
+          await tx
+            .update(customer)
+            .set({ status: "archived" })
+            .where(and(inArray(customer.id, distinct), ne(customer.status, "archived")));
+
+          await tx.insert(customerEvent).values(
+            archivable.map((row) =>
+              buildEvent(row.id, "archived", "Archived customer", actor, {
+                metadata: { from: row.status, to: "archived" },
+              }),
+            ),
+          );
+        }
+
         return { count: distinct.length };
       });
     },
@@ -257,7 +450,7 @@ export function customerQueries(db: Database): CustomerQueries {
       return new Set(rows.map((row) => row.email));
     },
 
-    async importMany(rows) {
+    async importMany(rows, actor?: CustomerEventActor) {
       if (rows.length === 0) return { created: [], conflictEmails: [] };
 
       const emails = [...new Set(rows.map((row) => row.email))];
@@ -282,8 +475,19 @@ export function customerQueries(db: Database): CustomerQueries {
 
           const created = await tx
             .insert(customer)
-            .values([...rows])
+            .values(rows.map((row) => ({ ...row, tags: normalizeTags(row.tags) })))
             .returning();
+
+          if (created.length > 0) {
+            await tx.insert(customerEvent).values(
+              created.map((row) =>
+                buildEvent(row.id, "created", "Imported customer", actor, {
+                  metadata: { source: "import", status: row.status },
+                }),
+              ),
+            );
+          }
+
           return { created, conflictEmails: [] };
         });
       } catch (error) {
@@ -302,6 +506,39 @@ export function customerQueries(db: Database): CustomerQueries {
         ]);
         return { created: [], conflictEmails: [...conflictEmails] };
       }
+    },
+
+    async listEvents(customerId: string) {
+      return db
+        .select()
+        .from(customerEvent)
+        .where(eq(customerEvent.customerId, customerId))
+        .orderBy(asc(customerEvent.createdAt), asc(customerEvent.seq));
+    },
+
+    async addNote({ customerId, body }, actor?: CustomerEventActor) {
+      return db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({ id: customer.id })
+          .from(customer)
+          .where(eq(customer.id, customerId))
+          .limit(1);
+        if (!existing) return null;
+
+        const [event] = await tx
+          .insert(customerEvent)
+          .values(buildEvent(customerId, "note", "Added a note", actor, { body }))
+          .returning();
+        if (!event) throw new Error("Customer event insert returned no row");
+        return event;
+      });
+    },
+
+    async distinctTags() {
+      const result = await db.execute<{ tag: string }>(
+        sql`select distinct tag from ${customer}, unnest(${customer.tags}) as tag order by tag asc`,
+      );
+      return result.rows.map((row) => row.tag);
     },
   };
 }

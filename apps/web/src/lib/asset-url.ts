@@ -9,6 +9,20 @@ import { serverUrl } from "@/lib/server-url";
  */
 export function assetUrl(path: string | null | undefined): string | null {
   if (!path) return null;
-  if (/^https?:\/\//.test(path)) return path;
-  return new URL(path, serverUrl).toString();
+  const trimmed = path.trim();
+  if (!trimmed || trimmed.startsWith("//")) return null;
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const url = new URL(trimmed);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+    }
+    // Reject non-http(s) URI schemes (e.g. javascript:, data:, malformed authorities).
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+      return null;
+    }
+    const normalized = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return new URL(normalized, serverUrl).toString();
+  } catch {
+    return null;
+  }
 }

@@ -2,12 +2,16 @@
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
-const testTarget = "./packages/api/src/routers/customers.integration.test.ts";
+const TEST_FILES = ["./packages/api/src/routers/customers.integration.test.ts"];
 
-async function runChecked(
+async function run(
   command: string[],
   env: NodeJS.ProcessEnv = process.env,
-): Promise<string> {
+): Promise<{
+  code: number;
+  stdout: string;
+  stderr: string;
+}> {
   const child = Bun.spawn(command, {
     cwd: root,
     env,
@@ -20,10 +24,7 @@ async function runChecked(
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  if (code !== 0) {
-    throw new Error(`${command.join(" ")} exited with status ${code}\n${stderr || stdout}`);
-  }
-  return stdout.trim();
+  return { code, stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
 async function runInherited(
@@ -34,31 +35,22 @@ async function runInherited(
     cwd: root,
     env,
     stdio: ["inherit", "inherit", "inherit"],
+    signal: AbortSignal.timeout(180_000),
   });
-  return await child.exited;
+  return child.exited;
 }
 
 async function stopContainer(containerId: string): Promise<void> {
-  const stop = Bun.spawn(["docker", "stop", "--time", "2", containerId], {
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stopCode = await stop.exited;
-  if (stopCode === 0) return;
+  const stop = await run(["docker", "stop", "--time", "2", containerId]);
+  if (stop.code === 0) return;
 
-  const rm = Bun.spawn(["docker", "rm", "-f", containerId], {
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [rmErr, rmCode] = await Promise.all([new Response(rm.stderr).text(), rm.exited]);
-  if (rmCode !== 0) {
-    console.error(`[test:integration] failed to remove container ${containerId}: ${rmErr.trim()}`);
+  const rm = await run(["docker", "rm", "-f", containerId]);
+  if (rm.code !== 0) {
+    console.error(`[test:integration] failed to remove container ${containerId}: ${rm.stderr}`);
   }
 }
 
-let container: string | undefined;
+let containerId: string | undefined;
 
 try {
   let databaseUrl = process.env.CUSTOMERS_TEST_DATABASE_URL?.trim();
@@ -67,8 +59,21 @@ try {
       throw new Error("CUSTOMERS_TEST_DATABASE_URL must be a postgresql:// URL");
     }
   } else {
+    if (!Bun.which("docker")) {
+      throw new Error(
+        "[test:integration] CUSTOMERS_TEST_DATABASE_URL is not set and `docker` is unavailable to boot disposable Postgres.",
+      );
+    }
+
+    const dockerInfo = await run(["docker", "info"]);
+    if (dockerInfo.code !== 0) {
+      throw new Error(
+        `[test:integration] CUSTOMERS_TEST_DATABASE_URL is not set and the Docker daemon is not reachable:\n${dockerInfo.stderr}`,
+      );
+    }
+
     const password = crypto.randomUUID();
-    container = await runChecked([
+    const started = await run([
       "docker",
       "run",
       "--rm",
@@ -81,32 +86,35 @@ try {
       `POSTGRES_PASSWORD=${password}`,
       "postgres:18",
     ]);
-
-    const portOutput = await runChecked(["docker", "port", container, "5432/tcp"]);
-    const port = Number(portOutput.split(":").at(-1));
-    if (!Number.isFinite(port) || port <= 0) {
-      throw new Error(`Docker did not publish a valid Postgres port: ${portOutput}`);
+    if (started.code !== 0 || !started.stdout) {
+      throw new Error(`[test:integration] failed to start disposable Postgres:\n${started.stderr}`);
     }
-    databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/customers_test`;
 
+    containerId = started.stdout;
+    const portResult = await run(["docker", "port", containerId, "5432/tcp"]);
+    const port = Number(portResult.stdout.split(":").at(-1));
+    if (!Number.isInteger(port) || port <= 0) {
+      throw new Error(`Unexpected docker port output: ${portResult.stdout}`);
+    }
+
+    databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/customers_test`;
     const deadline = Date.now() + 30_000;
     for (;;) {
-      try {
-        await runChecked([
-          "docker",
-          "exec",
-          container,
-          "pg_isready",
-          "-h",
-          "127.0.0.1",
-          "-d",
-          "customers_test",
-        ]);
-        break;
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-        await Bun.sleep(250);
+      const ready = await run([
+        "docker",
+        "exec",
+        containerId,
+        "pg_isready",
+        "-h",
+        "127.0.0.1",
+        "-d",
+        "customers_test",
+      ]);
+      if (ready.code === 0) break;
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for disposable Postgres:\n${ready.stderr}`);
       }
+      await Bun.sleep(250);
     }
 
     const pushCode = await runInherited(["bun", "run", "db:push"], {
@@ -114,11 +122,11 @@ try {
       DATABASE_URL: databaseUrl,
     });
     if (pushCode !== 0) {
-      throw new Error(`bun run db:push failed with exit code ${pushCode}`);
+      throw new Error(`[test:integration] bun run db:push failed with exit code ${pushCode}`);
     }
   }
 
-  const testCode = await runInherited(["bun", "test", testTarget], {
+  const testCode = await runInherited(["bun", "test", ...TEST_FILES], {
     ...process.env,
     DATABASE_URL: databaseUrl,
     CUSTOMERS_TEST_DATABASE_URL: databaseUrl,
@@ -130,7 +138,7 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
-  if (container) {
-    await stopContainer(container);
+  if (containerId) {
+    await stopContainer(containerId);
   }
 }

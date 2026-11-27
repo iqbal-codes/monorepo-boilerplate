@@ -1,3 +1,9 @@
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  getInitials,
+} from "@monorepo-boilerplate/ui/components/avatar";
 import { BulkActionBar } from "@monorepo-boilerplate/ui/components/bulk-action-bar";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { ConfirmationDialog } from "@monorepo-boilerplate/ui/components/confirmation-dialog";
@@ -38,6 +44,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
 import { CustomerPageActions } from "@/components/customers/customer-page-actions";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
+import { assetUrl } from "@/lib/asset-url";
 import { useUiPrefs } from "@/lib/ui-prefs-store";
 import { useListSearchParams, type CustomerStatusFilter } from "@/lib/use-data-table-search-params";
 import { trpc } from "@/utils/trpc";
@@ -77,6 +84,8 @@ type CustomerRow = {
   status: "active" | "inactive" | "archived";
   balanceMinor: number;
   currency: string;
+  avatarUrl: string | null;
+  tags: string[];
   createdAt: Date | string;
 };
 
@@ -85,17 +94,24 @@ const columns = helper.columns([
     header: "Customer",
     cell: (info) => {
       const row = info.row.original;
+      const resolvedAvatar = assetUrl(row.avatarUrl);
       return (
-        <div className="flex flex-col">
-          <Link
-            to="/customers/$customerId"
-            params={{ customerId: row.id }}
-            onClick={(event) => event.stopPropagation()}
-            className="w-fit font-medium hover:underline"
-          >
-            {row.name}
-          </Link>
-          <span className="text-xs text-muted-foreground">{row.email}</span>
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar>
+            {resolvedAvatar ? <AvatarImage src={resolvedAvatar} alt={row.name} /> : null}
+            <AvatarFallback>{getInitials(row.name)}</AvatarFallback>
+          </Avatar>
+          <div className="flex min-w-0 flex-col">
+            <Link
+              to="/customers/$customerId"
+              params={{ customerId: row.id }}
+              onClick={(event) => event.stopPropagation()}
+              className="w-fit font-medium hover:underline"
+            >
+              {row.name}
+            </Link>
+            <span className="truncate text-xs text-muted-foreground">{row.email}</span>
+          </div>
         </div>
       );
     },
