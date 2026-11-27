@@ -538,7 +538,7 @@ function KanbanDemo() {
   const displayedTaskColumns = previewMode === "empty" ? [] : TASK_COLUMNS;
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-1 flex-col gap-6">
       <PageHeader
         title="Kanban Board"
         description="Controlled Kanban Board block in CRM pipeline and task management modes. Deletable demo."
@@ -595,6 +595,7 @@ function KanbanDemo() {
 
       <Tabs
         value={activeTab}
+        className="flex-1"
         onValueChange={(value) => {
           if (value === "crm" || value === "tasks") setActiveTab(value);
         }}
@@ -630,6 +631,7 @@ function KanbanDemo() {
 
           <KanbanBoard
             ariaLabel="CRM deal pipeline"
+            className="flex-1"
             columns={displayedDealColumns}
             cards={deals}
             isLoading={isLoading}
@@ -754,8 +756,7 @@ function KanbanDemo() {
                 }}
               >
                 <SelectTrigger
-                  size="sm"
-                  className="w-40 border border-input px-3"
+                  className="w-40"
                   aria-label="Filter by priority"
                   showClear={taskPriority !== "all"}
                   onClear={() => setTaskPriority("all")}
@@ -811,6 +812,7 @@ function KanbanDemo() {
 
           <KanbanBoard
             ariaLabel="Task management board"
+            className="flex-1"
             columns={displayedTaskColumns}
             cards={filteredTasks}
             isLoading={isLoading}

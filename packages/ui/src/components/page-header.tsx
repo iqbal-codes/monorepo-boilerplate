@@ -22,7 +22,7 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <div data-slot="page-header" className={cn("flex flex-col gap-2 sm:gap-3", className)}>
+    <div data-slot="page-header" className={cn("flex min-w-0 flex-col gap-2 sm:gap-3", className)}>
       {breadcrumbs}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
