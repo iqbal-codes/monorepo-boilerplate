@@ -155,6 +155,7 @@ describe("Responsive UI blocks", () => {
 
     expect(html).toContain("focus-visible:outline-ring");
     expect(html).toContain("focus-visible:outline-2");
+    expect(html).toContain("focus-visible:outline-solid");
     expect(html).not.toContain("ring-ring/30");
   });
 });
