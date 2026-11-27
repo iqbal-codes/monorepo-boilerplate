@@ -64,12 +64,8 @@ if (fixBlocked) {
   ready = false;
   reason = 'mechanical_gate_failed';
   summary = `Round ${round}: mechanical gate failed (${mechSummary}). Fix findings in $ARTIFACTS_DIR/mechanical-gate.md.`;
-} else if (runUx && !uxPassed) {
-  done = false;
-  ready = false;
-  reason = 'ux_verify_failed';
-  summary = `Round ${round}: UX black-box verification failed (${uxSummary}). Fix findings in $ARTIFACTS_DIR/evidence/ux-report.md.`;
 } else {
+  const uxFailed = runUx && !uxPassed;
   const missingReviews: string[] = [];
   if (!specLgtm) missingReviews.push(`Spec+Tests (${specSummary || 'findings open'})`);
   if (!stdLgtm) missingReviews.push(`Standards+Code (${stdSummary || 'findings open'})`);
@@ -77,11 +73,28 @@ if (fixBlocked) {
     missingReviews.push(`Seams+Errors (${seamsSummary || 'findings open'})`);
   }
 
-  if (missingReviews.length > 0) {
+  if (uxFailed || missingReviews.length > 0) {
     done = false;
     ready = false;
-    reason = 'review_findings';
-    summary = `Round ${round}: QA review findings open in ${missingReviews.join('; ')}. Read $ARTIFACTS_DIR/review/*.md and resolve all blocking items.`;
+    const summaryParts: string[] = [];
+    if (uxFailed) {
+      summaryParts.push(
+        `UX black-box verification failed (${uxSummary || 'findings open'}). Fix findings in $ARTIFACTS_DIR/evidence/ux-report.md.`
+      );
+    }
+    if (missingReviews.length > 0) {
+      summaryParts.push(
+        `QA review findings open in ${missingReviews.join('; ')}. Read $ARTIFACTS_DIR/review/*.md and resolve all blocking items.`
+      );
+    }
+    if (uxFailed && missingReviews.length > 0) {
+      reason = 'ux_and_review_findings';
+    } else if (uxFailed) {
+      reason = 'ux_verify_failed';
+    } else {
+      reason = 'review_findings';
+    }
+    summary = `Round ${round}: ${summaryParts.join(' ')}`;
   } else {
     done = true;
     ready = true;
@@ -101,7 +114,7 @@ function readFullOptional(filePath: string): string {
 
 const mechRaw = readFullOptional(join(artifactsDir, 'mechanical-gate.md'));
 const uxRaw = runUx ? readFullOptional(join(artifactsDir, 'evidence', 'ux-report.md')) : '';
-const reviewsRan = !fixBlocked && mechPassed && (!runUx || uxPassed);
+const reviewsRan = !fixBlocked && mechPassed;
 const specRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'spec.md')) : '';
 const stdRaw = reviewsRan ? readFullOptional(join(artifactsDir, 'review', 'standards.md')) : '';
 const seamsRaw =

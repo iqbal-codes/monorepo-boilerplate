@@ -2,10 +2,10 @@ name: factory-qa
 description: |
   Shared QA round for factory-slice and factory-pr-revise — include it from a loop_group
   body once the patch and PR exist. Runs the deterministic mechanical gate (reserved
-  folders, protected paths, repository verification), optional black-box browser UX
-  verification, and the independent fresh-context review axes (2 on `standard`, plus
-  Seams & Failure-Safety on `risk:strict`), then joins them into one round verdict.
-  It never implements, fixes, or pushes, so it is not runnable on its own.
+  folders, protected paths, repository verification), then runs optional black-box
+  browser UX verification in parallel with the independent fresh-context review axes
+  (2 on `standard`, plus Seams & Failure-Safety on `risk:strict`), and joins them into
+  one round verdict. It never implements, fixes, or pushes, so it is not runnable on its own.
 
 inputs:
   base_sha:
@@ -86,15 +86,14 @@ nodes:
         summary: { type: string }
       required: [passed, screenshots, findings, summary]
 
-  # Parallel Independent QA Review (strictly fresh context & read-only)
+  # Parallel Independent QA Review (strictly fresh context & read-only, runs concurrently with ux-verify)
   - id: review-spec
     command: review-spec
     model: large
     context: fresh
     mutates_checkout: false
-    depends_on: [mechanical-gate, ux-verify]
-    trigger_rule: none_failed_min_one_success
-    when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
+    depends_on: [mechanical-gate]
+    when: "$mechanical-gate.output.passed == true"
     with:
       contract_path: "$INPUTS.contract_path"
       base_sha: "$INPUTS.base_sha"
@@ -115,9 +114,8 @@ nodes:
     skills:
       - { name: better-interface, optional: true }
       - { name: modern-web-guidance, optional: true }
-    depends_on: [mechanical-gate, ux-verify]
-    trigger_rule: none_failed_min_one_success
-    when: "$mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
+    depends_on: [mechanical-gate]
+    when: "$mechanical-gate.output.passed == true"
     with:
       contract_path: "$INPUTS.contract_path"
       base_sha: "$INPUTS.base_sha"
@@ -135,9 +133,8 @@ nodes:
     model: large
     context: fresh
     mutates_checkout: false
-    depends_on: [mechanical-gate, ux-verify]
-    trigger_rule: none_failed_min_one_success
-    when: "$INPUTS.review_mode == 'strict' && $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == false || $INPUTS.review_mode == 'strict' && $mechanical-gate.output.passed == true && $mechanical-gate.output.effective_run_ux == true && $ux-verify.output.passed == true"
+    depends_on: [mechanical-gate]
+    when: "$INPUTS.review_mode == 'strict' && $mechanical-gate.output.passed == true"
     with:
       contract_path: "$INPUTS.contract_path"
       base_sha: "$INPUTS.base_sha"

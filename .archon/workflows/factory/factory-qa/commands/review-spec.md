@@ -6,7 +6,7 @@ Adopt a strict, non-sycophantic **independent reviewer** posture in a completely
 - Slice contract: `$INPUTS.contract_path`
 - Base commit: `$INPUTS.base_sha`
 - Mechanical gate report: `$ARTIFACTS_DIR/mechanical-gate.md`
-- Black-box UX report (when `$INPUTS.has_ux_report` is `true`): `$ARTIFACTS_DIR/evidence/ux-report.md`
+- Prior black-box UX report (if present from a prior round when `$INPUTS.has_ux_report` is `true`; current-round `ux-verify` runs in parallel): `$ARTIFACTS_DIR/evidence/ux-report.md`
 - Prior implementer notes (check declined rationales if present): `$ARTIFACTS_DIR/implementation.md`
 - Prior round feedback (if this is Round 2+ after QA sent findings back): `$ARTIFACTS_DIR/round-feedback.md` (if present, verify every prior blocking finding was genuinely fixed rather than bypassed).
 
@@ -15,7 +15,7 @@ Adopt a strict, non-sycophantic **independent reviewer** posture in a completely
 Inspect `git diff $INPUTS.base_sha` and any untracked files (`git ls-files --others --exclude-standard`), plus direct callers/tests up to 2 hops where needed. Evaluate:
 
 1. **Scope (blocking):** Map each added user action, domain state, and demo flow to a deliverable before evaluating coverage. Treat unrequested behavior as [P1] regardless of file location. `Work Areas` and legacy `Owned / Allowed Paths` are investigation hints, not a scope test. A launch-only shell preview should render static app markers at the requested routes. Treat product controls or sample domain workflows in that preview as [P1] unless expressly required.
-2. **Contract & Acceptance Coverage:** Every deliverable, edge case, invariant, app boundary, target device and viewport, and `Required UI State` in `$INPUTS.contract_path` and its linked specs and UI briefs is genuinely implemented — not stubbed, hardcoded, or skipped. Confirm any defects flagged in `$ARTIFACTS_DIR/evidence/ux-report.md` are resolved.
+2. **Contract & Acceptance Coverage:** Every deliverable, edge case, invariant, app boundary, target device and viewport, and `Required UI State` in `$INPUTS.contract_path` and its linked specs and UI briefs is genuinely implemented — not stubbed, hardcoded, or skipped. If `$ARTIFACTS_DIR/round-feedback.md` or a prior `$ARTIFACTS_DIR/evidence/ux-report.md` flagged UX defects in an earlier round, confirm the code and tests resolve them (current-round browser verification runs concurrently in `ux-verify`).
 3. **Approved implementation choices:** Treat replacement of a required framework, UI library, or styling approach as [P1]. Cite the approved choice and the conflicting implementation.
 4. **Behavioral Correctness:** Reachable inputs, state-machine transitions, concurrency/ordering, and boundary conditions produce the specified outcome.
 5. **Regression Protection (Test Value):** Check test **assertions** (not just test titles or coverage %). Flag a gap ONLY when a realistic future edit could regress meaningful behavior while all current tests still pass — and name the smallest valuable test.

@@ -7,27 +7,35 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 - Optional UI brief and visual references linked from the contract.
 - Preview runner command: `$INPUTS.preview_cmd`
 - Before evidence (if present): `$ARTIFACTS_DIR/evidence/before.md`
+- Prior round feedback & UX artifacts (if present on Round 2+): `$ARTIFACTS_DIR/round-feedback.md`, `$ARTIFACTS_DIR/evidence/ux-report.md`, and any saved verification script in `$ARTIFACTS_DIR/evidence/ux-check.mjs`
 - Output directory: `$ARTIFACTS_DIR/evidence/`
 
 ## Procedure
 
-1. Read `$INPUTS.contract_path` (plus the linked UI brief and visual references when present) to collect every **Required UI State**, declared **Layout Pattern**, and **Anti-Pattern**.
+1. Read `$INPUTS.contract_path` (plus the linked UI brief and visual references when present) to collect every **Required UI State**, declared **Layout Pattern**, **Anti-Pattern**, performance budget, and viewport requirement.
+   - If `$ARTIFACTS_DIR/round-feedback.md` or `$ARTIFACTS_DIR/evidence/ux-report.md` exists from a prior round, list every previously reported UX defect so you verify them explicitly first, then complete the full sweep below for regressions.
 2. Start the preview server via `$INPUTS.preview_cmd` and parse `URL=...` and `PID=...`. Always stop `PID` before exiting, even on failure.
-3. Use the repository’s browser tooling when documented, or an available browser tool. Exercise required states, primary actions, and overlays at the devices and viewports described by the contract or repo guidance. Where viewport dimensions are unspecified, choose and report representative sizes for the supported devices.
-   - For a launch-only preview, open each declared route and verify its static marker. Report visible feature controls and demo flows outside the slice as blocking scope defects.
-   - Check for unexpected runtime and network failures, broken interactions, unintended overflow, and controls clipped or inaccessible in their required states.
+3. **Exhaustive single-pass browser audit (do NOT stop after the first defect):**
+   Use the repository’s browser tooling when documented, or an available browser tool. If `$ARTIFACTS_DIR/evidence/ux-check.mjs` (or equivalent saved verification script) already exists from Round 1, inspect and reuse/extend it instead of rebuilding setup, auth, and selectors from scratch; otherwise save your main deterministic verification script to `$ARTIFACTS_DIR/evidence/ux-check.mjs` so subsequent rounds can reuse it.
+   Complete **all** applicable checks before deciding `passed`:
+   - **Contract & Scope:** Verify every required state, visible/accessible label, action hierarchy, and error/empty/cancellation/scope flow. For a launch-only preview, open each declared route and verify its static marker, reporting visible product controls or demo flows outside the slice as blocking scope defects.
+   - **Responsive Layout & Overflow:** Exercise all viewports required by the contract or repo guidance (defaulting to representative desktop and narrow mobile sizes such as `1280×800` and `320×800` when unspecified). Verify zero unintended page-wide horizontal overflow (`scrollWidth <= innerWidth`), zero clipped or overlapping controls, and proper overlay/menu containment.
+   - **Keyboard Navigation & Focus-Visible Contrast:** Verify full keyboard reachability (`Tab`, `Enter`/`Space`, arrow keys, `Escape` focus restoration, and busy/disabled focus retention). Measure contrast of readable text and **keyboard focus indicators** against adjacent surfaces in the supported theme(s) (check both dark and light if supported): a background tint below **3:1** (WCAG 1.4.11 non-text contrast) without a clear outline/ring is a blocking defect, not "visible focus".
+   - **Runtime Health & Performance Budgets:** Inspect console and network logs, separating expected negative-test responses (e.g. deliberate `401`/`412`/`413`/aborted fault tests) from unexpected runtime or request errors. When the contract specifies a performance or off-main-thread requirement (e.g. no main-thread tasks `>= 50 ms`), capture a browser trace/timing run and attribute every over-budget task to its trigger (UI activation/re-render vs. worker work vs. unrelated harness overhead); never wave off an over-budget task without attribution.
 4. Capture 2–4 representative **After** screenshots to `$ARTIFACTS_DIR/evidence/after-<state>.png`, then stop the preview server using `PID`.
-5. Open and inspect every captured screenshot. For a launch-only preview, check the static marker and scope. For product UI, evaluate the layout, hierarchy, readable contrast, accessible names, keyboard paths and focus, error recovery, and fidelity to the supplied references. Treat failures that block a required user task or violate an explicit requirement as blocking.
+5. Open and inspect every captured screenshot. For a launch-only preview, check the static marker and scope. For product UI, evaluate layout, hierarchy, readable contrast, accessible names, keyboard paths and focus, error recovery, and fidelity to the supplied references. Treat failures that block a required user task or violate an explicit requirement as blocking.
 6. Write a concise black-box report to `$ARTIFACTS_DIR/evidence/ux-report.md` listing:
    - Flows exercised and states verified (PASS / FAIL)
-   - Visual hierarchy, surface contrast, and layout-metaphor assessment (citing exact screenshot filenames)
+   - Visual hierarchy, surface contrast (including measured focus-ring contrast), and layout-metaphor assessment (citing exact screenshot filenames)
    - Console / network errors observed (if any)
-   - Concrete UX defects (blocking vs non-blocking, each citing screenshot filename + observable defect + concrete fix)
+   - Performance trace summary (when applicable)
+   - **All** concrete UX defects found across the entire sweep (blocking vs non-blocking, each citing screenshot filename or trace + observable defect + concrete fix)
    - Screenshot inventory
 
 ## Evidence Bar
 
-- Ground every defect in what you directly observed in live interaction or inside the `after-*.png` image (`after-default.png`: ...). Never invent hypothetical flaws, and never bikeshed subjective taste (e.g. swapping two equally clear brand colors) unless hierarchy, contrast, or domain usability fails.
+- Collect every observable blocking defect across all categories above in one round before returning — never short-circuit after finding a single issue.
+- Ground every defect in what you directly observed in live interaction, browser trace, or inside the `after-*.png` image (`after-default.png`: ...). Never invent hypothetical flaws, and never bikeshed subjective taste (e.g. swapping two equally clear brand colors) unless hierarchy, contrast, or domain usability fails.
 - If the preview server fails to boot due to a bug in this change, return `passed: false` with the exact startup error.
 - If an external host limitation prevents the check, including unavailable browser tooling, record the check as unverified in `ux-report.md` and `summary`. Set `passed: true` only if no blocking defect was observed.
 
@@ -36,5 +44,5 @@ Verify the changed UI **strictly as an end-user / operator** (reading rendered s
 Return the required JSON:
 - `passed`: `true` if zero blocking UX/visual/domain-metaphor defects were observed; `false` otherwise.
 - `screenshots`: list of `after-*.png` filenames written under `$ARTIFACTS_DIR/evidence/`.
-- `findings`: list of concise blocking finding lines (empty array when `passed: true`).
+- `findings`: list of concise blocking finding lines covering every blocking defect found in this pass (empty array when `passed: true`).
 - `summary`: one-sentence summary of what was verified in the browser.
