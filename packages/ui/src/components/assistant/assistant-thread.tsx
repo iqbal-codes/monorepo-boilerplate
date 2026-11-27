@@ -264,7 +264,7 @@ function AttachmentPreviewDialog({
         {attachment && (
           <>
             <DialogHeader>
-              <DialogTitle className="truncate pe-8 font-sans text-sm font-semibold normal-case tracking-normal">
+              <DialogTitle className="truncate font-sans text-sm font-semibold normal-case tracking-normal">
                 {attachment.name}
               </DialogTitle>
               <DialogDescription className="text-xs">

@@ -158,7 +158,7 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
           </SheetDescription>
         </SheetHeader>
 
-        <Form form={form} className="flex-1 gap-4 px-8 pb-8">
+        <Form form={form} className="flex-1 gap-4 px-5 pb-5 sm:px-6 sm:pb-6">
           <form.FormError error={create.error ?? update.error} title="Could not save customer" />
 
           <FieldGroup className="gap-5">

@@ -26,4 +26,4 @@ Start in the repo, then load **only** the narrowest skill branch the task needs.
 
 ## 3. Verify
 
-Run `bun run check:fast` while iterating, and `bun run check && bun run test` before finishing. Use `.archon/ui-preview.sh` only when runtime browser inspection is needed.
+Run `vp run check:fast` while iterating, and `vp run check && vp run test` before finishing. Use `.archon/ui-preview.sh` only when runtime browser inspection is needed.

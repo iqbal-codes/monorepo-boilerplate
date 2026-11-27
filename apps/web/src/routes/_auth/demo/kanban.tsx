@@ -538,7 +538,7 @@ function KanbanDemo() {
   const displayedTaskColumns = previewMode === "empty" ? [] : TASK_COLUMNS;
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-1 flex-col gap-6">
       <PageHeader
         title="Kanban Board"
         description="Controlled Kanban Board block in CRM pipeline and task management modes. Deletable demo."
@@ -595,6 +595,7 @@ function KanbanDemo() {
 
       <Tabs
         value={activeTab}
+        className="flex-1"
         onValueChange={(value) => {
           if (value === "crm" || value === "tasks") setActiveTab(value);
         }}
@@ -630,6 +631,7 @@ function KanbanDemo() {
 
           <KanbanBoard
             ariaLabel="CRM deal pipeline"
+            className="flex-1"
             columns={displayedDealColumns}
             cards={deals}
             isLoading={isLoading}
@@ -754,8 +756,7 @@ function KanbanDemo() {
                 }}
               >
                 <SelectTrigger
-                  size="sm"
-                  className="w-40 border border-input px-3"
+                  className="w-40"
                   aria-label="Filter by priority"
                   showClear={taskPriority !== "all"}
                   onClear={() => setTaskPriority("all")}
@@ -811,6 +812,7 @@ function KanbanDemo() {
 
           <KanbanBoard
             ariaLabel="Task management board"
+            className="flex-1"
             columns={displayedTaskColumns}
             cards={filteredTasks}
             isLoading={isLoading}
@@ -927,7 +929,7 @@ function KanbanDemo() {
                 <SheetTitle>{selectedDeal.title}</SheetTitle>
                 <SheetDescription>{selectedDeal.company}</SheetDescription>
               </SheetHeader>
-              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-8 pb-8">
+              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-5 pb-5 sm:px-6 sm:pb-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted-foreground">Deal value</span>
@@ -1035,7 +1037,7 @@ function KanbanDemo() {
                 <SheetTitle>{selectedTask.title}</SheetTitle>
                 <SheetDescription>Assigned to {selectedTask.assigneeName}</SheetDescription>
               </SheetHeader>
-              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-8 pb-8">
+              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-5 pb-5 sm:px-6 sm:pb-6">
                 <div className="flex items-center justify-between gap-2">
                   <PriorityBadge priority={selectedTask.priority} />
                   <span className="text-xs text-muted-foreground tabular-nums">

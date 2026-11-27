@@ -1,7 +1,7 @@
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
 import { Form, useAppForm } from "@monorepo-boilerplate/ui/components/form";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
@@ -16,8 +16,8 @@ const signUpSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters."),
 });
 
-export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
-  const navigate = useNavigate({ from: "/" });
+export default function SignUpForm() {
+  const navigate = useNavigate();
   const { isPending } = authClient.useSession();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -33,24 +33,21 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
     },
     onSubmit: async ({ value }) => {
       setServerError(null);
-      await authClient.signUp.email(
-        {
-          email: value.email,
-          password: value.password,
-          name: value.name,
-        },
-        {
-          onSuccess: () => {
-            navigate({ to: "/dashboard" });
-            toast.success("Sign up successful");
-          },
-          onError: (error) => {
-            const message = error.error.message || error.error.statusText || "Sign up failed.";
-            setServerError(message);
-            toast.error(message);
-          },
-        },
-      );
+      const { error } = await authClient.signUp.email({
+        email: value.email,
+        password: value.password,
+        name: value.name,
+      });
+
+      if (error) {
+        const message = error.message || error.statusText || "Sign up failed.";
+        setServerError(message);
+        toast.error(message);
+        return;
+      }
+
+      toast.success("Sign up successful");
+      await navigate({ to: "/dashboard" });
     },
   });
 
@@ -105,7 +102,7 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
       </Form>
 
       <div className="mt-4 text-center">
-        <Button type="button" variant="link" onClick={onSwitchToSignIn}>
+        <Button nativeButton={false} variant="link" render={<Link to="/sign-in" />}>
           Already have an account? Sign In
         </Button>
       </div>

@@ -5,7 +5,16 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "cn";
 
 import { Button } from "@monorepo-boilerplate/ui/components/button";
+import {
+  OverlayCloseButtonVisual,
+  OverlayHeader,
+  OverlayHeaderAction,
+} from "@monorepo-boilerplate/ui/components/overlay-header";
 import { XIcon } from "lucide-react";
+
+const DialogContext = React.createContext<{ showCloseButton: boolean }>({
+  showCloseButton: false,
+});
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -44,6 +53,8 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
 }) {
+  const contextValue = React.useMemo(() => ({ showCloseButton }), [showCloseButton]);
+
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -55,17 +66,11 @@ function DialogContent({
         )}
         {...props}
       >
-        {children}
+        <DialogContext.Provider value={contextValue}>{children}</DialogContext.Provider>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            render={
-              <Button
-                variant="ghost"
-                className="absolute top-5 right-5 bg-secondary"
-                size="icon-sm"
-              />
-            }
+            render={<OverlayCloseButtonVisual surface="dialog" />}
           >
             <XIcon />
             <span className="sr-only">Close</span>
@@ -77,9 +82,20 @@ function DialogContent({
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  const { showCloseButton } = React.useContext(DialogContext);
+
   return (
-    <div data-slot="dialog-header" className={cn("flex flex-col gap-2", className)} {...props} />
+    <OverlayHeader
+      surface="dialog"
+      hasCloseButton={showCloseButton}
+      className={className}
+      {...props}
+    />
   );
+}
+
+function DialogAction({ className, ...props }: React.ComponentProps<"div">) {
+  return <OverlayHeaderAction surface="dialog" className={className} {...props} />;
 }
 
 function DialogFooter({
@@ -109,7 +125,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "font-heading text-lg leading-none font-semibold tracking-wider uppercase",
+        "min-w-0 font-heading text-lg leading-snug font-semibold tracking-wider uppercase",
         className,
       )}
       {...props}
@@ -122,7 +138,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "mt-0.5 text-sm leading-relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        "mt-0.5 min-w-0 text-sm leading-relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
         className,
       )}
       {...props}
@@ -132,6 +148,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
 
 export {
   Dialog,
+  DialogAction,
   DialogClose,
   DialogContent,
   DialogDescription,

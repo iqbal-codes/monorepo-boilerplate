@@ -24,7 +24,7 @@
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
+  --input: oklch(0.67 0.008 286.32);
   --ring: oklch(0.552 0.016 285.938);
   --chart-1: oklch(0.62 0.19 259.81);
   --chart-2: oklch(0.72 0.15 168.94);
@@ -61,7 +61,7 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --input: oklch(1 0 0 / 35%);
   --ring: oklch(0.552 0.016 285.938);
   --chart-1: oklch(0.71 0.17 254.62);
   --chart-2: oklch(0.78 0.14 170.28);
@@ -138,10 +138,15 @@
 }
 
 .kanban-scroll {
-  --scrollbar-thumb: var(--muted-foreground);
+  --scrollbar-thumb: transparent;
   --scrollbar-track: transparent;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.kanban-scroll:hover,
+.kanban-scroll:focus-within {
+  --scrollbar-thumb: var(--muted-foreground);
 }
 
 @supports not (scrollbar-color: auto) {

@@ -1,7 +1,28 @@
-import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
+import {
+  createSerializer,
+  parseAsInteger,
+  parseAsString,
+  parseAsStringLiteral,
+  useQueryStates,
+} from "nuqs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type CustomerStatusFilter = "all" | "active" | "inactive" | "archived";
+
+const customerStatusValues = ["all", "active", "inactive", "archived"] as const;
+
+const customerListNavigationParsers = {
+  q: parseAsString.withDefault(""),
+  page: parseAsInteger.withDefault(0),
+  status: parseAsStringLiteral<CustomerStatusFilter>(customerStatusValues).withDefault("all"),
+};
+
+/**
+ * Builds the Customers list query string the Command Center lands on. nuqs
+ * owns the parameter names and default omission, so "view all results" cannot
+ * drift from the list's URL contract.
+ */
+export const customerListSearch = createSerializer(customerListNavigationParsers);
 
 type UseListSearchParamsOptions<TSortKey extends string> = {
   /** Accepted sort column ids. */
@@ -29,15 +50,8 @@ export function useListSearchParams<TSortKey extends string>({
 }: UseListSearchParamsOptions<TSortKey>) {
   const [state, setState] = useQueryStates(
     {
-      page: parseAsInteger.withDefault(0),
+      ...customerListNavigationParsers,
       size: parseAsInteger.withDefault(defaultPageSize),
-      q: parseAsString.withDefault(""),
-      status: parseAsStringLiteral<CustomerStatusFilter>([
-        "all",
-        "active",
-        "inactive",
-        "archived",
-      ]).withDefault("all"),
       sort: parseAsStringLiteral(sortKeys).withDefault(defaultSortKey),
       dir: parseAsStringLiteral(["asc", "desc"] as const).withDefault(defaultSortDir),
     },

@@ -20,6 +20,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@monorepo-boilerplate/ui/components/empty";
+import { ScrollArea, ScrollAreaContent } from "@monorepo-boilerplate/ui/components/scroll-area";
 import { Skeleton } from "@monorepo-boilerplate/ui/components/skeleton";
 import { buildKanbanMoveEvent, buildOrderMap, findCardLocation, moveCardInOrderMap } from "./move";
 import { KanbanColumnHeader } from "./surfaces";
@@ -288,7 +289,7 @@ function KanbanColumnView<TCard, TColumn extends KanbanColumnDef>({
         data-drop-target={isDropTarget && !isBlockedDrop ? "true" : undefined}
         data-drop-invalid={isBlockedDrop ? "true" : undefined}
         className={cn(
-          "flex w-13 shrink-0 snap-start flex-col items-center gap-3 border bg-muted/40 px-1.5 py-3 transition-[border-color,background-color] duration-150 ease-out",
+          "relative flex w-13 shrink-0 snap-start flex-col items-center gap-3 border bg-muted/40 px-1.5 py-3 transition-[border-color,background-color] duration-150 ease-out",
           isOverWipLimit ? "border-destructive/50" : "border-border",
           isDropTarget && !isBlockedDrop && "border-foreground/40 bg-accent/60",
           isBlockedDrop && "border-destructive bg-destructive/5",
@@ -313,7 +314,7 @@ function KanbanColumnView<TCard, TColumn extends KanbanColumnDef>({
         </Badge>
         <span
           aria-hidden="true"
-          className="flex-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase [writing-mode:vertical-rl]"
+          className="flex-1 whitespace-nowrap text-xs font-semibold tracking-wider text-muted-foreground uppercase [writing-mode:vertical-rl]"
         >
           {column.title}
         </span>
@@ -333,7 +334,7 @@ function KanbanColumnView<TCard, TColumn extends KanbanColumnDef>({
       data-drop-target={isDropTarget && !isBlockedDrop ? "true" : undefined}
       data-drop-invalid={isBlockedDrop ? "true" : undefined}
       className={cn(
-        "flex w-[min(85vw,19.5rem)] shrink-0 snap-start flex-col border bg-muted/35 transition-[border-color,background-color] duration-150 ease-out sm:w-80",
+        "relative flex w-[min(85vw,19.5rem)] shrink-0 snap-start flex-col border bg-muted/35 transition-[border-color,background-color] duration-150 ease-out sm:w-80",
         isOverWipLimit ? "border-destructive/50" : "border-border",
         isDropTarget && !isBlockedDrop && "border-foreground/40 bg-accent/40",
         isBlockedDrop && "border-destructive bg-destructive/5",
@@ -589,40 +590,44 @@ export function KanbanBoard<TCard, TColumn extends KanbanColumnDef = KanbanColum
 
   if (isLoading) {
     return (
-      <div
+      <ScrollArea
+        scrollbars="horizontal"
         data-slot="kanban-board"
         data-loading="true"
         aria-label={ariaLabel}
         aria-busy="true"
-        className={cn("kanban-scroll flex gap-4 overflow-x-auto pb-2", className)}
+        className={cn("flex min-w-0 flex-col", className)}
+        viewportClassName="relative flex-1"
       >
-        {Array.from({ length: loadingColumnCount }, (_, colIdx) => (
-          <div
-            key={`loading-col-${colIdx}`}
-            className="flex w-[min(85vw,19.5rem)] shrink-0 flex-col gap-3 border border-border bg-muted/35 p-3.5 sm:w-80"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-5 w-8" />
-            </div>
-            <div className="flex flex-col gap-2.5">
-              {Array.from({ length: loadingCardsPerColumn }, (_, cardIdx) => (
-                <div
-                  key={`loading-card-${colIdx}-${cardIdx}`}
-                  className="flex flex-col gap-2 border border-border bg-card p-3.5"
-                >
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-full" />
-                  <div className="flex items-center justify-between pt-1">
-                    <Skeleton className="h-4 w-16" />
-                    <Skeleton className="h-4 w-12" />
+        <ScrollAreaContent className="flex items-start gap-4 pb-3">
+          {Array.from({ length: loadingColumnCount }, (_, colIdx) => (
+            <div
+              key={`loading-col-${colIdx}`}
+              className="flex w-[min(85vw,19.5rem)] shrink-0 flex-col gap-3 border border-border bg-muted/35 p-3.5 sm:w-80"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-5 w-8" />
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {Array.from({ length: loadingCardsPerColumn }, (_, cardIdx) => (
+                  <div
+                    key={`loading-card-${colIdx}-${cardIdx}`}
+                    className="flex flex-col gap-2 border border-border bg-card p-3.5"
+                  >
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-full" />
+                    <div className="flex items-center justify-between pt-1">
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-12" />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </ScrollAreaContent>
+      </ScrollArea>
     );
   }
 
@@ -655,7 +660,7 @@ export function KanbanBoard<TCard, TColumn extends KanbanColumnDef = KanbanColum
     : undefined;
 
   return (
-    <div data-slot="kanban-board" className={cn("relative min-w-0", className)}>
+    <div data-slot="kanban-board" className={cn("relative flex min-w-0 flex-col", className)}>
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
@@ -842,45 +847,48 @@ export function KanbanBoard<TCard, TColumn extends KanbanColumnDef = KanbanColum
           );
         }}
       >
-        <div
-          role="region"
-          aria-label={ariaLabel}
-          className="kanban-scroll flex snap-x snap-mandatory items-start gap-4 overflow-x-auto pb-2 sm:snap-none"
+        <ScrollArea
+          scrollbars="horizontal"
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          viewportClassName="relative flex-1 snap-x snap-mandatory sm:snap-none"
+          viewportProps={{ role: "region", "aria-label": ariaLabel }}
         >
-          {columns.map((column) => {
-            const ids = displayOrder.get(column.id) ?? [];
-            const columnCards: TCard[] = [];
-            for (const id of ids) {
-              const card = cardById.get(id);
-              if (card) columnCards.push(card);
-            }
+          <ScrollAreaContent className="flex items-start gap-4 pb-3">
+            {columns.map((column) => {
+              const ids = displayOrder.get(column.id) ?? [];
+              const columnCards: TCard[] = [];
+              for (const id of ids) {
+                const card = cardById.get(id);
+                if (card) columnCards.push(card);
+              }
 
-            return (
-              <KanbanColumnView
-                key={column.id}
-                column={column}
-                cards={columnCards}
-                getCardId={getCardId}
-                getCardLabel={resolveCardLabel}
-                isCollapsed={resolvedCollapsed.has(column.id)}
-                isBlockedDrop={blockedTargetColumnId === column.id}
-                isDraggingAny={activeCardId !== null}
-                dragHandle={dragHandle}
-                reducedMotion={reducedMotion}
-                pendingCardIds={pendingCardIds}
-                canDragCard={canDragCard}
-                getAvailableTargetColumns={getAvailableTargetColumns}
-                onToggleCollapse={toggleCollapse}
-                onCardClick={onCardClick}
-                onMoveToColumn={handleProgrammaticMove}
-                renderCard={renderCard}
-                renderColumnHeader={renderColumnHeader}
-                renderColumnFooter={renderColumnFooter}
-                renderEmptyColumn={renderEmptyColumn}
-              />
-            );
-          })}
-        </div>
+              return (
+                <KanbanColumnView
+                  key={column.id}
+                  column={column}
+                  cards={columnCards}
+                  getCardId={getCardId}
+                  getCardLabel={resolveCardLabel}
+                  isCollapsed={resolvedCollapsed.has(column.id)}
+                  isBlockedDrop={blockedTargetColumnId === column.id}
+                  isDraggingAny={activeCardId !== null}
+                  dragHandle={dragHandle}
+                  reducedMotion={reducedMotion}
+                  pendingCardIds={pendingCardIds}
+                  canDragCard={canDragCard}
+                  getAvailableTargetColumns={getAvailableTargetColumns}
+                  onToggleCollapse={toggleCollapse}
+                  onCardClick={onCardClick}
+                  onMoveToColumn={handleProgrammaticMove}
+                  renderCard={renderCard}
+                  renderColumnHeader={renderColumnHeader}
+                  renderColumnFooter={renderColumnFooter}
+                  renderEmptyColumn={renderEmptyColumn}
+                />
+              );
+            })}
+          </ScrollAreaContent>
+        </ScrollArea>
 
         <DragOverlay dropAnimation={reducedMotion ? null : { duration: 180, easing: "ease-out" }}>
           {activeCard && activeColumn ? (

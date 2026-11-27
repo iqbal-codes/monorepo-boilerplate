@@ -20,6 +20,10 @@ _Avoid_: page, view, container
 The persistent frame around every authenticated screen: navigation, top bar, and content area.
 _Avoid_: layout, chrome, frame
 
+**Command Center**:
+An App Shell overlay that lets a user navigate screens, find records, and run interface actions from the keyboard.
+_Avoid_: command palette, command bar, kbar
+
 **Assistant**:
 The domain-agnostic AI helper integrated into the App Shell.
 _Avoid_: chatbot, copilot, agent

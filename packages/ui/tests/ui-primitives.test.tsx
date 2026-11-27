@@ -152,6 +152,25 @@ describe("Responsive UI blocks", () => {
     expect(html).toContain("Ada Lovelace");
   });
 
+  test("DataTable keeps rows mounted and marks the region busy while fetching", () => {
+    type Row = { id: string; name: string };
+    const helper = columnsFor<Row>();
+    const columns = helper.columns([helper.accessor("name", { header: "Name" })]);
+
+    const html = renderToStaticMarkup(
+      <DataTable
+        data={[{ id: "1", name: "Ada Lovelace" }]}
+        columns={columns}
+        pagination={{ pageIndex: 0, pageSize: 10 }}
+        isFetching
+      />,
+    );
+
+    expect(html).toContain("Ada Lovelace");
+    expect(html).toContain('aria-busy="true"');
+    expect(html).not.toContain('data-slot="skeleton"');
+  });
+
   test("ImportBlock omits trigger button when hideTrigger is true", () => {
     const html = renderToStaticMarkup(
       <ImportBlock

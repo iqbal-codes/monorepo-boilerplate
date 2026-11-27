@@ -40,12 +40,11 @@ async function run(command: string[], env: NodeJS.ProcessEnv = process.env): Pro
 
 async function signIn(page: Page, preview: Map<string, string>) {
   const url = preview.get("URL")!;
-  await page.goto(new URL("/login", url).href);
-  await page.getByText("Already have an account? Sign In").click();
+  await page.goto(new URL("/sign-in", url).href);
   await page.locator('input[name="email"]').fill(preview.get("E2E_EMAIL")!);
   await page.locator('input[name="password"]').fill(preview.get("E2E_PASSWORD")!);
   await page.getByRole("button", { name: "Sign In", exact: true }).click();
-  await page.waitForURL((current) => current.pathname !== "/login");
+  await page.waitForURL((current) => current.pathname !== "/sign-in");
   await page.goto(new URL("/customers", url).href);
   await page.getByRole("button", { name: "More customer actions" }).waitFor();
 }

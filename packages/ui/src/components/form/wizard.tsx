@@ -135,10 +135,11 @@ export function Wizard({
       }
 
       for (const fieldName of stepFields) {
-        // Mark field touched so Field Blocks reveal errors immediately.
+        // Mark field blurred so Field Blocks reveal errors immediately.
         dynamicForm.setFieldMeta(fieldName, (prev) => ({
           ...prev,
           isTouched: true,
+          isBlurred: true,
         }));
 
         await dynamicForm.validateField(fieldName, "change");

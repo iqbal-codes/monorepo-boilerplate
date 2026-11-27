@@ -40,7 +40,7 @@ export function useFieldFeedback(showError: ShowErrorMode = "auto") {
   const messages = extractErrorMessages(rawErrors);
   const invalid = shouldShowFieldError({
     errors: rawErrors,
-    isTouched: Boolean(field.state.meta.isTouched),
+    isBlurred: Boolean(field.state.meta.isBlurred),
     submissionAttempts,
     showError,
   });

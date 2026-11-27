@@ -65,11 +65,11 @@ describe("error-utils", () => {
     ).toEqual(["Required", "Must be valid"]);
   });
 
-  test("gates error visibility on isTouched or submissionAttempts in auto mode", () => {
+  test("gates error visibility on isBlurred or submissionAttempts in auto mode", () => {
     expect(
       shouldShowFieldError({
         errors: ["Required"],
-        isTouched: false,
+        isBlurred: false,
         submissionAttempts: 0,
       }),
     ).toBe(false);
@@ -77,7 +77,7 @@ describe("error-utils", () => {
     expect(
       shouldShowFieldError({
         errors: ["Required"],
-        isTouched: true,
+        isBlurred: true,
         submissionAttempts: 0,
       }),
     ).toBe(true);
@@ -85,7 +85,7 @@ describe("error-utils", () => {
     expect(
       shouldShowFieldError({
         errors: ["Required"],
-        isTouched: false,
+        isBlurred: false,
         submissionAttempts: 1,
       }),
     ).toBe(true);
@@ -93,7 +93,7 @@ describe("error-utils", () => {
     expect(
       shouldShowFieldError({
         errors: [],
-        isTouched: true,
+        isBlurred: true,
         submissionAttempts: 2,
       }),
     ).toBe(false);
@@ -103,7 +103,7 @@ describe("error-utils", () => {
     expect(
       shouldShowFieldError({
         errors: ["Required"],
-        isTouched: false,
+        isBlurred: false,
         submissionAttempts: 0,
         showError: "always",
       }),
@@ -112,7 +112,7 @@ describe("error-utils", () => {
     expect(
       shouldShowFieldError({
         errors: ["Required"],
-        isTouched: true,
+        isBlurred: true,
         submissionAttempts: 3,
         showError: "never",
       }),

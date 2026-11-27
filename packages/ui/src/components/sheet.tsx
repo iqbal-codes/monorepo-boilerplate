@@ -2,8 +2,16 @@ import * as React from "react";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { cn } from "cn";
 
-import { Button } from "@monorepo-boilerplate/ui/components/button";
+import {
+  OverlayCloseButtonVisual,
+  OverlayHeader,
+  OverlayHeaderAction,
+} from "@monorepo-boilerplate/ui/components/overlay-header";
 import { XIcon } from "lucide-react";
+
+const SheetContext = React.createContext<{ showCloseButton: boolean }>({
+  showCloseButton: false,
+});
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -44,6 +52,8 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left";
   showCloseButton?: boolean;
 }) {
+  const contextValue = React.useMemo(() => ({ showCloseButton }), [showCloseButton]);
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -56,17 +66,11 @@ function SheetContent({
         )}
         {...props}
       >
-        {children}
+        <SheetContext.Provider value={contextValue}>{children}</SheetContext.Provider>
         {showCloseButton && (
           <SheetPrimitive.Close
             data-slot="sheet-close"
-            render={
-              <Button
-                variant="ghost"
-                className="absolute top-4 right-4 bg-secondary"
-                size="icon-sm"
-              />
-            }
+            render={<OverlayCloseButtonVisual surface="sheet" />}
           >
             <XIcon />
             <span className="sr-only">Close</span>
@@ -78,20 +82,27 @@ function SheetContent({
 }
 
 function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+  const { showCloseButton } = React.useContext(SheetContext);
+
   return (
-    <div
-      data-slot="sheet-header"
-      className={cn("flex flex-col gap-1.5 p-8", className)}
+    <OverlayHeader
+      surface="sheet"
+      hasCloseButton={showCloseButton}
+      className={className}
       {...props}
     />
   );
+}
+
+function SheetAction({ className, ...props }: React.ComponentProps<"div">) {
+  return <OverlayHeaderAction surface="sheet" className={className} {...props} />;
 }
 
 function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn("mt-auto flex flex-col gap-2 p-8", className)}
+      className={cn("mt-auto flex flex-col gap-2 px-5 py-4 sm:px-6 sm:py-5", className)}
       {...props}
     />
   );
@@ -102,7 +113,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
     <SheetPrimitive.Title
       data-slot="sheet-title"
       className={cn(
-        "font-heading text-lg font-semibold tracking-wider text-foreground uppercase",
+        "min-w-0 font-heading text-lg leading-snug font-semibold tracking-wider text-foreground uppercase",
         className,
       )}
       {...props}
@@ -114,7 +125,7 @@ function SheetDescription({ className, ...props }: SheetPrimitive.Description.Pr
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn("mt-0.5 text-sm leading-relaxed text-muted-foreground", className)}
+      className={cn("mt-0.5 min-w-0 text-sm leading-relaxed text-muted-foreground", className)}
       {...props}
     />
   );
@@ -126,6 +137,7 @@ export {
   SheetClose,
   SheetContent,
   SheetHeader,
+  SheetAction,
   SheetFooter,
   SheetTitle,
   SheetDescription,

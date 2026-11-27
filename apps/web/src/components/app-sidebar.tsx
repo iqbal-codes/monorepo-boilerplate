@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { GalleryVerticalEndIcon } from "lucide-react";
+import { GalleryVerticalEndIcon, SearchIcon } from "lucide-react";
 
+import { Kbd } from "@monorepo-boilerplate/ui/components/kbd";
 import {
   Sidebar,
   SidebarContent,
@@ -10,12 +11,14 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@monorepo-boilerplate/ui/components/sidebar";
 
 import { NavMain } from "@/components/sidebar/nav-main";
 import { NavShortcuts } from "@/components/sidebar/nav-shortcuts";
 import { NavUser } from "@/components/sidebar/nav-user";
-import { activeMainItem, navMain, navShortcuts } from "@/lib/nav";
+import { commandShortcutLabel } from "@/lib/command-shortcut";
+import { navMain, navShortcuts } from "@/lib/nav";
 
 /**
  * App sidebar, following shadcn's official `sidebar-07` block: brand header,
@@ -26,9 +29,17 @@ import { activeMainItem, navMain, navShortcuts } from "@/lib/nav";
  *   team picker would be a control with nothing behind it.
  * - **Real session** in `NavUser` instead of sample data.
  * - **Typed router links** instead of `<a href="#">`.
+ * - **Command Center trigger** below the brand, keeping search with navigation;
+ *   it collapses to the search icon and gains a tooltip in icon mode.
  */
-export function AppSidebar({ currentPath }: { currentPath: string }) {
-  const active = activeMainItem(currentPath);
+export function AppSidebar({
+  currentPath,
+  onOpenCommandCenter,
+}: {
+  currentPath: string;
+  onOpenCommandCenter: () => void;
+}) {
+  const { state } = useSidebar();
 
   return (
     <Sidebar collapsible="icon">
@@ -45,11 +56,28 @@ export function AppSidebar({ currentPath }: { currentPath: string }) {
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          <SidebarMenuItem className="max-md:hidden">
+            <SidebarMenuButton
+              type="button"
+              variant={state === "collapsed" ? "default" : "outline"}
+              tooltip="Search or jump to"
+              aria-label="Search or jump to"
+              onClick={onOpenCommandCenter}
+            >
+              <SearchIcon />
+              <span className="truncate group-data-[collapsible=icon]:hidden">
+                Search or jump to…
+              </span>
+              <Kbd className="ml-auto group-data-[collapsible=icon]:hidden">
+                {commandShortcutLabel()}
+              </Kbd>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} activeTitle={active?.title} />
-        <NavShortcuts items={navShortcuts} />
+        <NavMain items={navMain} currentPath={currentPath} />
+        <NavShortcuts items={navShortcuts} currentPath={currentPath} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />

@@ -1,7 +1,7 @@
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
 import { Form, useAppForm } from "@monorepo-boilerplate/ui/components/form";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
@@ -15,8 +15,8 @@ const signInSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters."),
 });
 
-export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
-  const navigate = useNavigate({ from: "/" });
+export default function SignInForm() {
+  const navigate = useNavigate();
   const { isPending } = authClient.useSession();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -31,23 +31,22 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
     },
     onSubmit: async ({ value }) => {
       setServerError(null);
-      await authClient.signIn.email(
-        {
-          email: value.email,
-          password: value.password,
-        },
-        {
-          onSuccess: () => {
-            navigate({ to: "/dashboard" });
-            toast.success("Sign in successful");
-          },
-          onError: (error) => {
-            const message = error.error.message || error.error.statusText || "Sign in failed.";
-            setServerError(message);
-            toast.error(message);
-          },
-        },
-      );
+      const { error } = await authClient.signIn.email({
+        email: value.email,
+        password: value.password,
+      });
+
+      if (error) {
+        const message = error.message || error.statusText || "Sign in failed.";
+        setServerError(message);
+        toast.error(message);
+        return;
+      }
+
+      toast.success("Sign in successful");
+      // Keep the submit button's loading state until the guarded route resolves;
+      // otherwise it flips back to "Sign In" while the dashboard session check runs.
+      await navigate({ to: "/dashboard" });
     },
   });
 
@@ -95,7 +94,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
       </Form>
 
       <div className="mt-4 text-center">
-        <Button type="button" variant="link" onClick={onSwitchToSignUp}>
+        <Button nativeButton={false} variant="link" render={<Link to="/sign-up" />}>
           Need an account? Sign Up
         </Button>
       </div>

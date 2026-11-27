@@ -121,7 +121,7 @@ export function PhoneField({
       ids={ids}
     >
       <InputGroup data-disabled={disabled || undefined}>
-        <InputGroupAddon align="inline-start" className="pe-1">
+        <InputGroupAddon align="inline-start" className="pe-0">
           <Popover
             open={open}
             onOpenChange={(nextOpen) => {
@@ -137,12 +137,14 @@ export function PhoneField({
                   variant="ghost"
                   disabled={disabled || readOnly}
                   aria-label={`Country code: ${activeCountry?.name ?? selectedCountry} (+${activeCountry?.dialCode ?? ""})`}
-                  className="h-8 gap-1 px-1.5 font-normal text-foreground"
+                  className="h-8 gap-1 ps-1.5 pe-1 font-normal text-foreground"
                 />
               }
             >
-              <span aria-hidden="true">{activeCountry?.flag}</span>
-              <span className="text-xs tabular-nums">+{activeCountry?.dialCode}</span>
+              <span className="flex items-center gap-1 text-base md:text-sm">
+                <span aria-hidden="true">{activeCountry?.flag}</span>
+                <span className="tabular-nums">+{activeCountry?.dialCode}</span>
+              </span>
               <ChevronsUpDownIcon aria-hidden="true" className="text-muted-foreground" />
             </PopoverTrigger>
             <PopoverContent align="start" className="w-72 gap-2 p-2">
@@ -221,6 +223,7 @@ export function PhoneField({
           disabled={disabled}
           readOnly={readOnly}
           required={required}
+          className="group-has-[>[data-align=inline-start]]/input-group:pl-1!"
           aria-invalid={invalid}
           aria-describedby={buildDescribedBy({
             hasDescription: Boolean(description),
