@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { emit, parseSliceContract, runCmd, text, validateSliceContract } from '../../.shared/contract.ts';
 import { ensureFactoryLabels, postIssueComment, setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
+import { parseAllowedFolders } from '../../.shared/ownership.ts';
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 
@@ -93,6 +94,17 @@ if (scaffoldBlocked || !readiness.ok) {
 }
 
 let content = draft;
+if (parsedDraft.parallelFolders.length > 0) {
+  throw new Error('Refinement cannot set Allowed Folders. Set the reservation on the issue after refinement.');
+}
+if (source === 'issue' && issueNumber > 0 && repo) {
+  const issue = runCmd(['gh', 'issue', 'view', String(issueNumber), '--repo', repo, '--json', 'body']);
+  const { body } = JSON.parse(issue.stdout) as { body: string };
+  const folders = parseAllowedFolders(parseSliceContract(body).parallelFolders);
+  if (folders.length > 0) {
+    content += '\n\n## Allowed Folders\n' + folders.map((folder) => `- \`${folder}\``).join('\n');
+  }
+}
 if (operatorNotes) {
   content += `\n\n## Operator Approval Notes\n${operatorNotes}\n`;
 }

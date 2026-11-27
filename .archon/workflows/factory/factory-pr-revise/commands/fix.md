@@ -14,7 +14,7 @@ $INPUTS.prev_summary
    - Read `$ARTIFACTS_DIR/evidence/ux-report.md` (if present and failed)
    - Read every report under `$ARTIFACTS_DIR/review/` (`spec.md`, `standards.md`, `seams-errors.md`)
    - Re-read `$INPUTS.contract_path` for the accepted outcome, acceptance criteria, and invariants.
-   - Confirm ownership before editing: read `$INPUTS.allowed_folders` (JSON: `[]` is exclusive; a nonempty list limits edits to those reserved folders) and `$INPUTS.forbidden_paths` (JSON: resolved repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Identify the owning modules and check every target against the reservation and forbidden paths.
+   - Confirm ownership before editing: read `$INPUTS.allowed_folders` (JSON: a nonempty list limits edits to those folders; `[]` adds no folder restriction) and `$INPUTS.forbidden_paths` (repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Identify the owning modules and check every target against both boundaries.
    - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
 
 2. **Address every `[P0]` / `[P1]` finding and failing gate at root cause:**

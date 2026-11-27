@@ -20,7 +20,7 @@ import {
 } from '../../.shared/contract.ts';
 import { postIssueComment, setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
-import { assertReservation, fetchPolicyBase, parseAllowedFolders, resolveForbiddenPaths } from '../../.shared/ownership.ts';
+import { assertReservation, fetchPolicyBase, parseDeliveryClaim, resolveForbiddenPaths } from '../../.shared/ownership.ts';
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 mkdirSync(join(artifactsDir, 'evidence'), { recursive: true });
@@ -35,7 +35,8 @@ const userArgs = text(process.env.ARGUMENTS);
 
 const policyBase = fetchPolicyBase(baseBranch);
 const baseSha = runCmd(['git', 'merge-base', policyBase, 'HEAD']).stdout;
-const allowedFolders = parseAllowedFolders(process.env.INPUTS_ALLOWED_FOLDERS ?? '[]');
+const claim = parseDeliveryClaim(process.env.INPUTS_ALLOWED_FOLDERS, process.env.INPUTS_EXCLUSIVE);
+const allowedFolders = claim.kind === 'reserved' ? claim.folders : [];
 
 let source: 'issue' | 'file' | 'arguments' = 'arguments';
 let issueNumber = 0;
@@ -157,7 +158,8 @@ const previewCmd = resolvePreviewCommand(previewInput);
 const runUx = parsed.hasUi && previewCmd.length > 0;
 const captureBefore = runUx && hasTrackedWorkAreas(parsed.workAreas);
 const forbiddenPaths = resolveForbiddenPaths(policyBase, parsed.forbiddenPaths);
-if (contractOk && unmetBlockers.length === 0) assertReservation(text(process.env.INPUTS_RUN_ID), allowedFolders);
+const runId = text(process.env.INPUTS_RUN_ID);
+if (contractOk && unmetBlockers.length === 0) assertReservation(runId, claim);
 
 const slugSource = (parsed.sliceId || parsed.title)
   .toLowerCase()
@@ -165,7 +167,7 @@ const slugSource = (parsed.sliceId || parsed.title)
   .replace(/^-|-$/g, '')
   .slice(0, 36);
 const branchName =
-  issueNumber > 0 ? `factory/issue-${issueNumber}-${slugSource}` : `factory/${slugSource || 'task'}`;
+  issueNumber > 0 ? `factory/issue-${issueNumber}-${slugSource}` : `factory/${slugSource || 'task'}-${runId}`;
 
 const contractPath = join(artifactsDir, 'contract.md');
 writeFileSync(contractPath, markdown, 'utf8');

@@ -13,7 +13,7 @@ import {
 const scopedContract = '# Update feature\n\n- [ ] A blank query returns a validation error.';
 
 describe('Slice contract and boundary guards', () => {
-  test('exclusive delivery permits any unprotected path without a path list', () => {
+  test('unreserved delivery permits any unprotected path without a path list', () => {
     const res = auditBoundaries(['apps/api/src/index.ts'], [], ['.github/']);
     expect(res.ok).toBe(true);
   });

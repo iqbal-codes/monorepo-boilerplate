@@ -32,7 +32,10 @@ inputs:
     description: Max seconds to poll GitHub Actions checks before timing out ("0" skips waiting).
   allowed_folders:
     default: "[]"
-    description: JSON array of literal repository-relative directories ending in /. Empty means exclusive delivery.
+    description: JSON array of reserved repository-relative directories ending in /. Empty leaves edits unreserved.
+  exclusive:
+    default: "false"
+    description: Set to true to run without other factory delivery or revision runs. Leave allowed_folders empty.
 
 worktree:
   enabled: true
@@ -52,6 +55,7 @@ nodes:
       repo: "$INPUTS.repo"
       preview_cmd: "$INPUTS.preview_cmd"
       allowed_folders: "$INPUTS.allowed_folders"
+      exclusive: "$INPUTS.exclusive"
       run_id: "$WORKFLOW_ID"
     output_format:
       type: object
@@ -173,6 +177,7 @@ nodes:
       base_branch: "$fetch-pr-feedback.output.base_branch"
       base_sha: "$fetch-pr-feedback.output.base_sha"
       allowed_folders: { from: "$fetch-pr-feedback.output.allowed_folders" }
+      exclusive: "$INPUTS.exclusive"
       forbidden_paths: { from: "$fetch-pr-feedback.output.forbidden_paths" }
       run_id: "$WORKFLOW_ID"
       branch_name: "$fetch-pr-feedback.output.branch_name"
@@ -263,6 +268,7 @@ nodes:
             base_branch: "$fetch-pr-feedback.output.base_branch"
             base_sha: "$fetch-pr-feedback.output.base_sha"
             allowed_folders: { from: "$fetch-pr-feedback.output.allowed_folders" }
+            exclusive: "$INPUTS.exclusive"
             forbidden_paths: { from: "$fetch-pr-feedback.output.forbidden_paths" }
             run_id: "$WORKFLOW_ID"
             branch_name: "$fetch-pr-feedback.output.branch_name"
@@ -405,6 +411,7 @@ nodes:
       base_branch: "$fetch-pr-feedback.output.base_branch"
       base_sha: "$fetch-pr-feedback.output.base_sha"
       allowed_folders: { from: "$fetch-pr-feedback.output.allowed_folders" }
+      exclusive: "$INPUTS.exclusive"
       forbidden_paths: { from: "$fetch-pr-feedback.output.forbidden_paths" }
       run_id: "$WORKFLOW_ID"
       branch_name: "$fetch-pr-feedback.output.branch_name"

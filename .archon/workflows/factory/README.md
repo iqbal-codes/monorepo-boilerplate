@@ -70,7 +70,15 @@ Triage names the outcome, observable acceptance criteria, and invariants to pres
 
 ### Folder reservations and protected paths
 
-Delivery and PR revision are exclusive by default. To allow concurrent runs, add an explicit reservation to the operator-maintained issue for dispatcher runs, or pass `--input 'allowed_folders=["src/search/","tests/search/"]'` for a manual run. The issue form is:
+Builds and PR revisions use the same delivery modes. They run in separate worktrees; these modes govern which delivery runs may overlap, not what is eligible to merge.
+
+| Mode | Dispatcher | Manual launch | May overlap with |
+| --- | --- | --- | --- |
+| Normal (default) | No `Allowed Folders` reservation and no `factory:exclusive` label | No delivery-mode inputs (or `allowed_folders=[]`) | Other normal runs on different work |
+| Reserved | Maintainer adds `Allowed Folders` to the refined issue | `--input 'allowed_folders=["src/search/","tests/search/"]'` | Reserved runs with disjoint folders only |
+| Exclusive | Maintainer applies `factory:exclusive` on the issue | `--input exclusive=true` | No other build or PR revision |
+
+Do not combine `factory:exclusive` / `exclusive=true` with a folder reservation. For dispatched PR revisions, the mode comes from the linked issue. For manual runs, set the mode on the command line; the issue's settings do not substitute for inputs. The reservation format on an issue is:
 
 ```markdown
 - **Allowed Folders:**
@@ -78,7 +86,9 @@ Delivery and PR revision are exclusive by default. To allow concurrent runs, add
   - `tests/search/`
 ```
 
-Use canonical repo-relative folders with trailing slashes, not file paths or globs. An omitted reservation or `[]` runs exclusively; only disjoint nonempty reservations can run together. Parent and child folders overlap, and paused runs still hold their reservation. Use one Archon project and dispatcher host per repository. If accepted work needs a new folder, the run reports its exact path and rationale before editing there. End that run, update the reservation, then start a new run.
+Use canonical repo-relative folders with trailing slashes, not file paths or globs. Parent and child folders overlap. Paused delivery runs still hold their mode. Use one Archon project and dispatcher host per repository. If accepted work needs a path outside a reservation, end the run, update the reservation, and start a new run. Prefer explicit exclusivity for jobs that must run alone, such as coordinated migrations.
+
+Before updating an installed copy, let active deliveries and revisions finish, including paused runs. Add `factory:exclusive` to queued issues that relied on an empty reservation to run alone. The dispatcher holds new builds and revisions until both installed workflows accept `exclusive`; it still handles approval replies so old runs can finish. Update the workflow copy with `init-repo.sh` when ready.
 
 Factory protects `.github/`, `.archon/workflows/`, `.archon/sdlc/policy/`, and `.archon/config.yaml`, plus paths from `.archon/sdlc/policy/protected-paths.json` on the target base branch at intake. That optional file is a JSON array of repo-relative paths or glob patterns. Neither exclusive runs nor folder reservations override repository protections or slice prohibitions. Maintainers make protected changes through a separately approved, manual PR.
 

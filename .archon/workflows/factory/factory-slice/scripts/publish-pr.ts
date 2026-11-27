@@ -28,7 +28,7 @@ import {
   syncBranchChanges,
 } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
-import { assertReservation, deliveryPaths, parseAllowedFolders } from '../../.shared/ownership.ts';
+import { assertReservation, deliveryPaths, parseDeliveryClaim } from '../../.shared/ownership.ts';
 import {
   extractVerificationEvidenceLine,
   parsePrSummarySections,
@@ -73,7 +73,8 @@ const implSummary = text(process.env.INPUTS_IMPL_SUMMARY);
 const roundNum = Number.parseInt(text(process.env.INPUTS_ROUND) || '1', 10) || 1;
 const diffStatInput = text(process.env.INPUTS_DIFF_STAT);
 const mergeMode = text(process.env.INPUTS_MERGE_MODE) || 'ask';
-const allowedFolders = parseAllowedFolders(process.env.INPUTS_ALLOWED_FOLDERS);
+const claim = parseDeliveryClaim(process.env.INPUTS_ALLOWED_FOLDERS, process.env.INPUTS_EXCLUSIVE);
+const allowedFolders = claim.kind === 'reserved' ? claim.folders : [];
 const forbiddenPaths: string[] = JSON.parse(text(process.env.INPUTS_FORBIDDEN_PATHS));
 
 function readSnippet(filePath: string, maxChars = 3000): string {
@@ -137,10 +138,9 @@ function uploadEvidenceImages(shortSha: string): UploadedEvidence {
       const fetchEv = runCmd(['git', 'fetch', 'origin', 'pr-evidence'], { allowFail: true });
       if (fetchEv.code === 0) {
         runCmd(['git', 'worktree', 'add', '--detach', scratchDir, 'FETCH_HEAD']);
-        runCmd(['git', 'checkout', '-B', 'pr-evidence'], { cwd: scratchDir });
       } else {
         runCmd(['git', 'worktree', 'add', '--detach', scratchDir, 'HEAD']);
-        runCmd(['git', 'checkout', '--orphan', 'pr-evidence'], { cwd: scratchDir });
+        runCmd(['git', 'checkout', '--orphan', `pr-evidence-${text(process.env.INPUTS_RUN_ID)}`], { cwd: scratchDir });
         runCmd(['git', 'rm', '-rf', '.'], { cwd: scratchDir, allowFail: true });
       }
 
@@ -266,7 +266,7 @@ const { headSha, shortSha, diffStat: gitDiffStat } = syncBranchChanges({
   baseSha,
   branchName,
   assertPublishable(headSha) {
-    assertReservation(text(process.env.INPUTS_RUN_ID), allowedFolders);
+    assertReservation(text(process.env.INPUTS_RUN_ID), claim);
     const { ok, forbiddenHits, outOfBounds } = auditBoundaries(deliveryPaths(baseSha, headSha), allowedFolders, forbiddenPaths);
     if (!ok) {
       throw new Error(`Refusing to publish outside delivery boundaries. Protected: ${JSON.stringify(forbiddenHits)}; outside reserved folders: ${JSON.stringify(outOfBounds)}.`);

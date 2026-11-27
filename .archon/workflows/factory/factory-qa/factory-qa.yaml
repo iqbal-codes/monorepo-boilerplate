@@ -13,7 +13,7 @@ inputs:
   verification_command:
     description: Repository verification command from the slice contract.
   allowed_folders:
-    description: JSON array of reserved repository-relative directories (empty means exclusive delivery).
+    description: JSON array of reserved repository-relative directories (empty means no write allowlist).
   forbidden_paths:
     description: JSON array of protected paths the patch may not touch.
   contract_has_ui:

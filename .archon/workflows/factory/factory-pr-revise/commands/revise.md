@@ -10,7 +10,7 @@ You are revising an existing Factory pull request (`$INPUTS.pr_url`) inside its 
    - Read `$INPUTS.feedback_path` in full (`CHANGES_REQUESTED` reviews, inline diff comments, and `/fix` / `/revise` directives).
 
 2. **Confirm ownership before editing:**
-   - Read `$INPUTS.allowed_folders` (JSON: `[]` is exclusive; a nonempty list limits edits to those reserved folders) and `$INPUTS.forbidden_paths` (JSON: resolved repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Review feedback does not change either boundary.
+   - Read `$INPUTS.allowed_folders` (JSON: a nonempty list limits edits to those folders; `[]` adds no folder restriction) and `$INPUTS.forbidden_paths` (repository protections plus slice prohibitions). `Work Areas` and legacy `Owned / Allowed Paths` are hints only. Review feedback does not change either boundary.
    - Identify the owning modules and confirm that each planned edit addresses the feedback for the accepted slice, stays within any reservation, and avoids forbidden paths. Repeat for new targets.
    - Before editing in a newly needed folder, propose its exact repo-relative path and explain why it is needed. If it expands a nonempty reservation, stop and return `blocked: true` with the proposal; do not expand the reservation yourself. If a forbidden path is necessary, stop with `blocked: true` and name the exact path and reason.
 

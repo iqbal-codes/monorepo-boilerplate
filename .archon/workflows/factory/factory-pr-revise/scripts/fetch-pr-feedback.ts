@@ -21,7 +21,7 @@ import {
 import { setFactoryState } from '../../.shared/github.ts';
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import { isMaintainer, loadMaintainers } from '../../.shared/maintainers.ts';
-import { assertReservation, fetchPolicyBase, parseAllowedFolders, resolveForbiddenPaths } from '../../.shared/ownership.ts';
+import { assertReservation, fetchPolicyBase, parseDeliveryClaim, resolveForbiddenPaths } from '../../.shared/ownership.ts';
 
 interface PrReview {
   id?: number;
@@ -79,7 +79,8 @@ const specFileInput = text(process.env.INPUTS_SPEC_FILE);
 const repoInput = text(process.env.INPUTS_REPO) || detectGitRepo();
 const previewInput = text(process.env.INPUTS_PREVIEW_CMD);
 const userArgs = text(process.env.ARGUMENTS);
-const allowedFolders = parseAllowedFolders(process.env.INPUTS_ALLOWED_FOLDERS ?? '[]');
+const claim = parseDeliveryClaim(process.env.INPUTS_ALLOWED_FOLDERS, process.env.INPUTS_EXCLUSIVE);
+const allowedFolders = claim.kind === 'reserved' ? claim.folders : [];
 
 function failClosed(reason: string, extra: Partial<{
   prNumber: number;
@@ -281,7 +282,7 @@ if (!readiness.ok) {
   });
 }
 
-assertReservation(text(process.env.INPUTS_RUN_ID), allowedFolders);
+assertReservation(text(process.env.INPUTS_RUN_ID), claim);
 
 // Ensure worktree sits on the PR head branch and compute base merge-base SHA for boundary gating
 runCmd(['git', 'fetch', 'origin', pr.baseRefName, pr.headRefName]);

@@ -22,6 +22,7 @@ export const FACTORY_LABELS = {
   hold: 'factory:hold',
   spec: 'factory:spec',
   epic: 'factory:epic',
+  exclusive: 'factory:exclusive',
 } as const;
 
 export type FactoryLabel = (typeof FACTORY_LABELS)[keyof typeof FACTORY_LABELS];
@@ -95,6 +96,7 @@ export const LABEL_DEFS: readonly LabelDef[] = [
   { name: FACTORY_LABELS.hold, color: 'FFFFFF', description: 'Held by an operator' },
   { name: FACTORY_LABELS.spec, color: 'C5DEF5', description: 'Parent specification; never auto-dispatched' },
   { name: FACTORY_LABELS.epic, color: 'C5DEF5', description: 'Multi-slice epic tracker; never auto-dispatched' },
+  { name: FACTORY_LABELS.exclusive, color: '5319E7', description: 'Delivery and revisions must run alone' },
 ];
 
 export function canonicalLabel(label: string): string {

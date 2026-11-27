@@ -2,24 +2,41 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activeDeliveryRuns, activeRunFolders, parseAllowedFolders, reservationsOverlap } from './ownership.ts';
+import { activeDeliveryRuns, activeDeliveryClaim, deliveryClaimsConflict, parseDeliveryClaim } from './ownership.ts';
 
-test('parallel claims serialize nested folders and exclusive runs, not folder siblings', () => {
-  const app = parseAllowedFolders('["apps/web/", "apps/web/"]');
-  expect(reservationsOverlap(app, ['apps/web/src/orders/'])).toBe(true);
-  expect(reservationsOverlap(app, [])).toBe(true);
-  expect(reservationsOverlap(app, ['apps/web-admin/'])).toBe(false);
-  expect(() => parseAllowedFolders(['apps/web/package.json'])).toThrow();
-  expect(() => parseAllowedFolders(['apps/*/', '../src/'])).toThrow();
+test('normal runs can overlap each other but cannot enter a reservation or exclusive delivery', () => {
+  const normal = parseDeliveryClaim();
+  const reserved = parseDeliveryClaim(['apps/web/']);
+  const exclusive = parseDeliveryClaim('[]', 'true');
+  expect(deliveryClaimsConflict(normal, parseDeliveryClaim('[]', 'false'))).toBe(false);
+  expect(deliveryClaimsConflict(normal, reserved)).toBe(true);
+  expect(deliveryClaimsConflict(reserved, normal)).toBe(true);
+  expect(deliveryClaimsConflict(exclusive, normal)).toBe(true);
+  expect(deliveryClaimsConflict(reserved, exclusive)).toBe(true);
+  expect(deliveryClaimsConflict(exclusive, exclusive)).toBe(true);
+});
+
+test('reserved runs serialize nested folders but not siblings, and reject incompatible inputs', () => {
+  const app = parseDeliveryClaim('["apps/web/", "apps/web/"]');
+  expect(deliveryClaimsConflict(app, parseDeliveryClaim(['apps/web/src/orders/']))).toBe(true);
+  expect(deliveryClaimsConflict(app, parseDeliveryClaim(['apps/web-admin/']))).toBe(false);
+  expect(() => parseDeliveryClaim(['apps/web/package.json'])).toThrow();
+  expect(() => parseDeliveryClaim(['apps/*/', '../src/'])).toThrow();
+  expect(() => parseDeliveryClaim(['apps/web/'], 'true')).toThrow('cannot also specify Allowed Folders');
+  expect(() => parseDeliveryClaim([], 'yes')).toThrow('exclusive must be true or false');
 });
 
 test('paused delivery still owns its reservation and an unreadable project cannot grant one', () => {
   const runs = activeDeliveryRuns(JSON.stringify({ scopeFallback: false, runs: [
     { id: 'refine', workflow_name: 'factory-refine', status: 'running' },
     { id: 'delivery', workflow_name: 'factory-slice', status: 'paused', metadata: { inputs: { allowed_folders: '["src/orders/"]' } } },
-    { id: 'older-delivery', workflow_name: 'factory-pr-revise', status: 'running' },
+    { id: 'normal', workflow_name: 'factory-pr-revise', status: 'running', metadata: { inputs: { pr: '32' } } },
+    { id: 'exclusive', workflow_name: 'factory-pr-revise', status: 'paused', metadata: { inputs: { exclusive: 'true' } } },
+    { id: 'invalid', workflow_name: 'factory-slice', status: 'running', metadata: { inputs: { allowed_folders: 'not JSON' } } },
   ] }));
-  expect(runs.map(activeRunFolders)).toEqual([['src/orders/'], []]);
+  expect(runs.map(activeDeliveryClaim)).toEqual([
+    { kind: 'reserved', folders: ['src/orders/'] }, { kind: 'normal' }, { kind: 'exclusive' }, { kind: 'exclusive' },
+  ]);
   expect(() => activeDeliveryRuns(JSON.stringify({ scopeFallback: true, runs: [] }))).toThrow();
 });
 
