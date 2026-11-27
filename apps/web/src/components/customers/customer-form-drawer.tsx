@@ -121,10 +121,14 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
         ...(value.notes ? { notes: value.notes } : {}),
         ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
       };
-      if (isEditing && customerId) {
-        await update.mutateAsync({ id: customerId, ...payload });
-      } else {
-        await create.mutateAsync(payload);
+      try {
+        if (isEditing && customerId) {
+          await update.mutateAsync({ id: customerId, ...payload });
+        } else {
+          await create.mutateAsync(payload);
+        }
+      } catch {
+        // Surfaced via mutation onError toast and FormError (create.error / update.error).
       }
     },
   });
@@ -152,21 +156,25 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEditing, customerId, detail.data]);
 
-  const submitting = create.isPending || update.isPending;
-  const isDirty = useStore(form.store, (state) => state.isDirty);
+  const [isDirty, isFormSubmitting] = useStore(form.store, (state) => [
+    state.isDirty,
+    state.isSubmitting,
+  ]);
+  const submitting = create.isPending || update.isPending || isFormSubmitting;
   const currency = form.getFieldValue("currency") || DEFAULT_CURRENCY;
 
   const blocker = useBlocker({
-    shouldBlockFn: () => open && isDirty,
-    enableBeforeUnload: () => open && isDirty,
-    disabled: !(open && isDirty),
+    shouldBlockFn: () => open && (isDirty || submitting),
+    enableBeforeUnload: () => open && (isDirty || submitting),
+    disabled: !(open && (isDirty || submitting)),
     withResolver: true,
   });
 
   return (
     <UnsavedChangesGuard
       form={form}
-      enabled={open && !submitting}
+      enabled={open}
+      pending={submitting}
       blocker={blocker}
       onOpenChange={onOpenChange}
       onDiscard={() => form.reset()}

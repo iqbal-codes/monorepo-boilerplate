@@ -1,0 +1,508 @@
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { dirname, resolve } from "node:path";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as React from "react";
+import { act } from "react";
+
+const uiPkgPath = resolve(import.meta.dir, "../../../packages/ui/package.json");
+const { Window } = (await import(
+  Bun.resolveSync("happy-dom", uiPkgPath)
+)) as typeof import("happy-dom");
+const baseUiRoot = dirname(dirname(Bun.resolveSync("@base-ui/react/dialog", uiPkgPath)));
+
+mock.module(Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", baseUiRoot), () => ({
+  useIsoLayoutEffect: React.useLayoutEffect,
+}));
+
+const win = new Window({ url: "http://localhost/customers" });
+win.HTMLElement.prototype.scrollIntoView ??= () => {};
+win.matchMedia = (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
+
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+const DOM_KEYS = [
+  "window",
+  "document",
+  "Document",
+  "ShadowRoot",
+  "HTMLElement",
+  "HTMLInputElement",
+  "Element",
+  "Node",
+  "Event",
+  "MouseEvent",
+  "PointerEvent",
+  "KeyboardEvent",
+  "MutationObserver",
+  "ResizeObserver",
+  "navigator",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
+
+const previousGlobals = Object.fromEntries(
+  DOM_KEYS.map((key) => [key, (globalThis as Record<string, unknown>)[key]]),
+);
+
+Object.assign(globalThis, {
+  window: win,
+  document: win.document,
+  Document: win.Document,
+  ShadowRoot: win.ShadowRoot,
+  HTMLElement: win.HTMLElement,
+  HTMLInputElement: win.HTMLInputElement,
+  Element: win.Element,
+  Node: win.Node,
+  Event: win.Event,
+  MouseEvent: win.MouseEvent,
+  PointerEvent: win.PointerEvent,
+  KeyboardEvent: win.KeyboardEvent,
+  MutationObserver: win.MutationObserver,
+  ResizeObserver: MockResizeObserver,
+  navigator: win.navigator,
+  getComputedStyle: win.getComputedStyle.bind(win),
+  requestAnimationFrame: win.requestAnimationFrame.bind(win),
+  cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
+
+let sessionHookState: {
+  data: {
+    user: { id: string; name: string; email: string; role?: string };
+    session: { id: string; impersonatedBy?: string | null };
+  } | null;
+  error: { status?: number; message: string } | null;
+  isPending: boolean;
+  refetch: () => Promise<void>;
+} = {
+  data: null,
+  error: null,
+  isPending: false,
+  refetch: async () => {},
+};
+
+let stopImpersonatingImpl: () => Promise<{ error?: { message?: string } | null }> = async () => ({
+  error: null,
+});
+
+let createCustomerImpl: (input: unknown) => Promise<unknown> = async () => ({ id: "c-1" });
+
+mock.module("@/lib/server-url", () => ({
+  serverUrl: "http://localhost:3000",
+  getServerUrl: (url: string) => url,
+}));
+
+mock.module("@/lib/auth-client", () => ({
+  authClient: {
+    useSession: () => sessionHookState,
+    admin: {
+      stopImpersonating: () => stopImpersonatingImpl(),
+    },
+  },
+}));
+
+mock.module("@/utils/trpc", () => ({
+  trpc: {
+    customers: {
+      pathFilter: () => ({ queryKey: ["customers"] }),
+      byId: {
+        queryOptions: ({ id }: { id: string }) => ({
+          queryKey: ["customers", "byId", id],
+          queryFn: async () => null,
+        }),
+      },
+      list: {
+        queryOptions: (input: unknown) => ({
+          queryKey: ["customers", "list", input],
+          queryFn: async () => ({ rows: [], rowCount: 0 }),
+        }),
+      },
+      create: {
+        mutationOptions: (opts: Record<string, unknown> = {}) => ({
+          ...opts,
+          mutationFn: (input: unknown) => createCustomerImpl(input),
+        }),
+      },
+      update: {
+        mutationOptions: (opts: Record<string, unknown> = {}) => ({
+          ...opts,
+          mutationFn: async () => ({ id: "c-1" }),
+        }),
+      },
+    },
+  },
+}));
+
+mock.module("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    children,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to?: string }) => (
+    <a href={to ?? "#"} {...props}>
+      {children}
+    </a>
+  ),
+  useNavigate: () => () => Promise.resolve(),
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({
+      location: { pathname: "/customers" },
+      matches: [{ staticData: { pageTitle: "Customers" } }],
+    }),
+  useBlocker: () => ({ status: "idle" }),
+}));
+
+const { createRoot } = await import("react-dom/client");
+const { AppShell } = await import("../src/components/app-shell");
+const { AppSystemBanners } = await import("../src/components/app-system-banners");
+const { CustomerFormDrawer } = await import("../src/components/customers/customer-form-drawer");
+
+afterAll(() => {
+  for (const key of DOM_KEYS) {
+    (globalThis as Record<string, unknown>)[key] = previousGlobals[key];
+  }
+  win.close();
+});
+
+beforeEach(() => {
+  sessionHookState = {
+    data: {
+      user: { id: "u-1", name: "Ada", email: "ada@example.com", role: "user" },
+      session: { id: "s-1", impersonatedBy: null },
+    },
+    error: null,
+    isPending: false,
+    refetch: async () => {},
+  };
+  stopImpersonatingImpl = async () => ({ error: null });
+  createCustomerImpl = async () => ({ id: "c-1" });
+});
+
+async function renderWithQuery(node: React.ReactNode, queryClient?: QueryClient) {
+  const client =
+    queryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+
+  await act(async () => {
+    root.render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
+  });
+
+  return {
+    host,
+    client,
+    cleanup: async () => {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      host.remove();
+    },
+  };
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new win.Event("input", { bubbles: true }));
+  input.dispatchEvent(new win.Event("change", { bubbles: true }));
+}
+
+describe("AppSystemBanners seam safety", () => {
+  test("preserves route-verified impersonation banner and exposes refresh failure when useSession errors", async () => {
+    let refetchCalls = 0;
+    sessionHookState = {
+      data: null,
+      error: { status: 500, message: "Internal Server Error" },
+      isPending: false,
+      refetch: async () => {
+        refetchCalls += 1;
+      },
+    };
+
+    const impersonatedInitial = {
+      user: { id: "u-target", name: "Target User", email: "target@example.com" },
+      session: { id: "s-imp", impersonatedBy: "admin-1" },
+    } as never;
+
+    const view = await renderWithQuery(<AppSystemBanners initialSession={impersonatedInitial} />);
+    try {
+      const text = view.host.textContent ?? "";
+      expect(text).toContain("Viewing as Target User");
+      expect(text).toContain("Stop impersonating");
+      expect(text).toContain("Could not refresh session status");
+
+      const retryBtn = Array.from(view.host.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.includes("Retry"),
+      );
+      expect(retryBtn).toBeDefined();
+      await act(async () => {
+        retryBtn?.click();
+      });
+      expect(refetchCalls).toBe(1);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("clears cached queries and invokes reload on successful stopImpersonating, but skips reload on error", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(["assistant", "threads"], [{ id: "private-target-thread" }]);
+
+    sessionHookState = {
+      data: {
+        user: { id: "u-target", name: "Target User", email: "target@example.com" },
+        session: { id: "s-imp", impersonatedBy: "admin-1" },
+      },
+      error: null,
+      isPending: false,
+      refetch: async () => {},
+    };
+
+    let reloads = 0;
+    stopImpersonatingImpl = async () => ({ error: { message: "Denied" } });
+
+    const view = await renderWithQuery(
+      <AppSystemBanners
+        onReload={() => {
+          reloads += 1;
+        }}
+      />,
+      queryClient,
+    );
+
+    try {
+      const stopBtn = Array.from(view.host.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.includes("Stop impersonating"),
+      );
+      expect(stopBtn).toBeDefined();
+
+      await act(async () => {
+        stopBtn?.click();
+      });
+      expect(reloads).toBe(0);
+      expect(queryClient.getQueryData(["assistant", "threads"])).toBeDefined();
+
+      stopImpersonatingImpl = async () => ({ error: null });
+      await act(async () => {
+        stopBtn?.click();
+      });
+      expect(reloads).toBe(1);
+      expect(queryClient.getQueryData(["assistant", "threads"])).toBeUndefined();
+    } finally {
+      await view.cleanup();
+    }
+  });
+});
+
+describe("CustomerFormDrawer pending save and Escape guard", () => {
+  test("rejects Escape while save is pending, retains draft on failure, and restores dirty guard", async () => {
+    let rejectCreate!: (error: Error) => void;
+    let createStarted = false;
+    createCustomerImpl = () => {
+      createStarted = true;
+      return new Promise((_resolve, reject) => {
+        rejectCreate = reject;
+      });
+    };
+
+    let closeCalls = 0;
+    function DrawerHarness() {
+      const [open, setOpen] = React.useState(true);
+      return (
+        <CustomerFormDrawer
+          open={open}
+          onOpenChange={(next) => {
+            if (!next) closeCalls += 1;
+            setOpen(next);
+          }}
+          customerId={null}
+        />
+      );
+    }
+
+    const view = await renderWithQuery(<DrawerHarness />);
+    try {
+      const sheet = document.body.querySelector<HTMLElement>('[data-slot="sheet-content"]');
+      expect(sheet).not.toBeNull();
+
+      const nameInput = document.body.querySelector<HTMLInputElement>('input[name="name"]');
+      const emailInput = document.body.querySelector<HTMLInputElement>('input[name="email"]');
+      expect(nameInput).not.toBeNull();
+      expect(emailInput).not.toBeNull();
+
+      await act(async () => {
+        if (nameInput) setInputValue(nameInput, "Deferred Draft");
+        if (emailInput) setInputValue(emailInput, "deferred@example.com");
+      });
+
+      const formEl = document.body.querySelector<HTMLFormElement>("form");
+      expect(formEl).not.toBeNull();
+
+      await act(async () => {
+        formEl?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+      });
+      expect(createStarted).toBe(true);
+
+      // Attempt Escape while mutation is still pending: Sheet must stay open with draft intact.
+      await act(async () => {
+        sheet?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      });
+
+      expect(closeCalls).toBe(0);
+      expect(Boolean(document.body.querySelector('[data-slot="sheet-content"]'))).toBe(true);
+      expect(Boolean(document.body.querySelector('[data-slot="alert-dialog-content"]'))).toBe(
+        false,
+      );
+      expect(nameInput?.value).toBe("Deferred Draft");
+
+      // Reject the deferred mutation: error shows, draft stays open and intact.
+      await act(async () => {
+        rejectCreate(new Error("Email already exists"));
+      });
+
+      expect(closeCalls).toBe(0);
+      expect(Boolean(document.body.querySelector('[data-slot="sheet-content"]'))).toBe(true);
+      expect(document.body.textContent).toContain("Could not save customer");
+      expect(nameInput?.value).toBe("Deferred Draft");
+
+      // Subsequent Escape now opens the UnsavedChangesGuard confirmation dialog.
+      await act(async () => {
+        sheet?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      });
+
+      const alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(Boolean(alertDialog)).toBe(true);
+      expect(alertDialog?.textContent).toContain("Discard unsaved changes?");
+    } finally {
+      await view.cleanup();
+    }
+  });
+});
+
+describe("AppShell Command Center -> ShortcutsDialog focus handoff", () => {
+  test("restores focus to sidebar Command Center launcher when Escape closes ShortcutsDialog", async () => {
+    const view = await renderWithQuery(
+      <AppShell>
+        <div>Shell content</div>
+      </AppShell>,
+    );
+
+    try {
+      const sidebarLauncher = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="Search or jump to"]',
+      );
+      expect(sidebarLauncher).not.toBeNull();
+
+      sidebarLauncher?.focus();
+      await act(async () => {
+        sidebarLauncher?.click();
+      });
+
+      const shortcutsCmdItem = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
+      ).find((el) => el.textContent?.includes("Keyboard shortcuts"));
+      expect(shortcutsCmdItem).toBeDefined();
+
+      await act(async () => {
+        shortcutsCmdItem?.click();
+      });
+
+      const shortcutsPopup = document.body.querySelector<HTMLElement>(
+        '[data-slot="shortcuts-dialog"]',
+      );
+      expect(Boolean(shortcutsPopup)).toBe(true);
+
+      await act(async () => {
+        shortcutsPopup?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+        await Promise.resolve();
+      });
+
+      expect(Boolean(document.body.querySelector('[data-slot="shortcuts-dialog"]'))).toBe(false);
+      expect(document.activeElement === sidebarLauncher).toBe(true);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("opens AppShortcutsDialog on '?' outside editable fields and ignores '?' inside inputs", async () => {
+    const view = await renderWithQuery(
+      <AppShell>
+        <div>
+          <button type="button" data-testid="non-editable-btn">
+            Action
+          </button>
+          <input type="text" aria-label="Filter input" />
+        </div>
+      </AppShell>,
+    );
+
+    try {
+      const input = view.host.querySelector<HTMLInputElement>('input[aria-label="Filter input"]');
+      const btn = view.host.querySelector<HTMLButtonElement>('[data-testid="non-editable-btn"]');
+      expect(input).not.toBeNull();
+      expect(btn).not.toBeNull();
+
+      input?.focus();
+      await act(async () => {
+        input?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true }),
+        );
+      });
+      expect(Boolean(document.body.querySelector('[data-slot="shortcuts-dialog"]'))).toBe(false);
+
+      btn?.focus();
+      await act(async () => {
+        btn?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true }),
+        );
+      });
+      const shortcutsPopup = document.body.querySelector<HTMLElement>(
+        '[data-slot="shortcuts-dialog"]',
+      );
+      expect(Boolean(shortcutsPopup)).toBe(true);
+
+      await act(async () => {
+        shortcutsPopup?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+        await Promise.resolve();
+      });
+      expect(Boolean(document.body.querySelector('[data-slot="shortcuts-dialog"]'))).toBe(false);
+      expect(document.activeElement === btn).toBe(true);
+    } finally {
+      await view.cleanup();
+    }
+  });
+});

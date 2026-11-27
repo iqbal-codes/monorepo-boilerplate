@@ -18,9 +18,10 @@ export const Route = createFileRoute("/_auth")({
 });
 
 function AuthLayout() {
+  const { session } = Route.useRouteContext();
   return (
     <AssistantProvider>
-      <AppShell>
+      <AppShell initialSession={session.data}>
         <Outlet />
       </AppShell>
     </AssistantProvider>

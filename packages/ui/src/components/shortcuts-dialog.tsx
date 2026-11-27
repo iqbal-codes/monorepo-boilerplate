@@ -155,10 +155,17 @@ export function ShortcutsDialog({
   React.useEffect(() => {
     if (open && !prevOpenRef.current) {
       setQuery("");
-    } else if (!open && prevOpenRef.current && !finalFocus) {
-      const target = previousFocusRef.current;
+    } else if (!open && prevOpenRef.current) {
+      const explicitTarget =
+        typeof finalFocus === "function"
+          ? finalFocus("keyboard")
+          : finalFocus && typeof finalFocus === "object" && "current" in finalFocus
+            ? finalFocus.current
+            : null;
+      const target =
+        explicitTarget instanceof HTMLElement ? explicitTarget : previousFocusRef.current;
       previousFocusRef.current = null;
-      if (target && target.isConnected) {
+      if (finalFocus !== false && target && target.isConnected) {
         target.focus();
       }
     }

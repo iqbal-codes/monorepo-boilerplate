@@ -208,8 +208,61 @@ describe("ShortcutsDialog", () => {
         );
       });
 
-      expect(document.body.querySelector('[data-slot="shortcuts-dialog"]')).toBeNull();
-      expect(document.activeElement).toBe(opener);
+      expect(Boolean(document.body.querySelector('[data-slot="shortcuts-dialog"]'))).toBe(false);
+      expect(document.activeElement === opener).toBe(true);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("returns focus to explicit finalFocus launcher target on Escape close", async () => {
+    function HandoffHarness() {
+      const [open, setOpen] = React.useState(false);
+      const launcherRef = React.useRef<HTMLButtonElement>(null);
+
+      return (
+        <div>
+          <button type="button" ref={launcherRef} data-testid="launcher">
+            Launcher
+          </button>
+          <button type="button" data-testid="handoff-trigger" onClick={() => setOpen(true)}>
+            Open via handoff
+          </button>
+          <ShortcutsDialog
+            open={open}
+            onOpenChange={setOpen}
+            groups={SAMPLE_GROUPS}
+            finalFocus={() => launcherRef.current}
+          />
+        </div>
+      );
+    }
+
+    const view = await renderInDom(<HandoffHarness />);
+    try {
+      const launcher = view.host.querySelector<HTMLButtonElement>('[data-testid="launcher"]');
+      const handoffTrigger = view.host.querySelector<HTMLButtonElement>(
+        '[data-testid="handoff-trigger"]',
+      );
+      expect(launcher).not.toBeNull();
+      expect(handoffTrigger).not.toBeNull();
+
+      handoffTrigger?.focus();
+      await act(async () => {
+        handoffTrigger?.click();
+      });
+
+      const popup = document.body.querySelector<HTMLElement>('[data-slot="shortcuts-dialog"]');
+      expect(popup).not.toBeNull();
+
+      await act(async () => {
+        popup?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      });
+
+      expect(Boolean(document.body.querySelector('[data-slot="shortcuts-dialog"]'))).toBe(false);
+      expect(document.activeElement === launcher).toBe(true);
     } finally {
       await view.cleanup();
     }

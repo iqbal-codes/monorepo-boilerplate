@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { UserCheckIcon, WifiOffIcon } from "lucide-react";
+import { AlertTriangleIcon, UserCheckIcon, WifiOffIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -10,20 +9,35 @@ import { SystemBanner } from "@monorepo-boilerplate/ui/components/system-banner"
 import { authClient } from "@/lib/auth-client";
 import { useOnlineStatus } from "@/lib/use-online-status";
 
+export type AppSession = typeof authClient.$Infer.Session;
+
+export type AppSystemBannersProps = {
+  /** Route-verified session from `/_auth` `beforeLoad`, preserved if live session refresh fails. */
+  initialSession?: AppSession | null;
+  /** Override for reloading the page after stopping impersonation (defaults to `window.location.reload()`). */
+  onReload?: () => void;
+};
+
+function isUnauthorizedError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "status" in error && error.status === 401);
+}
+
 /**
  * Operational banners pinned at the top of `SidebarInset` directly above
- * `AppTopbar`: active Better Auth admin impersonation and browser offline state.
+ * `AppTopbar`: active Better Auth admin impersonation, session refresh
+ * failures, and browser offline state.
  */
-export function AppSystemBanners() {
-  const { data: session, refetch } = authClient.useSession();
+export function AppSystemBanners({ initialSession = null, onReload }: AppSystemBannersProps) {
+  const { data: liveSession, error: sessionError, refetch } = authClient.useSession();
   const isOnline = useOnlineStatus();
   const queryClient = useQueryClient();
-  const router = useRouter();
   const [stopping, setStopping] = useState(false);
 
+  const session = isUnauthorizedError(sessionError) ? liveSession : (liveSession ?? initialSession);
   const isImpersonating = Boolean(session?.session?.impersonatedBy);
+  const hasSessionError = Boolean(sessionError);
 
-  if (!isImpersonating && isOnline) {
+  if (!isImpersonating && !hasSessionError && isOnline) {
     return null;
   }
 
@@ -37,10 +51,13 @@ export function AppSystemBanners() {
         toast.error(result.error.message ?? "Could not stop impersonating");
         return;
       }
-      await refetch();
-      await queryClient.invalidateQueries();
-      await router.invalidate();
+      queryClient.clear();
       toast.success("Stopped impersonating");
+      if (onReload) {
+        onReload();
+      } else {
+        window.location.reload();
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not stop impersonating");
     } finally {
@@ -70,6 +87,26 @@ export function AppSystemBanners() {
               }}
             >
               {stopping ? "Stopping…" : "Stop impersonating"}
+            </Button>
+          }
+        />
+      ) : null}
+
+      {hasSessionError ? (
+        <SystemBanner
+          tone="warning"
+          icon={<AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0" />}
+          message="Could not refresh session status. Active permissions or impersonation state may be out of date."
+          action={
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                void refetch();
+              }}
+            >
+              Retry
             </Button>
           }
         />

@@ -667,6 +667,7 @@ function SidebarMenuSubButton({
 }
 
 export {
+  SIDEBAR_KEYBOARD_SHORTCUT,
   Sidebar,
   SidebarContent,
   SidebarFooter,

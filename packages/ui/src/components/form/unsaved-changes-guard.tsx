@@ -43,6 +43,8 @@ export type UnsavedChangesGuardProps = {
   isDirty?: boolean;
   /** Enables close/navigation interception. Defaults to `true`. */
   enabled?: boolean;
+  /** Rejects close and discard attempts while an async save is in flight. */
+  pending?: boolean;
   /** Optional structural router blocker (compatible with TanStack Router `useBlocker`). */
   blocker?: NavigationBlockerLike;
   /** Called immediately on clean close, or after confirming Discard changes on a close prompt. */
@@ -86,6 +88,7 @@ export function UnsavedChangesGuard({
   form,
   isDirty: explicitDirty,
   enabled = true,
+  pending = false,
   blocker,
   onClose,
   onOpenChange,
@@ -114,6 +117,7 @@ export function UnsavedChangesGuard({
   }, [enabled, dirty, closePromptOpen]);
 
   const requestClose = React.useCallback(() => {
+    if (pending) return;
     const liveDirty =
       explicitDirty ?? (resolvedForm ? Boolean(resolvedForm.store.state.isDirty) : false);
     if (!enabled || !liveDirty) {
@@ -125,7 +129,7 @@ export function UnsavedChangesGuard({
       return;
     }
     setClosePromptOpen(true);
-  }, [enabled, explicitDirty, resolvedForm, onClose, onOpenChange]);
+  }, [pending, enabled, explicitDirty, resolvedForm, onClose, onOpenChange]);
 
   const guardOpenChange = React.useCallback(
     (nextOpen: boolean) => {
@@ -146,6 +150,7 @@ export function UnsavedChangesGuard({
   }
 
   function handleDiscardChanges() {
+    if (pending) return;
     const wasBlockedNavigation = blocker?.status === "blocked";
     setClosePromptOpen(false);
     onDiscard?.();
@@ -185,6 +190,7 @@ export function UnsavedChangesGuard({
         cancelLabel={keepEditingLabel}
         confirmLabel={discardLabel}
         confirmVariant="destructive"
+        pending={pending}
         pendingLabel="Discarding…"
         onConfirm={handleDiscardChanges}
         finalFocus={finalFocus}

@@ -22,7 +22,7 @@ import { activeMainItem } from "@/lib/nav";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
 
 export type AppTopbarProps = {
-  onOpenCommandCenter: () => void;
+  onOpenCommandCenter: (launcher?: HTMLElement | null) => void;
   notifications?: readonly NotificationItem[];
   notificationsLoading?: boolean;
   onMarkNotificationRead?: (id: string) => void;
@@ -100,7 +100,7 @@ export function AppTopbar({
           size="icon-sm"
           className="md:hidden"
           aria-label="Search or jump to"
-          onClick={onOpenCommandCenter}
+          onClick={(event) => onOpenCommandCenter(event.currentTarget)}
         >
           <SearchIcon aria-hidden />
         </Button>

@@ -258,4 +258,38 @@ describe("NotificationCenter", () => {
       await emptyView.cleanup();
     }
   });
+
+  test("wraps long linkless notification title and description without clipping classes", async () => {
+    setViewportWidth(1280);
+    const longTitle =
+      "Customer CSV import finished with 14 row-level validation warnings requiring manual review";
+    const longDescription =
+      "Rows 12, 18, 24, 31, and 44 failed E.164 phone parsing because country dial codes were omitted; re-export the affected rows and correct the phone column before re-importing.";
+
+    const view = await renderInDom(
+      <NotificationCenter
+        defaultOpen
+        items={[
+          {
+            id: "warn-1",
+            title: longTitle,
+            description: longDescription,
+            timestamp: "Just now",
+            read: false,
+          },
+        ]}
+      />,
+    );
+
+    try {
+      const item = document.body.querySelector('[data-slot="notification-item"]');
+      expect(item).not.toBeNull();
+      expect(item?.textContent).toContain(longTitle);
+      expect(item?.textContent).toContain(longDescription);
+      expect(Boolean(item?.querySelector(".truncate"))).toBe(false);
+      expect(Boolean(item?.querySelector(".line-clamp-2"))).toBe(false);
+    } finally {
+      await view.cleanup();
+    }
+  });
 });

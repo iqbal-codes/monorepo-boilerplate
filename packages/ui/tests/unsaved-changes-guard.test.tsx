@@ -354,4 +354,89 @@ describe("UnsavedChangesGuard", () => {
       await view.cleanup();
     }
   });
+
+  test("rejects close requests while pending and keeps dirty protection after failure", async () => {
+    let closedCount = 0;
+
+    function PendingHarness() {
+      const [open, setOpen] = React.useState(true);
+      const [pending, setPending] = React.useState(false);
+      const form = useAppForm({
+        defaultValues: { name: "Ada" },
+      });
+
+      return (
+        <UnsavedChangesGuard
+          form={form}
+          enabled={open}
+          pending={pending}
+          onClose={() => {
+            closedCount += 1;
+            setOpen(false);
+          }}
+        >
+          {({ guardOpenChange }) =>
+            open ? (
+              <div data-testid="panel">
+                <Form form={form}>
+                  <form.AppField name="name">
+                    {(field) => <field.TextField label="Name" />}
+                  </form.AppField>
+                </Form>
+                <button type="button" data-testid="start-save" onClick={() => setPending(true)}>
+                  Start save
+                </button>
+                <button type="button" data-testid="fail-save" onClick={() => setPending(false)}>
+                  Fail save
+                </button>
+                <button
+                  type="button"
+                  data-testid="escape-close"
+                  onClick={() => guardOpenChange(false)}
+                >
+                  Escape
+                </button>
+              </div>
+            ) : null
+          }
+        </UnsavedChangesGuard>
+      );
+    }
+
+    const view = await renderInDom(<PendingHarness />);
+    try {
+      const input = view.host.querySelector<HTMLInputElement>("input");
+      await act(async () => {
+        if (input) setInputValue(input, "Pending Draft");
+      });
+
+      await act(async () => {
+        view.host.querySelector<HTMLButtonElement>('[data-testid="start-save"]')?.click();
+      });
+
+      // Attempt close while save is pending: must stay open without prompting or closing.
+      await act(async () => {
+        view.host.querySelector<HTMLButtonElement>('[data-testid="escape-close"]')?.click();
+      });
+
+      expect(closedCount).toBe(0);
+      expect(view.host.querySelector('[data-testid="panel"]')).not.toBeNull();
+      expect(document.body.querySelector('[data-slot="alert-dialog-content"]')).toBeNull();
+      expect(input?.value).toBe("Pending Draft");
+
+      // Save fails -> pending returns to false -> Escape now prompts Discard confirmation.
+      await act(async () => {
+        view.host.querySelector<HTMLButtonElement>('[data-testid="fail-save"]')?.click();
+      });
+      await act(async () => {
+        view.host.querySelector<HTMLButtonElement>('[data-testid="escape-close"]')?.click();
+      });
+
+      expect(closedCount).toBe(0);
+      expect(document.body.querySelector('[data-slot="alert-dialog-content"]')).not.toBeNull();
+      expect(input?.value).toBe("Pending Draft");
+    } finally {
+      await view.cleanup();
+    }
+  });
 });

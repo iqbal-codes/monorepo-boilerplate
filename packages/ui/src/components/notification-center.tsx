@@ -215,17 +215,17 @@ export function NotificationCenter({
         {visibleItems.map((item) => {
           const itemBody = (
             <span className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="flex items-center gap-2">
+              <span className="flex items-start gap-2">
                 {!item.read ? (
                   <span
                     data-slot="notification-unread-dot"
                     aria-hidden="true"
-                    className="size-1.5 shrink-0 rounded-full bg-info"
+                    className="mt-1.5 size-1.5 shrink-0 rounded-full bg-info"
                   />
                 ) : null}
                 <span
                   className={cn(
-                    "min-w-0 truncate text-sm",
+                    "min-w-0 break-words text-sm",
                     item.read ? "font-normal text-foreground" : "font-semibold text-foreground",
                   )}
                 >
@@ -233,7 +233,7 @@ export function NotificationCenter({
                 </span>
               </span>
               {item.description ? (
-                <span className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                <span className="min-w-0 break-words text-xs leading-relaxed text-muted-foreground">
                   {item.description}
                 </span>
               ) : null}

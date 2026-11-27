@@ -37,6 +37,10 @@ const APP_SHELL_SOURCE = readFileSync(
   resolve(import.meta.dir, "../src/components/app-shell.tsx"),
   "utf8",
 );
+const APP_SHORTCUTS_SOURCE = readFileSync(
+  resolve(import.meta.dir, "../src/components/app-shortcuts-dialog.tsx"),
+  "utf8",
+);
 const APP_TOPBAR_SOURCE = readFileSync(
   resolve(import.meta.dir, "../src/components/app-topbar.tsx"),
   "utf8",
@@ -83,7 +87,7 @@ describe("Keyboard shortcut guards", () => {
 });
 
 describe("App Shell & CustomerFormDrawer wiring", () => {
-  test("AppShell mounts SystemBanner slot inside SidebarInset above AppTopbar and mounts ShortcutsDialog", () => {
+  test("AppShell mounts SystemBanner slot inside SidebarInset above AppTopbar and delegates shortcuts to AppShortcutsDialog", () => {
     const insetIndex = APP_SHELL_SOURCE.indexOf("<SidebarInset");
     const bannerIndex = APP_SHELL_SOURCE.indexOf("<AppSystemBanners");
     const topbarIndex = APP_SHELL_SOURCE.indexOf("<AppTopbar");
@@ -91,8 +95,11 @@ describe("App Shell & CustomerFormDrawer wiring", () => {
     expect(insetIndex).toBeGreaterThan(-1);
     expect(bannerIndex).toBeGreaterThan(insetIndex);
     expect(topbarIndex).toBeGreaterThan(bannerIndex);
-    expect(APP_SHELL_SOURCE).toContain("ShortcutsDialog");
-    expect(APP_SHELL_SOURCE).toContain("isShortcutsHelpKey");
+    expect(APP_SHELL_SOURCE).toContain("AppShortcutsDialog");
+    expect(APP_SHELL_SOURCE).not.toContain("window.addEventListener");
+    expect(APP_SHORTCUTS_SOURCE).toContain("isShortcutsHelpKey");
+    expect(APP_SHORTCUTS_SOURCE).toContain("COMMAND_CENTER_SHORTCUT_KEYS");
+    expect(APP_SHORTCUTS_SOURCE).toContain("SIDEBAR_KEYBOARD_SHORTCUT");
   });
 
   test("AppTopbar wires NotificationCenter beside theme toggle without fetching", () => {

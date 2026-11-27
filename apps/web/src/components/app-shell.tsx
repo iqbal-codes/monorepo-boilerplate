@@ -1,72 +1,15 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 
-import {
-  ShortcutsDialog,
-  type ShortcutGroup,
-} from "@monorepo-boilerplate/ui/components/shortcuts-dialog";
 import { SidebarInset, SidebarProvider } from "@monorepo-boilerplate/ui/components/sidebar";
 
+import { AppShortcutsDialog } from "@/components/app-shortcuts-dialog";
 import { AppSidebar } from "@/components/app-sidebar";
-import { AppSystemBanners } from "@/components/app-system-banners";
+import { AppSystemBanners, type AppSession } from "@/components/app-system-banners";
 import { AppTopbar } from "@/components/app-topbar";
 import { CommandCenter } from "@/components/command-center";
 import { PageTitleProvider } from "@/components/page-title";
 import { AppSettingsDialog } from "@/components/settings/app-settings-dialog";
-import { isShortcutsHelpKey } from "@/lib/command-shortcut";
-
-const APP_SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
-  {
-    id: "navigation",
-    label: "Navigation & Shell",
-    items: [
-      {
-        id: "command-center",
-        label: "Open Command Center",
-        description: "Search screens, customers, and quick actions.",
-        keys: [
-          ["mod", "K"],
-          ["mod", "Enter"],
-        ],
-        keywords: ["search", "jump", "palette"],
-      },
-      {
-        id: "toggle-sidebar",
-        label: "Toggle sidebar",
-        description: "Collapse or expand the navigation rail.",
-        keys: [["mod", "B"]],
-        keywords: ["rail", "nav"],
-      },
-      {
-        id: "keyboard-shortcuts",
-        label: "Keyboard shortcuts",
-        description: "Open this keyboard shortcuts reference.",
-        keys: [["?"]],
-        keywords: ["help", "hotkeys"],
-      },
-    ],
-  },
-  {
-    id: "overlays",
-    label: "Overlays & Dialogs",
-    items: [
-      {
-        id: "close-overlay",
-        label: "Close active dialog or drawer",
-        description: "Prompts for confirmation if a form has unsaved edits.",
-        keys: [["Esc"]],
-        keywords: ["dismiss", "cancel"],
-      },
-      {
-        id: "focus-settings-search",
-        label: "Focus Settings search",
-        description: "Jump to the search input while Settings is open.",
-        keys: [["/"]],
-        keywords: ["filter", "preferences"],
-      },
-    ],
-  },
-];
 
 /**
  * The persistent frame for authenticated screens: sidebar, operational banners,
@@ -78,23 +21,53 @@ const APP_SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
  * Fixing the height makes the content pane the scroll container, which is what
  * lets `AppSystemBanners` and `AppTopbar` stay put while rows scroll under them.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  initialSession = null,
+}: {
+  children: ReactNode;
+  initialSession?: AppSession | null;
+}) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [commandOpen, setCommandOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented) return;
-      if (!isShortcutsHelpKey(event)) return;
+  const commandLauncherRef = useRef<HTMLElement | null>(null);
+  const suppressCommandReturnFocusRef = useRef(false);
+  const [shortcutsReturnTarget, setShortcutsReturnTarget] = useState<HTMLElement | null>(null);
 
-      event.preventDefault();
-      setShortcutsOpen(true);
-    }
+  const openCommandCenter = useCallback((launcher?: HTMLElement | null) => {
+    commandLauncherRef.current =
+      launcher ??
+      (typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
+    suppressCommandReturnFocusRef.current = false;
+    setCommandOpen(true);
+  }, []);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+  const handleCommandOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        openCommandCenter();
+        return;
+      }
+      setCommandOpen(false);
+    },
+    [openCommandCenter],
+  );
+
+  const openShortcutsFromHotkey = useCallback(() => {
+    setShortcutsReturnTarget(null);
+    setShortcutsOpen(true);
+  }, []);
+
+  const openShortcutsFromCommandCenter = useCallback(() => {
+    suppressCommandReturnFocusRef.current = true;
+    setShortcutsReturnTarget(commandLauncherRef.current);
+    setCommandOpen(false);
+    setShortcutsOpen(true);
   }, []);
 
   return (
@@ -102,12 +75,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <SidebarProvider className="h-svh min-h-0 overflow-hidden">
         <AppSidebar
           currentPath={pathname}
-          onOpenCommandCenter={() => setCommandOpen(true)}
+          onOpenCommandCenter={openCommandCenter}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
-          <AppSystemBanners />
-          <AppTopbar onOpenCommandCenter={() => setCommandOpen(true)} />
+          <AppSystemBanners initialSession={initialSession} />
+          <AppTopbar onOpenCommandCenter={openCommandCenter} />
           <div
             data-slot="app-content"
             className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 md:gap-6 md:p-6"
@@ -117,15 +90,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         </SidebarInset>
         <CommandCenter
           open={commandOpen}
-          onOpenChange={setCommandOpen}
+          onOpenChange={handleCommandOpenChange}
+          finalFocus={() =>
+            suppressCommandReturnFocusRef.current ? false : (commandLauncherRef.current ?? true)
+          }
           onOpenSettings={() => setSettingsOpen(true)}
-          onOpenShortcuts={() => setShortcutsOpen(true)}
+          onOpenShortcuts={openShortcutsFromCommandCenter}
         />
         <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-        <ShortcutsDialog
+        <AppShortcutsDialog
           open={shortcutsOpen}
           onOpenChange={setShortcutsOpen}
-          groups={APP_SHORTCUT_GROUPS}
+          onOpenFromHotkey={openShortcutsFromHotkey}
+          finalFocus={
+            shortcutsReturnTarget
+              ? () => (shortcutsReturnTarget.isConnected ? shortcutsReturnTarget : true)
+              : undefined
+          }
         />
       </SidebarProvider>
     </PageTitleProvider>

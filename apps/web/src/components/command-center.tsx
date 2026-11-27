@@ -9,7 +9,7 @@ import {
   UsersIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 
 import {
   Command,
@@ -23,7 +23,11 @@ import {
 import { Kbd } from "@monorepo-boilerplate/ui/components/kbd";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
 
-import { isCommandCenterEnterKey, isCommandCenterKey } from "@/lib/command-shortcut";
+import {
+  SHORTCUTS_HELP_KEY,
+  isCommandCenterEnterKey,
+  isCommandCenterKey,
+} from "@/lib/command-shortcut";
 import { navMain, navShortcuts, type NavRoute } from "@/lib/nav";
 import { customerListSearch } from "@/lib/use-data-table-search-params";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
@@ -79,11 +83,13 @@ export function CommandCenter({
   onOpenChange,
   onOpenSettings,
   onOpenShortcuts,
+  finalFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenSettings?: () => void;
   onOpenShortcuts?: () => void;
+  finalFocus?: ComponentProps<typeof CommandDialog>["finalFocus"];
 }) {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useThemeToggle();
@@ -172,7 +178,7 @@ export function CommandCenter({
     matchesQuery(terms, "Open settings", "preferences", "appearance", "profile", "password");
   const showShortcutsAction =
     Boolean(onOpenShortcuts) &&
-    matchesQuery(terms, "Keyboard shortcuts", "shortcuts", "hotkeys", "help", "?");
+    matchesQuery(terms, "Keyboard shortcuts", "shortcuts", "hotkeys", "help", SHORTCUTS_HELP_KEY);
   const ThemeIcon = isDark ? SunIcon : MoonIcon;
 
   const screens = COMMAND_SCREENS.filter((screen) =>
@@ -221,6 +227,7 @@ export function CommandCenter({
     <CommandDialog
       open={open}
       onOpenChange={handleOpenChange}
+      finalFocus={finalFocus}
       title="Command Center"
       description="Search screens and customers, or run an action."
     >
@@ -264,7 +271,7 @@ export function CommandCenter({
                   <KeyboardIcon />
                   <span>Keyboard shortcuts</span>
                   <CommandShortcut>
-                    <Kbd>?</Kbd>
+                    <Kbd>{SHORTCUTS_HELP_KEY}</Kbd>
                   </CommandShortcut>
                 </CommandItem>
               ) : null}
