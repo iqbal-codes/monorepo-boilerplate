@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  appendMissingDocRefsNote,
   buildQaTestCasesMarkdown,
   detectBaseBranch,
   detectGitRepo,
@@ -156,8 +157,25 @@ if (source === 'issue' && repoInput && allBlockers.length > 0) {
 
 const previewCmd = resolvePreviewCommand(previewInput);
 
-function checkBaselinePreviewReady(cmd: string): { ok: boolean; reason: string } {
+function bootstrapUiWorktree(): string {
+  if (!existsSync('package.json')) return '';
+  let installError = '';
+  if (!existsSync('node_modules') && (existsSync('bun.lock') || existsSync('bun.lockb'))) {
+    const install = runCmd(['bun', 'install', '--frozen-lockfile'], { allowFail: true });
+    if (install.code !== 0) {
+      const detail = (install.stderr || install.stdout).split(/\r?\n/)[0]?.trim();
+      installError = detail || `bun install --frozen-lockfile exited ${install.code}`;
+    }
+  }
+  if (!installError && existsSync('scripts/env-init.ts')) {
+    runCmd(['bun', 'scripts/env-init.ts'], { allowFail: true });
+  }
+  return installError;
+}
+
+function checkBaselinePreviewReady(cmd: string, bootstrapError: string): { ok: boolean; reason: string } {
   if (!cmd) return { ok: false, reason: 'no preview hook' };
+  if (bootstrapError) return { ok: false, reason: bootstrapError };
   const scriptPath = cmd.replace(/^\.\//, '').split(/\s+/)[0] ?? '';
   if (scriptPath && existsSync(scriptPath)) {
     const content = readFileSync(scriptPath, 'utf8');
@@ -178,8 +196,12 @@ function checkBaselinePreviewReady(cmd: string): { ok: boolean; reason: string }
 
 const runUx = parsed.hasUi && previewCmd.length > 0;
 const wantsCaptureBefore = runUx && hasTrackedWorkAreas(parsed.workAreas);
+const bootstrapError =
+  contractOk && unmetBlockers.length === 0 && (wantsCaptureBefore || parsed.hasUi)
+    ? bootstrapUiWorktree()
+    : '';
 const baselinePreview = wantsCaptureBefore
-  ? checkBaselinePreviewReady(previewCmd)
+  ? checkBaselinePreviewReady(previewCmd, bootstrapError)
   : { ok: false, reason: '' };
 const captureBefore = baselinePreview.ok;
 if (wantsCaptureBefore && !captureBefore) {
@@ -208,7 +230,7 @@ const branchName =
   issueNumber > 0 ? `factory/issue-${issueNumber}-${slugSource}` : `factory/${slugSource || 'task'}-${runId}`;
 
 const contractPath = join(artifactsDir, 'contract.md');
-writeFileSync(contractPath, markdown, 'utf8');
+writeFileSync(contractPath, appendMissingDocRefsNote(markdown), 'utf8');
 writeFileSync(join(artifactsDir, 'qa-testcases.md'), buildQaTestCasesMarkdown(parsed), 'utf8');
 
 if (source === 'issue' && repoInput && issueNumber > 0) {

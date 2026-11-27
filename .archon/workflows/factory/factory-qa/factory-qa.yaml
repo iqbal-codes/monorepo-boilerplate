@@ -34,6 +34,9 @@ inputs:
     description: Pull request number the round reports on.
   previous_round:
     description: Round number of the caller's previous iteration; empty on its first round.
+  fallback_previous_round:
+    default: ""
+    description: Optional fallback round number when previous_round is empty (e.g. post-escalation extra-rounds).
   fix_blocked:
     description: Whether this round's fix pass reported a blocker.
   fix_summary:
@@ -122,6 +125,7 @@ nodes:
     trigger_rule: all_done
     with:
       previous_round: "$INPUTS.previous_round"
+      fallback_previous_round: "$INPUTS.fallback_previous_round"
       contract_path: "$INPUTS.contract_path"
       repo: "$INPUTS.repo"
       issue_number: "$INPUTS.issue_number"

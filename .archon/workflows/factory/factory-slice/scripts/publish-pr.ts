@@ -71,7 +71,11 @@ const roundsReady = text(process.env.INPUTS_ROUNDS_READY) === 'true';
 const roundsReason = text(process.env.INPUTS_ROUNDS_REASON);
 const roundsSummary = text(process.env.INPUTS_ROUNDS_SUMMARY);
 const implSummary = text(process.env.INPUTS_IMPL_SUMMARY);
-const roundNum = Number.parseInt(text(process.env.INPUTS_ROUND) || '1', 10) || 1;
+const roundNum =
+  Number.parseInt(
+    text(process.env.INPUTS_ROUND) || text(process.env.INPUTS_FALLBACK_ROUND) || '1',
+    10
+  ) || 1;
 const diffStatInput = text(process.env.INPUTS_DIFF_STAT);
 const mergeMode = text(process.env.INPUTS_MERGE_MODE) || 'ask';
 const claim = parseDeliveryClaim(process.env.INPUTS_ALLOWED_FOLDERS, process.env.INPUTS_EXCLUSIVE);

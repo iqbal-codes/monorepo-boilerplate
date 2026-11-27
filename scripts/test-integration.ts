@@ -54,7 +54,11 @@ let containerId: string | undefined;
 
 try {
   let databaseUrl = process.env.CUSTOMERS_TEST_DATABASE_URL?.trim();
-  if (!databaseUrl) {
+  if (databaseUrl) {
+    if (!/^postgres(?:ql)?:\/\//.test(databaseUrl)) {
+      throw new Error("CUSTOMERS_TEST_DATABASE_URL must be a postgresql:// URL");
+    }
+  } else {
     if (!Bun.which("docker")) {
       throw new Error(
         "[test:integration] CUSTOMERS_TEST_DATABASE_URL is not set and `docker` is unavailable to boot disposable Postgres.",
@@ -124,6 +128,7 @@ try {
 
   const testCode = await runInherited(["bun", "test", ...TEST_FILES], {
     ...process.env,
+    DATABASE_URL: databaseUrl,
     CUSTOMERS_TEST_DATABASE_URL: databaseUrl,
   });
   if (testCode !== 0) {

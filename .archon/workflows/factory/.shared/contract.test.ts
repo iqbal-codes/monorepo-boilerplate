@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  appendMissingDocRefsNote,
   auditBoundaries,
   buildQaTestCasesMarkdown,
   extractNativeBlockedByNumbers,
+  findMissingLocalDocRefs,
   isRenderedUiFile,
   parseSliceContract,
   validateSliceContract,
@@ -131,5 +133,30 @@ describe('Slice contract and boundary guards', () => {
     expect(ledger).toContain('| `TC-02` |');
     expect(ledger).toContain('Existing Import CSV dialog copy');
     expect(ledger).toContain('`OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`');
+  });
+
+  test('detects missing brace-expanded local docs/... references while skipping existing ones', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-doc-refs-'));
+    try {
+      const existing = join(dir, 'docs', 'agents');
+      Bun.spawnSync(['mkdir', '-p', existing]);
+      writeFileSync(join(existing, 'browser.md'), '# ok');
+
+      const md = [
+        'See `docs/agents/browser.md` and `docs/specs/ui-boilerplate-expansion/{spec,ui-design-brief}.md`.',
+        'Ignore external https://example.com/docs/missing.md.',
+      ].join('\n');
+
+      expect(findMissingLocalDocRefs(md, dir)).toEqual([
+        'docs/specs/ui-boilerplate-expansion/spec.md',
+        'docs/specs/ui-boilerplate-expansion/ui-design-brief.md',
+      ]);
+      const annotated = appendMissingDocRefsNote(md, dir);
+      expect(annotated).toContain('## Missing Local References');
+      expect(annotated).toContain('`docs/specs/ui-boilerplate-expansion/spec.md`');
+      expect(appendMissingDocRefsNote('See `docs/agents/browser.md`.', dir)).toBe('See `docs/agents/browser.md`.');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

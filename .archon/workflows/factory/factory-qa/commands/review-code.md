@@ -15,7 +15,7 @@ Adopt a strict, non-sycophantic **independent reviewer** posture in a completely
 
 ## Fast Pre-Flight, Tool Economy & Round 2+ Delta Rule
 
-1. **Batch initial artifact reads first:** read `$ARTIFACTS_DIR/mechanical-gate.md` (already includes `diff_stat`, `Static Hygiene Signals`, and any `Delta Since Last Round`), `$INPUTS.contract_path`, `$ARTIFACTS_DIR/qa-testcases.md`, `$ARTIFACTS_DIR/implementation.md`, `$ARTIFACTS_DIR/evidence/ux-report.md` (if present), and `$ARTIFACTS_DIR/round-feedback.md` (if Round 2+).
+1. **Batch initial artifact reads first:** read `$ARTIFACTS_DIR/mechanical-gate.md` (already includes `diff_stat`, `Static Hygiene Signals`, and any `Delta Since Last Round`), `$INPUTS.contract_path` (if it ends with `## Missing Local References`, treat those paths as absent instead of scanning the repo or re-fetching issues), `$ARTIFACTS_DIR/qa-testcases.md`, `$ARTIFACTS_DIR/implementation.md`, `$ARTIFACTS_DIR/evidence/ux-report.md` (if present), and `$ARTIFACTS_DIR/round-feedback.md` (if Round 2+).
 2. **Keep tool outputs lean (prevent context bloat):**
    - Read targeted line ranges (`sed -n`, `rg -n`, or file-read slices) instead of concatenating multiple whole files into one shell command.
    - Never re-run the full verification suite that already passed in `mechanical-gate.md`; run a single focused test command only when proving a concrete defect or verifying a suspicious mock.

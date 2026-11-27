@@ -2,6 +2,8 @@
 # Starts an isolated web preview server on a free port and prints URL= and PID=
 # for UX/E2E verification. Pass --with-api (or PREVIEW_WITH_API=1) for
 # full-stack verification with apps/server and apps/web on free ports.
+# Pass --ephemeral-db (implies --with-api) to boot, push, and seed a disposable
+# postgres:18 Docker container that is automatically stopped on `kill "$PID"`.
 # Optional overrides: PREVIEW_WEB_PORT, PREVIEW_API_PORT, PREVIEW_DATABASE_URL.
 set -euo pipefail
 
@@ -10,10 +12,15 @@ WEB_DIR="$ROOT/apps/web"
 SERVER_DIR="$ROOT/apps/server"
 
 WITH_API="${PREVIEW_WITH_API:-0}"
+EPHEMERAL_DB=0
 CHECK_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --with-api) WITH_API=1 ;;
+    --ephemeral-db)
+      EPHEMERAL_DB=1
+      WITH_API=1
+      ;;
     --check) CHECK_ONLY=1 ;;
     *)
       echo "ui-preview: unknown option: $arg" >&2
@@ -100,6 +107,43 @@ if [ ! -f "$WEB_DIR/.env" ] || [ ! -f "$SERVER_DIR/.env" ]; then
 fi
 
 if [ "$WITH_API" = "1" ]; then
+  EPHEMERAL_CONTAINER=""
+  DB_URL="${PREVIEW_DATABASE_URL:-}"
+  cleanup_ephemeral_on_boot_fail() {
+    if [ -n "$EPHEMERAL_CONTAINER" ]; then
+      docker stop --time 2 "$EPHEMERAL_CONTAINER" >/dev/null 2>&1 || docker rm -f "$EPHEMERAL_CONTAINER" >/dev/null 2>&1 || true
+    fi
+  }
+  trap cleanup_ephemeral_on_boot_fail EXIT
+
+  if [ "$EPHEMERAL_DB" = "1" ]; then
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "ui-preview: docker is required for --ephemeral-db" >&2
+      exit 1
+    fi
+    DB_PASS="preview-$(date +%s)-$$"
+    EPHEMERAL_CONTAINER="$(docker run --rm -d -p 127.0.0.1::5432 -e POSTGRES_DB=preview -e POSTGRES_PASSWORD="$DB_PASS" postgres:18)"
+    DB_PORT="$(docker port "$EPHEMERAL_CONTAINER" 5432/tcp | awk -F: 'END{print $NF}')"
+    if [ -z "$DB_PORT" ]; then
+      echo "ui-preview: failed to resolve ephemeral Postgres port" >&2
+      exit 1
+    fi
+    DB_URL="postgresql://postgres:${DB_PASS}@127.0.0.1:${DB_PORT}/preview"
+    READY=0
+    for _ in $(seq 1 60); do
+      if docker exec "$EPHEMERAL_CONTAINER" pg_isready -h 127.0.0.1 -d preview >/dev/null 2>&1; then
+        READY=1
+        break
+      fi
+      sleep 0.5
+    done
+    if [ "$READY" != "1" ]; then
+      echo "ui-preview: timed out waiting for ephemeral Postgres" >&2
+      exit 1
+    fi
+    (cd "$ROOT" && DATABASE_URL="$DB_URL" bun run db:push >/dev/null && DATABASE_URL="$DB_URL" bun run db:seed >/dev/null)
+  fi
+
   API_PORT="${PREVIEW_API_PORT:-$(pick_port 4200 4299)}" || {
     echo "ui-preview: no free API port in 4200-4299" >&2
     exit 1
@@ -115,10 +159,10 @@ if [ "$WITH_API" = "1" ]; then
   WEB_LOG="${TMPDIR:-/tmp}/archon-e2e-web-$WEB_PORT.log"
   META_FILE="$(mktemp "${TMPDIR:-/tmp}/archon-e2e-meta.XXXXXX")"
 
-  # Supervise both children in one session (`PGID == SUP_PID`) so `kill "$PID"` tears down API, Web, and Vite children.
+  # Supervise both children in one session (`PGID == SUP_PID`) so `kill "$PID"` tears down API, Web, Vite children, and any ephemeral Postgres container.
   start_session bash -c '
     set -euo pipefail
-    api_dir="$1" web_dir="$2" api_port="$3" web_port="$4" api_url="$5" web_url="$6" api_log="$7" web_log="$8" meta_file="$9" db_url="${10:-}" vp_bin="${11}"
+    api_dir="$1" web_dir="$2" api_port="$3" web_port="$4" api_url="$5" web_url="$6" api_log="$7" web_log="$8" meta_file="$9" db_url="${10:-}" vp_bin="${11}" ephemeral_container="${12:-}"
 
     if [ -n "$db_url" ]; then
       (cd "$api_dir" && exec env PORT="$api_port" BETTER_AUTH_URL="$api_url" CORS_ORIGIN="$web_url" DATABASE_URL="$db_url" bun run --hot src/index.ts >"$api_log" 2>&1 < /dev/null) &
@@ -135,6 +179,9 @@ if [ "$WITH_API" = "1" ]; then
     cleanup() {
       trap "" TERM INT EXIT
       rm -f "$meta_file"
+      if [ -n "$ephemeral_container" ]; then
+        docker stop --time 2 "$ephemeral_container" >/dev/null 2>&1 || docker rm -f "$ephemeral_container" >/dev/null 2>&1 || true
+      fi
       kill -TERM -- -"$$" 2>/dev/null || true
       exit 0
     }
@@ -144,7 +191,7 @@ if [ "$WITH_API" = "1" ]; then
       sleep 1
     done
     cleanup
-  ' _ "$SERVER_DIR" "$WEB_DIR" "$API_PORT" "$WEB_PORT" "$API_URL" "$WEB_URL" "$API_LOG" "$WEB_LOG" "$META_FILE" "${PREVIEW_DATABASE_URL:-}" "$VP_BIN" >/dev/null 2>&1 < /dev/null &
+  ' _ "$SERVER_DIR" "$WEB_DIR" "$API_PORT" "$WEB_PORT" "$API_URL" "$WEB_URL" "$API_LOG" "$WEB_LOG" "$META_FILE" "$DB_URL" "$VP_BIN" "$EPHEMERAL_CONTAINER" >/dev/null 2>&1 < /dev/null &
 
   for _ in $(seq 1 40); do
     [ -s "$META_FILE" ] && break
@@ -167,6 +214,9 @@ if [ "$WITH_API" = "1" ]; then
     exit 1
   fi
 
+  # Supervisor now owns $EPHEMERAL_CONTAINER cleanup.
+  trap - EXIT
+
   E2E_EMAIL="${PREVIEW_E2E_EMAIL:-dev@example.com}"
   E2E_PASSWORD="${PREVIEW_E2E_PASSWORD:-Password123!}"
   curl -s -o /dev/null -X POST "http://127.0.0.1:$API_PORT/api/auth/sign-up/email" \
@@ -174,8 +224,8 @@ if [ "$WITH_API" = "1" ]; then
     -H "Origin: $WEB_URL" \
     -d "{\"name\":\"Dev User\",\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" || true
 
-  printf 'URL=%s\nPID=%s\nWEB_LOG=%s\nAPI_URL=%s\nAPI_PID=%s\nAPI_LOG=%s\nE2E_EMAIL=%s\nE2E_PASSWORD=%s\n' \
-    "$WEB_URL" "$SUP_PID" "$WEB_LOG" "$API_URL" "$API_PID" "$API_LOG" "$E2E_EMAIL" "$E2E_PASSWORD"
+  printf 'URL=%s\nPID=%s\nWEB_LOG=%s\nAPI_URL=%s\nAPI_PID=%s\nAPI_LOG=%s\nE2E_EMAIL=%s\nE2E_PASSWORD=%s\nEPHEMERAL_CONTAINER=%s\n' \
+    "$WEB_URL" "$SUP_PID" "$WEB_LOG" "$API_URL" "$API_PID" "$API_LOG" "$E2E_EMAIL" "$E2E_PASSWORD" "$EPHEMERAL_CONTAINER"
   exit 0
 fi
 
