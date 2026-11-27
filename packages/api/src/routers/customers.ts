@@ -78,19 +78,24 @@ function toExportBalanceMinor(balanceMinor: string): number {
   return Number(exact);
 }
 
-export const customerCreateInput = z.object({
+const customerBaseInput = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.email().max(320),
   phone: z.string().trim().max(40).optional(),
   company: z.string().trim().max(200).optional(),
-  status: z.enum(customerStatus.enumValues).default("active"),
+  status: z.enum(customerStatus.enumValues),
   balanceMinor: z.number().int().min(-MAX_BALANCE_MINOR).max(MAX_BALANCE_MINOR),
-  currency: z.string().length(3).default("USD"),
+  currency: z.string().length(3),
   notes: z.string().max(2000).optional(),
   avatarUrl: z.string().max(2048).optional(),
 });
 
-export const customerUpdateInput = customerCreateInput.partial().extend({
+export const customerCreateInput = customerBaseInput.extend({
+  status: customerBaseInput.shape.status.default("active"),
+  currency: customerBaseInput.shape.currency.default("USD"),
+});
+
+export const customerUpdateInput = customerBaseInput.partial().extend({
   id: z.string().min(1),
 });
 

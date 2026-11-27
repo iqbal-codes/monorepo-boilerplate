@@ -17,14 +17,21 @@ Use `--case focus`, `--case export-cancel`, or `--case import-response-loss` to 
 
 ## Preview & Disposable Database
 
-1. Create a disposable Postgres database on port `5432`, push the schema (`DATABASE_URL=<test-url> vp run db:push`), and seed (`DATABASE_URL=<test-url> vp run db:seed`, which writes **41** active/inactive and **12** archived customers).
-2. Boot the isolated stack on free ports without touching `.env` or running dev servers:
+1. **Recommended single-command bootstrap (zero manual `psql` or sign-up):**
+
+   ```bash
+   ./.archon/ui-preview.sh --with-api --ephemeral-db
+   ```
+
+   This starts an ephemeral `postgres:18` container, runs `db:push` + `db:seed` (writing **41** active/inactive and **12** archived customers with valid E.164 phone numbers), boots `apps/server` and `apps/web` on free ports, seeds the `E2E_EMAIL`/`E2E_PASSWORD` test account, and prints `URL=`, `PID=`, `API_URL=`, `E2E_EMAIL=`, `E2E_PASSWORD=`, and `EPHEMERAL_CONTAINER=`. Stopping the supervisor with `kill "$PID"` tears down both servers and stops the disposable Postgres container.
+
+2. **Caller-managed database override:** create/push/seed your own database, then pass `PREVIEW_DATABASE_URL`:
 
    ```bash
    PREVIEW_DATABASE_URL="<test-url>" ./.archon/ui-preview.sh --with-api
    ```
 
-3. Parse `URL=`, `PID=`, `E2E_EMAIL=`, and `E2E_PASSWORD=`. Stop both API and Web servers cleanly in a `trap`/`finally` block with `kill "$PID"`, then drop the disposable database.
+   Always stop the preview cleanly in a `trap`/`finally` block with `kill "$PID"`.
 
 ## UI & Selector Conventions
 

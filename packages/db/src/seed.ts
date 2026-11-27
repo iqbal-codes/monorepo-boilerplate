@@ -77,7 +77,7 @@ function noise(index: number, salt: number): number {
   return value - Math.floor(value);
 }
 
-function buildCustomer(index: number) {
+export function buildCustomer(index: number) {
   const first = FIRST_NAMES[index % FIRST_NAMES.length]!;
   const last = LAST_NAMES[Math.floor(index / FIRST_NAMES.length) % LAST_NAMES.length]!;
   const name = `${first} ${last}`;
@@ -88,9 +88,7 @@ function buildCustomer(index: number) {
     id: `seed-customer-${String(index + 1).padStart(3, "0")}`,
     name,
     email: `${first}.${last}.${index + 1}@example.com`.toLowerCase().replace(/[^a-z0-9.@]/g, ""),
-    phone: `+1 (555) ${String(100 + (index % 900)).padStart(3, "0")}-${String(
-      1000 + Math.floor(noise(index, 3) * 9000),
-    ).padStart(4, "0")}`,
+    phone: `+141555501${String(index).padStart(2, "0")}`,
     company: COMPANIES[index % COMPANIES.length]!,
     status,
     balanceMinor,
@@ -103,7 +101,7 @@ function buildCustomer(index: number) {
   };
 }
 
-const SEED_COUNT = 53;
+export const SEED_COUNT = 53;
 
 async function main() {
   const db = createDb({ DATABASE_URL: process.env.DATABASE_URL ?? "" });
@@ -131,4 +129,6 @@ async function main() {
   await db.$client.end();
 }
 
-await main();
+if (import.meta.main) {
+  await main();
+}

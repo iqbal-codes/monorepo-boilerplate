@@ -322,6 +322,48 @@ describe('round-verdict sequential UX and consolidated review verdict', () => {
     }
   });
 
+  test('includes PASSed TC-R1-* invariants under Prior Verified Clean and honors fallback_previous_round', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-invariants-'));
+    try {
+      mkdirSync(join(dir, 'review'), { recursive: true });
+      writeFileSync(
+        join(dir, 'qa-testcases.md'),
+        [
+          '# QA Test-Case Ledger',
+          '',
+          '- **Freeze State:** `FROZEN`',
+          '',
+          '## Contract Test Cases (Baseline)',
+          '| ID | Case / Expected Outcome | Status | Notes |',
+          '| :--- | :--- | :--- | :--- |',
+          '| `TC-01` | Core flow | `PASS` | Round 1 |',
+          '',
+          '## Round 1 Exploratory Cases (Frozen After Round 1)',
+          '| ID | Case / Expected Outcome | Status | Notes |',
+          '| :--- | :--- | :--- | :--- |',
+          '| `TC-R1-SEAM-01` | [Round 1 Exploratory] Implicit restore on avatar clear. | `PASS` | Avatar clear preserves archived EUR |',
+          '| `TC-R1-CODE-04` | [Round 1 Exploratory] Blank profile fields omitted. | `FAIL` | Round 1 |',
+        ].join('\n')
+      );
+      writeFileSync(join(dir, 'review', 'code.md'), '- [P1] CODE-04 still writes blank company');
+
+      const { output, feedbackMd } = runVerdict(dir, {
+        INPUTS_PREVIOUS_ROUND: '',
+        INPUTS_FALLBACK_PREVIOUS_ROUND: '3',
+        INPUTS_RUN_UX: 'false',
+        INPUTS_CODE_LGTM: 'false',
+        INPUTS_CODE_SUMMARY: 'CODE-04 open',
+      });
+
+      expect(output.round).toBe(4);
+      expect(feedbackMd).toContain('### Prior Verified Clean (Re-audit Only If Touched by Delta)');
+      expect(feedbackMd).toContain('`TC-R1-SEAM-01` (invariant): Implicit restore on avatar clear. (Avatar clear preserves archived EUR)');
+      expect(feedbackMd).not.toContain('`TC-R1-CODE-04` (invariant)');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('keeps qa-testcases.md OPEN and omits PENDING P1 handoff spam when mechanical gate fails in Round 1', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-mech-fail-'));
     try {
