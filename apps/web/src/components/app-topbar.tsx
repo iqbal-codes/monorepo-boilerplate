@@ -1,6 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { MoonIcon, SearchIcon, SunIcon } from "lucide-react";
-import { useTheme } from "next-themes";
 
 import {
   Breadcrumb,
@@ -16,6 +15,7 @@ import { SidebarTrigger } from "@monorepo-boilerplate/ui/components/sidebar";
 
 import { usePageTitleOverride } from "@/components/page-title";
 import { activeMainItem } from "@/lib/nav";
+import { useThemeToggle } from "@/lib/use-theme-toggle";
 
 /**
  * Top bar from shadcn's `sidebar-07`: sidebar trigger, vertical separator, then
@@ -30,7 +30,7 @@ import { activeMainItem } from "@/lib/nav";
  * Command Center trigger; above `md` the trigger lives in the sidebar header.
  */
 export function AppTopbar({ onOpenCommandCenter }: { onOpenCommandCenter: () => void }) {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { toggleTheme } = useThemeToggle();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const pageTitle = useRouterState({
     select: (state) => {
@@ -86,12 +86,7 @@ export function AppTopbar({ onOpenCommandCenter }: { onOpenCommandCenter: () => 
         >
           <SearchIcon aria-hidden />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Toggle theme"
-          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-        >
+        <Button variant="ghost" size="icon-sm" aria-label="Toggle theme" onClick={toggleTheme}>
           <SunIcon className="dark:hidden" aria-hidden />
           <MoonIcon className="hidden dark:block" aria-hidden />
         </Button>
