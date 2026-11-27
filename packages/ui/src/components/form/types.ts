@@ -21,7 +21,7 @@ export type BaseFieldProps = {
   required?: boolean;
   disabled?: boolean;
   orientation?: FieldOrientation;
-  /** Controls when validation errors become visible. Defaults to `"auto"` (touched or submitted). */
+  /** Controls when validation errors become visible. Defaults to `"auto"` (blurred or submitted). */
   showError?: ShowErrorMode;
   className?: string;
   id?: string;

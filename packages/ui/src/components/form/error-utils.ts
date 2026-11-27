@@ -41,16 +41,19 @@ export function extractErrorMessages(errors: ReadonlyArray<unknown>): string[] {
 /**
  * Decides whether a Field Block should visually & programmatically expose its
  * validation errors. Defaults to `"auto"`: only after the field has been
- * touched or the form has been submitted at least once.
+ * blurred or the form has been submitted at least once.
+ *
+ * Deliberately not gated on `isTouched`: TanStack Form marks a field touched
+ * on every value change, which would flash errors mid-typing.
  */
 export function shouldShowFieldError({
   errors,
-  isTouched,
+  isBlurred,
   submissionAttempts,
   showError = "auto",
 }: {
   errors: ReadonlyArray<unknown>;
-  isTouched: boolean;
+  isBlurred: boolean;
   submissionAttempts: number;
   showError?: ShowErrorMode;
 }): boolean {
@@ -58,5 +61,5 @@ export function shouldShowFieldError({
   const messages = extractErrorMessages(errors);
   if (messages.length === 0) return false;
   if (showError === "always") return true;
-  return isTouched || submissionAttempts > 0;
+  return isBlurred || submissionAttempts > 0;
 }

@@ -121,7 +121,7 @@ export function PhoneField({
       ids={ids}
     >
       <InputGroup data-disabled={disabled || undefined}>
-        <InputGroupAddon align="inline-start" className="pe-1">
+        <InputGroupAddon align="inline-start" className="pe-0">
           <Popover
             open={open}
             onOpenChange={(nextOpen) => {
@@ -137,7 +137,7 @@ export function PhoneField({
                   variant="ghost"
                   disabled={disabled || readOnly}
                   aria-label={`Country code: ${activeCountry?.name ?? selectedCountry} (+${activeCountry?.dialCode ?? ""})`}
-                  className="h-8 gap-1 px-1.5 font-normal text-foreground"
+                  className="h-8 gap-1 ps-1.5 pe-1 font-normal text-foreground"
                 />
               }
             >
@@ -223,6 +223,7 @@ export function PhoneField({
           disabled={disabled}
           readOnly={readOnly}
           required={required}
+          className="group-has-[>[data-align=inline-start]]/input-group:pl-1!"
           aria-invalid={invalid}
           aria-describedby={buildDescribedBy({
             hasDescription: Boolean(description),
