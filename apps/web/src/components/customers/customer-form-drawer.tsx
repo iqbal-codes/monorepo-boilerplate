@@ -67,15 +67,17 @@ function buildCustomerEditPatch(value: CustomerFormValues, snapshot: CustomerFor
   return {
     ...(value.name !== snapshot.name ? { name: value.name } : {}),
     ...(value.email !== snapshot.email ? { email: value.email } : {}),
-    ...(value.phone !== snapshot.phone ? { phone: value.phone } : {}),
-    ...(value.company !== snapshot.company ? { company: value.company } : {}),
+    ...(value.phone.trim() && value.phone !== snapshot.phone ? { phone: value.phone } : {}),
+    ...(value.company.trim() && value.company !== snapshot.company
+      ? { company: value.company }
+      : {}),
     ...(value.status !== snapshot.status ? { status: value.status } : {}),
     ...((value.balanceMinor ?? 0) !== (snapshot.balanceMinor ?? 0)
       ? { balanceMinor: value.balanceMinor ?? 0 }
       : {}),
     ...(value.currency !== snapshot.currency ? { currency: value.currency } : {}),
     ...(!arraysEqual(value.tags, snapshot.tags) ? { tags: value.tags } : {}),
-    ...(value.notes !== snapshot.notes ? { notes: value.notes } : {}),
+    ...(value.notes.trim() && value.notes !== snapshot.notes ? { notes: value.notes } : {}),
     ...(value.avatarUrl !== snapshot.avatarUrl
       ? { avatarUrl: value.avatarUrl ? value.avatarUrl : null }
       : {}),

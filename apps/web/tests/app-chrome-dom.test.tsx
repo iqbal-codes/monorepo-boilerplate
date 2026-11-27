@@ -255,8 +255,12 @@ async function renderWithQuery(node: React.ReactNode, queryClient?: QueryClient)
   };
 }
 
-function setInputValue(input: HTMLInputElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value")?.set;
+function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const proto =
+    input instanceof win.HTMLTextAreaElement
+      ? win.HTMLTextAreaElement.prototype
+      : win.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
   setter?.call(input, value);
   input.dispatchEvent(new win.Event("input", { bubbles: true }));
   input.dispatchEvent(new win.Event("change", { bubbles: true }));
@@ -1126,6 +1130,86 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
         {
           id: "cust-edit",
           company: "Lovelace Labs",
+        },
+      ]);
+      expect(openState).toBe(false);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("CODE-04: omits blank phone, company, and notes keys from edit patch when saving a tag", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const customerRecord = {
+      id: "cust-edit",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "+14155550101",
+      company: "Analytical Engines",
+      status: "active",
+      balanceMinor: 5000,
+      currency: "USD",
+      avatarUrl: "/uploads/ada.png",
+      tags: ["vip"],
+      notes: "Original note",
+    };
+    queryClient.setQueryData(["customers", "byId", "cust-edit"], customerRecord);
+    queryClient.setQueryData(["customers", "tags"], ["vip", "renewal"]);
+    customerByIdImpl = async () => customerRecord;
+
+    const updatedPayloads: Array<Record<string, unknown>> = [];
+    updateCustomerImpl = async (input) => {
+      updatedPayloads.push(input as Record<string, unknown>);
+      return { id: "cust-edit" };
+    };
+
+    let openState = true;
+    const view = await renderWithQuery(
+      <CustomerFormDrawer
+        open
+        onOpenChange={(next) => {
+          openState = next;
+        }}
+        customerId="cust-edit"
+      />,
+      queryClient,
+    );
+
+    try {
+      const phoneInput = document.body.querySelector<HTMLInputElement>('input[type="tel"]');
+      const companyInput = document.body.querySelector<HTMLInputElement>('input[name="company"]');
+      const notesInput = document.body.querySelector<HTMLTextAreaElement>('textarea[name="notes"]');
+      const tagInput = document.body.querySelector<HTMLInputElement>(
+        '[data-slot="tag-input"] input',
+      );
+      expect(phoneInput?.value).toBe("4155550101");
+      expect(companyInput?.value).toBe("Analytical Engines");
+      expect(notesInput?.value).toBe("Original note");
+
+      await act(async () => {
+        if (phoneInput) setInputValue(phoneInput, "");
+        if (companyInput) setInputValue(companyInput, "");
+        if (notesInput) setInputValue(notesInput, "");
+        if (tagInput) {
+          setInputValue(tagInput, "renewal");
+          tagInput.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        }
+      });
+
+      const formEl = document.body.querySelector<HTMLFormElement>("form");
+      await act(async () => {
+        formEl?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      expect(updatedPayloads).toEqual([
+        {
+          id: "cust-edit",
+          tags: ["vip", "renewal"],
         },
       ]);
       expect(openState).toBe(false);
