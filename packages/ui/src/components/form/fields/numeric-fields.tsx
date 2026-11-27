@@ -1,10 +1,12 @@
 import * as React from "react";
 import { cn } from "cn";
+import { XIcon } from "lucide-react";
 
 import { Input } from "@monorepo-boilerplate/ui/components/input";
 import {
   InputGroup,
   InputGroupAddon,
+  InputGroupButton,
   InputGroupInput,
   InputGroupText,
 } from "@monorepo-boilerplate/ui/components/input-group";
@@ -18,7 +20,7 @@ import {
 
 import { buildDescribedBy, FieldFrame, useFieldFeedback, useFieldIds } from "../field-frame";
 import { useFieldContext } from "../form-context";
-import type { BaseFieldProps } from "../types";
+import type { BaseFieldProps, ClearableFieldProps } from "../types";
 
 type CaretAnchor = { digits: number; atEnd: boolean };
 
@@ -90,23 +92,28 @@ function useFormattedNumberInput({
     setDraft(null);
   }
 
-  return { inputRef, displayed, handleChange, handleBlur };
+  function clearDraft() {
+    setDraft(null);
+  }
+
+  return { inputRef, displayed, handleChange, handleBlur, clearDraft };
 }
 
-export type NumberFieldProps = BaseFieldProps & {
-  min?: number;
-  max?: number;
-  step?: number;
-  placeholder?: string;
-  readOnly?: boolean;
-  /** Leading text or icon inside an InputGroup. */
-  startAddon?: React.ReactNode;
-  /** Trailing text or unit (e.g. "kg", "pcs") inside an InputGroup. */
-  endAddon?: React.ReactNode;
-  /** Alias for `endAddon` when displaying a measurement unit. */
-  unit?: React.ReactNode;
-  inputClassName?: string;
-};
+export type NumberFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    min?: number;
+    max?: number;
+    step?: number;
+    placeholder?: string;
+    readOnly?: boolean;
+    /** Leading text or icon inside an InputGroup. */
+    startAddon?: React.ReactNode;
+    /** Trailing text or unit (e.g. "kg", "pcs") inside an InputGroup. */
+    endAddon?: React.ReactNode;
+    /** Alias for `endAddon` when displaying a measurement unit. */
+    unit?: React.ReactNode;
+    inputClassName?: string;
+  };
 
 /**
  * Numeric Field Block. Form state holds `number | undefined`: clearing the
@@ -130,15 +137,16 @@ export function NumberField({
   startAddon,
   endAddon,
   unit,
+  clearable = false,
+  clearLabel,
   inputClassName,
 }: NumberFieldProps) {
   const field = useFieldContext<number | undefined>();
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
   const trailing = endAddon ?? unit;
-  const hasAddons = Boolean(startAddon || trailing);
 
-  const { inputRef, displayed, handleChange, handleBlur } = useFormattedNumberInput({
+  const { inputRef, displayed, handleChange, handleBlur, clearDraft } = useFormattedNumberInput({
     value: field.state.value,
     formatValue: (next) => formatNumberInput(String(next)),
     onRawChange: (raw) => {
@@ -152,6 +160,15 @@ export function NumberField({
       }
     },
   });
+
+  const showClear = Boolean(
+    clearable &&
+    (field.state.value !== undefined || displayed.length > 0) &&
+    !disabled &&
+    !readOnly,
+  );
+  const hasAddons = Boolean(startAddon || trailing || showClear);
+  const resolvedClearLabel = clearLabel ?? `Clear ${typeof label === "string" ? label : "number"}`;
 
   const sharedInputProps = {
     ref: inputRef,
@@ -201,9 +218,25 @@ export function NumberField({
             </InputGroupAddon>
           ) : null}
           <InputGroupInput {...sharedInputProps} className={cn("tabular-nums", inputClassName)} />
-          {trailing ? (
+          {trailing || showClear ? (
             <InputGroupAddon align="inline-end">
-              <InputGroupText className="text-xs">{trailing}</InputGroupText>
+              {showClear ? (
+                <InputGroupButton
+                  type="button"
+                  size="icon-xs"
+                  data-slot="field-clear"
+                  aria-label={resolvedClearLabel}
+                  onClick={() => {
+                    clearDraft();
+                    field.handleChange(undefined);
+                    field.handleBlur();
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <XIcon aria-hidden />
+                </InputGroupButton>
+              ) : null}
+              {trailing ? <InputGroupText className="text-xs">{trailing}</InputGroupText> : null}
             </InputGroupAddon>
           ) : null}
         </InputGroup>
@@ -214,13 +247,14 @@ export function NumberField({
   );
 }
 
-export type CurrencyFieldProps = BaseFieldProps & {
-  /** ISO 4217 currency code, e.g. `"USD"`, `"IDR"`. */
-  currency: string;
-  placeholder?: string;
-  readOnly?: boolean;
-  inputClassName?: string;
-};
+export type CurrencyFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    /** ISO 4217 currency code, e.g. `"USD"`, `"IDR"`. */
+    currency: string;
+    placeholder?: string;
+    readOnly?: boolean;
+    inputClassName?: string;
+  };
 
 /**
  * Money Field Block. Form state holds `number | undefined` in integer Currency
@@ -240,13 +274,15 @@ export function CurrencyField({
   currency,
   placeholder = "0.00",
   readOnly,
+  clearable = false,
+  clearLabel,
   inputClassName,
 }: CurrencyFieldProps) {
   const field = useFieldContext<number | undefined>();
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
 
-  const { inputRef, displayed, handleChange, handleBlur } = useFormattedNumberInput({
+  const { inputRef, displayed, handleChange, handleBlur, clearDraft } = useFormattedNumberInput({
     value: field.state.value,
     formatValue: (minor) => formatMoney({ minor, currency }, { withSymbol: false }),
     onRawChange: (raw) => {
@@ -260,6 +296,14 @@ export function CurrencyField({
       }
     },
   });
+
+  const showClear = Boolean(
+    clearable &&
+    (field.state.value !== undefined || displayed.length > 0) &&
+    !disabled &&
+    !readOnly,
+  );
+  const resolvedClearLabel = clearLabel ?? `Clear ${typeof label === "string" ? label : "amount"}`;
 
   return (
     <FieldFrame
@@ -301,6 +345,24 @@ export function CurrencyField({
           }}
           onChange={handleChange}
         />
+        {showClear ? (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              type="button"
+              size="icon-xs"
+              data-slot="field-clear"
+              aria-label={resolvedClearLabel}
+              onClick={() => {
+                clearDraft();
+                field.handleChange(undefined);
+                field.handleBlur();
+                inputRef.current?.focus();
+              }}
+            >
+              <XIcon aria-hidden />
+            </InputGroupButton>
+          </InputGroupAddon>
+        ) : null}
       </InputGroup>
     </FieldFrame>
   );

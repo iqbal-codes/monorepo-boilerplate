@@ -100,6 +100,16 @@ export function useListSearchParams<TSortKey extends string>({
     [setState],
   );
 
+  const clearFilters = useCallback(() => {
+    clearTimeout(timer.current);
+    setSearchInput("");
+    void setState({
+      page: 0,
+      q: "",
+      status: "all",
+    });
+  }, [setState]);
+
   const reset = useCallback(() => {
     clearTimeout(timer.current);
     setSearchInput("");
@@ -124,6 +134,7 @@ export function useListSearchParams<TSortKey extends string>({
     setPagination,
     sorting,
     setSorting,
+    clearFilters,
     reset,
   };
 }

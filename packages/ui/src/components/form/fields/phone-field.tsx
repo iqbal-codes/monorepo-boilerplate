@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "cn";
-import { CheckIcon, ChevronsUpDownIcon, SearchIcon } from "lucide-react";
+import { CheckIcon, ChevronsUpDownIcon, SearchIcon, XIcon } from "lucide-react";
 
 import {
   InputGroup,
@@ -23,15 +23,16 @@ import {
 
 import { buildDescribedBy, FieldFrame, useFieldFeedback, useFieldIds } from "../field-frame";
 import { useFieldContext } from "../form-context";
-import type { BaseFieldProps } from "../types";
+import type { BaseFieldProps, ClearableFieldProps } from "../types";
 
-export type PhoneFieldProps = BaseFieldProps & {
-  /** Default ISO-3166 alpha-2 country code when the value is empty. Defaults to `"US"`. */
-  defaultCountry?: CountryCode;
-  placeholder?: string;
-  autoComplete?: string;
-  readOnly?: boolean;
-};
+export type PhoneFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    /** Default ISO-3166 alpha-2 country code when the value is empty. Defaults to `"US"`. */
+    defaultCountry?: CountryCode;
+    placeholder?: string;
+    autoComplete?: string;
+    readOnly?: boolean;
+  };
 
 /**
  * Country-code Phone Field Block. Renders a searchable country calling-code
@@ -52,10 +53,13 @@ export function PhoneField({
   placeholder = "812 3456 7890",
   autoComplete = "tel",
   readOnly,
+  clearable = false,
+  clearLabel,
 }: PhoneFieldProps) {
   const field = useFieldContext<string | undefined>();
   const ids = useFieldIds(field.name, id);
   const { messages, invalid } = useFieldFeedback(showError);
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
   const countries = React.useMemo(() => getPhoneCountries(), []);
   const parsed = React.useMemo(
@@ -68,6 +72,8 @@ export function PhoneField({
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const lastEmittedRef = React.useRef<string | undefined>(field.state.value);
+  const showClear = Boolean(clearable && nationalDraft.length > 0 && !disabled && !readOnly);
+  const resolvedClearLabel = clearLabel ?? `Clear ${typeof label === "string" ? label : "phone"}`;
 
   // Sync external updates (e.g. form.reset or async record load).
   React.useEffect(() => {
@@ -204,6 +210,7 @@ export function PhoneField({
         </InputGroupAddon>
 
         <InputGroupInput
+          ref={inputRef}
           id={ids.fieldId}
           name={field.name}
           type="tel"
@@ -233,6 +240,25 @@ export function PhoneField({
             commitValue(selectedCountry, raw);
           }}
         />
+        {showClear ? (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              type="button"
+              size="icon-xs"
+              data-slot="field-clear"
+              aria-label={resolvedClearLabel}
+              onClick={() => {
+                setNationalDraft("");
+                lastEmittedRef.current = "";
+                field.handleChange("");
+                field.handleBlur();
+                inputRef.current?.focus();
+              }}
+            >
+              <XIcon aria-hidden />
+            </InputGroupButton>
+          </InputGroupAddon>
+        ) : null}
       </InputGroup>
     </FieldFrame>
   );

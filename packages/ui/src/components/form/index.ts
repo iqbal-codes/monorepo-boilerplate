@@ -88,4 +88,10 @@ export {
   parseIsoDateTime,
   toIsoDate,
 } from "./date-utils";
-export type { BaseFieldProps, DateRangeValue, FieldOption, FieldOrientation } from "./types";
+export type {
+  BaseFieldProps,
+  ClearableFieldProps,
+  DateRangeValue,
+  FieldOption,
+  FieldOrientation,
+} from "./types";

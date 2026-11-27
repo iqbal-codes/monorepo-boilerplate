@@ -43,7 +43,12 @@ import {
   useFieldIds,
 } from "../field-frame";
 import { useFieldContext } from "../form-context";
-import { optionLabelText, type BaseFieldProps, type FieldOption } from "../types";
+import {
+  optionLabelText,
+  type BaseFieldProps,
+  type ClearableFieldProps,
+  type FieldOption,
+} from "../types";
 
 function groupOptions(options: ReadonlyArray<FieldOption>) {
   const ungrouped: FieldOption[] = [];
@@ -60,13 +65,13 @@ function groupOptions(options: ReadonlyArray<FieldOption>) {
   return { ungrouped, groups };
 }
 
-export type SelectFieldProps = BaseFieldProps & {
-  options: ReadonlyArray<FieldOption>;
-  placeholder?: string;
-  size?: "sm" | "default";
-  clearable?: boolean;
-  triggerClassName?: string;
-};
+export type SelectFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    options: ReadonlyArray<FieldOption>;
+    placeholder?: string;
+    size?: "sm" | "default";
+    triggerClassName?: string;
+  };
 
 export function SelectField({
   label,
@@ -82,6 +87,7 @@ export function SelectField({
   placeholder = "Select an option",
   size = "default",
   clearable = false,
+  clearLabel,
   triggerClassName,
 }: SelectFieldProps) {
   const field = useFieldContext<string | undefined>();
@@ -90,6 +96,8 @@ export function SelectField({
 
   const value = field.state.value ? field.state.value : null;
   const showClear = clearable && value !== null && !disabled;
+  const resolvedClearLabel =
+    clearLabel ?? `Clear ${typeof label === "string" ? label : "selection"}`;
   const items = React.useMemo(
     () => [
       { value: null, label: placeholder },
@@ -112,81 +120,70 @@ export function SelectField({
       className={className}
       ids={ids}
     >
-      <div className="relative flex w-full items-center">
-        <Select
-          items={items}
-          value={value}
-          disabled={disabled}
-          required={required}
-          name={field.name}
-          onValueChange={(next) => {
-            field.handleChange(next === null ? undefined : String(next));
+      <Select
+        items={items}
+        value={value}
+        disabled={disabled}
+        required={required}
+        name={field.name}
+        onValueChange={(next) => {
+          field.handleChange(next === null ? undefined : String(next));
+        }}
+      >
+        <SelectTrigger
+          id={ids.fieldId}
+          size={size}
+          showClear={showClear}
+          clearLabel={resolvedClearLabel}
+          onClear={() => {
+            field.handleChange(undefined);
+            field.handleBlur();
           }}
+          aria-invalid={invalid}
+          aria-describedby={buildDescribedBy({
+            hasDescription: Boolean(description),
+            invalid,
+            ids,
+          })}
+          onBlur={field.handleBlur}
+          className={cn("w-full", triggerClassName)}
         >
-          <SelectTrigger
-            id={ids.fieldId}
-            size={size}
-            aria-invalid={invalid}
-            aria-describedby={buildDescribedBy({
-              hasDescription: Boolean(description),
-              invalid,
-              ids,
-            })}
-            onBlur={field.handleBlur}
-            className={cn("w-full", showClear && "pr-8", triggerClassName)}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent alignItemWithTrigger={false}>
-            {ungrouped.length > 0 ? (
-              <SelectGroup>
-                {ungrouped.map((option) => (
-                  <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ) : null}
-            {[...groups.entries()].map(([groupName, groupItems]) => (
-              <SelectGroup key={groupName}>
-                <SelectLabel>{groupName}</SelectLabel>
-                {groupItems.map((option) => (
-                  <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
-          </SelectContent>
-        </Select>
-        {showClear ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="absolute end-0 inset-y-0 my-auto"
-            aria-label={`Clear ${typeof label === "string" ? label : "selection"}`}
-            onClick={() => {
-              field.handleChange(undefined);
-              field.handleBlur();
-            }}
-          >
-            <XIcon />
-          </Button>
-        ) : null}
-      </div>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          {ungrouped.length > 0 ? (
+            <SelectGroup>
+              {ungrouped.map((option) => (
+                <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ) : null}
+          {[...groups.entries()].map(([groupName, groupItems]) => (
+            <SelectGroup key={groupName}>
+              <SelectLabel>{groupName}</SelectLabel>
+              {groupItems.map((option) => (
+                <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
     </FieldFrame>
   );
 }
 
-export type ComboboxFieldProps = BaseFieldProps & {
-  options: ReadonlyArray<FieldOption>;
-  placeholder?: string;
-  emptyText?: React.ReactNode;
-  multiple?: boolean;
-  clearable?: boolean;
-  renderOption?: (option: FieldOption) => React.ReactNode;
-};
+export type ComboboxFieldProps = BaseFieldProps &
+  ClearableFieldProps & {
+    options: ReadonlyArray<FieldOption>;
+    placeholder?: string;
+    emptyText?: React.ReactNode;
+    multiple?: boolean;
+    renderOption?: (option: FieldOption) => React.ReactNode;
+  };
 
 export function ComboboxField({
   label,
@@ -203,6 +200,7 @@ export function ComboboxField({
   emptyText = "No results found.",
   multiple = false,
   clearable = true,
+  clearLabel,
   renderOption,
 }: ComboboxFieldProps) {
   const field = useFieldContext<string | string[] | undefined>();
@@ -276,6 +274,23 @@ export function ComboboxField({
                     aria-describedby={describedBy}
                     onBlur={field.handleBlur}
                   />
+                  {clearable && values.length > 0 && !disabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="ms-auto text-muted-foreground hover:text-foreground"
+                      aria-label={
+                        clearLabel ?? `Clear ${typeof label === "string" ? label : "selection"}`
+                      }
+                      onClick={() => {
+                        field.handleChange([]);
+                        field.handleBlur();
+                      }}
+                    >
+                      <XIcon aria-hidden />
+                    </Button>
+                  ) : null}
                 </>
               )}
             </ComboboxValue>
@@ -337,6 +352,7 @@ export function ComboboxField({
           placeholder={placeholder}
           disabled={disabled}
           showClear={clearable && singleValue !== null && !disabled}
+          clearLabel={clearLabel}
           aria-invalid={invalid}
           aria-describedby={describedBy}
           onBlur={field.handleBlur}

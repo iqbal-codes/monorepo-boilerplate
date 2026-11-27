@@ -286,6 +286,8 @@ const PRIORITY_ITEMS = [
   { label: "Normal", value: "normal" },
 ];
 
+const PRIORITY_FILTER_ITEMS = PRIORITY_ITEMS.filter((item) => item.value !== "all");
+
 const STAGE_SELECT_ITEMS = DEAL_COLUMNS.map((col) => ({ label: col.title, value: col.id }));
 const TASK_STATUS_SELECT_ITEMS = TASK_COLUMNS.map((col) => ({ label: col.title, value: col.id }));
 
@@ -738,24 +740,32 @@ function KanbanDemo() {
               onChange: setTaskSearch,
             }}
             resultLabel={`${formatNumber(filteredTasks.length)} of ${formatNumber(tasks.length)} tasks`}
+            hasActiveFilters={Boolean(taskSearch) || taskPriority !== "all"}
+            onClearFilters={() => {
+              setTaskSearch("");
+              setTaskPriority("all");
+            }}
             filters={
               <Select
-                items={PRIORITY_ITEMS}
-                value={taskPriority}
+                items={PRIORITY_FILTER_ITEMS}
+                value={taskPriority === "all" ? null : taskPriority}
                 onValueChange={(value) => {
-                  if (value !== null) setTaskPriority(value);
+                  setTaskPriority(value ?? "all");
                 }}
               >
                 <SelectTrigger
                   size="sm"
                   className="w-40 border border-input px-3"
                   aria-label="Filter by priority"
+                  showClear={taskPriority !== "all"}
+                  onClear={() => setTaskPriority("all")}
+                  clearLabel="Clear priority filter"
                 >
-                  <SelectValue />
+                  <SelectValue placeholder="All priorities" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {PRIORITY_ITEMS.map((item) => (
+                    {PRIORITY_FILTER_ITEMS.map((item) => (
                       <SelectItem key={item.value} value={item.value}>
                         {item.label}
                       </SelectItem>

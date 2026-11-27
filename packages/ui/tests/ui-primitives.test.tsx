@@ -4,9 +4,25 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Button } from "../src/components/button";
 import { Combobox, ComboboxInput } from "../src/components/combobox";
 import { columnsFor, DataTable } from "../src/components/data-table";
+import {
+  CurrencyField,
+  fieldContext,
+  NumberField,
+  PhoneField,
+  SelectField,
+  TextareaField,
+  TextField,
+} from "../src/components/form";
 import { ImportBlock } from "../src/components/import-block";
 import { ListToolbar } from "../src/components/list-toolbar";
 import { PageHeader } from "../src/components/page-header";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../src/components/select";
 import { Slider } from "../src/components/slider";
 
 describe("Slider", () => {
@@ -157,5 +173,158 @@ describe("Responsive UI blocks", () => {
     expect(html).toContain("focus-visible:outline-2");
     expect(html).toContain("focus-visible:outline-solid");
     expect(html).not.toContain("ring-ring/30");
+  });
+});
+
+describe("Clearable Select and ListToolbar filters", () => {
+  test("Select shows placeholder when null and renders clear button when showClear is enabled", () => {
+    const items = [
+      { value: "active", label: "Active" },
+      { value: "inactive", label: "Inactive" },
+    ];
+
+    const emptyHtml = renderToStaticMarkup(
+      <Select items={items} value={null}>
+        <SelectTrigger aria-label="Filter by status" showClear={false} onClear={() => {}}>
+          <SelectValue placeholder="All Status" />
+        </SelectTrigger>
+        <SelectContent>
+          {items.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>,
+    );
+
+    expect(emptyHtml).toContain("All Status");
+    expect(emptyHtml).toContain("data-placeholder");
+    expect(emptyHtml).not.toContain('data-slot="select-clear"');
+
+    const selectedHtml = renderToStaticMarkup(
+      <Select items={items} value="active">
+        <SelectTrigger
+          aria-label="Filter by status"
+          showClear
+          clearLabel="Clear status filter"
+          onClear={() => {}}
+        >
+          <SelectValue placeholder="All Status" />
+        </SelectTrigger>
+        <SelectContent>
+          {items.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>,
+    );
+
+    expect(selectedHtml).toContain("Active");
+    expect(selectedHtml).toContain('data-slot="select-clear"');
+    expect(selectedHtml).toContain('aria-label="Clear status filter"');
+  });
+
+  test("ListToolbar renders search clear and Clear filters buttons only when active", () => {
+    const inactiveHtml = renderToStaticMarkup(
+      <ListToolbar
+        search={{ label: "Search customers", value: "", onChange: () => {} }}
+        hasActiveFilters={false}
+        onClearFilters={() => {}}
+      />,
+    );
+
+    expect(inactiveHtml).not.toContain('data-slot="list-toolbar-search-clear"');
+    expect(inactiveHtml).not.toContain('data-slot="list-toolbar-clear-filters"');
+
+    const activeHtml = renderToStaticMarkup(
+      <ListToolbar
+        search={{ label: "Search customers", value: "ada", onChange: () => {} }}
+        hasActiveFilters
+        onClearFilters={() => {}}
+      />,
+    );
+
+    expect(activeHtml).toContain('data-slot="list-toolbar-search-clear"');
+    expect(activeHtml).toContain('aria-label="Clear Search customers"');
+    expect(activeHtml).toContain('data-slot="list-toolbar-clear-filters"');
+    expect(activeHtml).toContain("Clear filters");
+  });
+});
+
+describe("Form field primitives clearable support", () => {
+  test("renders clear buttons across clearable TextField, TextareaField, NumberField, CurrencyField, PhoneField, and SelectField", () => {
+    const form = new FormApi({
+      defaultValues: {
+        search: "acme",
+        notes: "VIP account",
+        qty: 42,
+        balance: 12500,
+        phone: "+14155552671",
+        status: "active",
+      },
+    });
+    const unmountForm = form.mount();
+
+    const searchField = new FieldApi({ form, name: "search" });
+    const notesField = new FieldApi({ form, name: "notes" });
+    const qtyField = new FieldApi({ form, name: "qty" });
+    const balanceField = new FieldApi({ form, name: "balance" });
+    const phoneField = new FieldApi({ form, name: "phone" });
+    const statusField = new FieldApi({ form, name: "status" });
+
+    const unmounts = [
+      searchField.mount(),
+      notesField.mount(),
+      qtyField.mount(),
+      balanceField.mount(),
+      phoneField.mount(),
+      statusField.mount(),
+    ];
+
+    try {
+      const renderWithField = (fieldApi: unknown, node: React.ReactNode) =>
+        renderToStaticMarkup(
+          <fieldContext.Provider value={fieldApi as never}>{node}</fieldContext.Provider>,
+        );
+
+      const textHtml = renderWithField(
+        searchField,
+        <TextField label="Search" type="search" clearable />,
+      );
+      expect(textHtml).toContain('aria-label="Clear Search"');
+
+      const textareaHtml = renderWithField(notesField, <TextareaField label="Notes" clearable />);
+      expect(textareaHtml).toContain('aria-label="Clear Notes"');
+
+      const numberHtml = renderWithField(qtyField, <NumberField label="Quantity" clearable />);
+      expect(numberHtml).toContain('aria-label="Clear Quantity"');
+
+      const currencyHtml = renderWithField(
+        balanceField,
+        <CurrencyField label="Balance" currency="USD" clearable />,
+      );
+      expect(currencyHtml).toContain('aria-label="Clear Balance"');
+
+      const phoneHtml = renderWithField(phoneField, <PhoneField label="Phone" clearable />);
+      expect(phoneHtml).toContain('aria-label="Clear Phone"');
+
+      const selectHtml = renderWithField(
+        statusField,
+        <SelectField
+          label="Status"
+          placeholder="All Status"
+          options={[{ value: "active", label: "Active" }]}
+          clearable
+        />,
+      );
+      expect(selectHtml).toContain('data-slot="select-clear"');
+      expect(selectHtml).toContain('aria-label="Clear Status"');
+    } finally {
+      for (const unmount of unmounts) unmount();
+      unmountForm();
+    }
   });
 });

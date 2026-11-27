@@ -27,6 +27,13 @@ export type BaseFieldProps = {
   id?: string;
 };
 
+export type ClearableFieldProps = {
+  /** Renders an inline clear button when the field holds a non-empty value. */
+  clearable?: boolean;
+  /** Accessible label override for the clear button. */
+  clearLabel?: string;
+};
+
 export type DateRangeValue = {
   from?: string;
   to?: string;
