@@ -1,6 +1,6 @@
 # Coding Standards
 
-Reviewed on diffs alongside [GLOSSARY.md](./GLOSSARY.md) and [docs/adr/](./docs/adr/). Mechanical rules (`no-explicit-any`, unused variables, `packages/ui` import boundaries, formatting, and `tsc --noEmit`) are enforced by `bun run check`.
+Reviewed on diffs alongside [GLOSSARY.md](./GLOSSARY.md) and [docs/adr/](./docs/adr/). Mechanical rules (`no-explicit-any`, unused variables, `packages/ui` import boundaries, formatting, and `tsc --noEmit`) are enforced by `vp run check`.
 
 ## Interface Tiers & State Placement
 
