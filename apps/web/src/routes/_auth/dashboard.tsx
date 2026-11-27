@@ -56,13 +56,19 @@ function DashboardScreen() {
         <KpiCard
           label="Customers"
           icon={<UsersIcon />}
-          value={total === undefined ? <Skeleton className="h-7 w-16" /> : formatNumber(total)}
+          value={total === undefined ? <Skeleton className="h-6 w-16" /> : formatNumber(total)}
           hint="Total rows in the reference table"
         />
         <KpiCard
           label="Active"
           icon={<UserCheckIcon />}
-          value={active === undefined ? <Skeleton className="h-7 w-16" /> : formatNumber(active)}
+          tone="success"
+          value={active === undefined ? <Skeleton className="h-6 w-16" /> : formatNumber(active)}
+          progress={
+            activeShare === undefined
+              ? undefined
+              : { value: activeShare, label: "Active customer share" }
+          }
           hint={
             activeShare === undefined ? undefined : `${formatPercent(activeShare)} of customers`
           }
@@ -70,9 +76,10 @@ function DashboardScreen() {
         <KpiCard
           label="Net balance"
           icon={<DollarSignIcon />}
+          tone="info"
           value={
             stats.data === undefined ? (
-              <Skeleton className="h-7 w-24" />
+              <Skeleton className="h-6 w-24" />
             ) : (
               formatMoney({ minor: stats.data.balanceMinor, currency: DEFAULT_CURRENCY })
             )
@@ -82,8 +89,10 @@ function DashboardScreen() {
         <KpiCard
           label="Activity"
           icon={<ActivityIcon />}
+          tone="success"
           value={formatNumber(ACTIVITY.reduce((sum, point) => sum + point.signups, 0))}
           trend={{ value: 0.24, label: "vs previous half" }}
+          sparkline={ACTIVITY.map((point) => point.signups)}
           hint="Illustrative series, replace with a query"
         />
       </KpiGrid>

@@ -14,6 +14,7 @@ import {
   TextField,
 } from "../src/components/form";
 import { ImportBlock } from "../src/components/import-block";
+import { KpiCard, KpiGrid } from "../src/components/kpi-card";
 import { ListToolbar } from "../src/components/list-toolbar";
 import { PageHeader } from "../src/components/page-header";
 import {
@@ -345,5 +346,46 @@ describe("Form field primitives clearable support", () => {
       for (const unmount of unmounts) unmount();
       unmountForm();
     }
+  });
+});
+
+describe("KpiCard and KpiGrid", () => {
+  test("renders compact KPI card with trend pill, progressbar, and sparkline", () => {
+    const html = renderToStaticMarkup(
+      <KpiGrid variant="strip">
+        <KpiCard
+          label="Open"
+          value="8"
+          tone="warning"
+          trend={{ value: 0.24, label: "vs prior cycle" }}
+          progress={{ value: 8, max: 23, label: "Open share" }}
+          sparkline={[10, 14, 12, 18]}
+          hint="8 of 23 invoices"
+        />
+      </KpiGrid>,
+    );
+
+    expect(html).toContain('data-slot="kpi-grid"');
+    expect(html).toContain('data-variant="strip"');
+    expect(html).toContain('data-slot="kpi-trend"');
+    expect(html).toContain("+24%");
+    expect(html).toContain("vs prior cycle");
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuenow="35"');
+    expect(html).toContain('aria-label="Open share"');
+    expect(html).toContain('data-slot="kpi-sparkline"');
+  });
+
+  test("renders as a native button with aria-pressed when interactive", () => {
+    const html = renderToStaticMarkup(
+      <KpiGrid>
+        <KpiCard label="Paid" value="15" active onClick={() => {}} />
+      </KpiGrid>,
+    );
+
+    expect(html).toContain("<button");
+    expect(html).toContain('type="button"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('data-active="true"');
   });
 });

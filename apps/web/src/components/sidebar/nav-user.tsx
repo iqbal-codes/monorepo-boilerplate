@@ -27,8 +27,8 @@ import { authClient } from "@/lib/auth-client";
  * of sample data. The block's "Upgrade to Pro"/"Billing" items are dropped: this
  * is an internal tool with no billing surface.
  */
-export function NavUser() {
-  const { isMobile } = useSidebar();
+export function NavUser({ onOpenSettings }: { onOpenSettings?: () => void }) {
+  const { isMobile, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
 
@@ -98,10 +98,22 @@ export function NavUser() {
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem render={<Link to="/settings" />}>
-                <SettingsIcon />
-                Settings
-              </DropdownMenuItem>
+              {onOpenSettings ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false);
+                    onOpenSettings();
+                  }}
+                >
+                  <SettingsIcon />
+                  Settings
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem render={<Link to="/settings" />}>
+                  <SettingsIcon />
+                  Settings
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => {
                   const role = user.role ?? "user";

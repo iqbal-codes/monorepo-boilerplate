@@ -1,3 +1,4 @@
+import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import {
   Card,
@@ -17,11 +18,21 @@ import {
 import { KpiCard, KpiGrid } from "@monorepo-boilerplate/ui/components/kpi-card";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
 import { Skeleton } from "@monorepo-boilerplate/ui/components/skeleton";
-import { Badge } from "@monorepo-boilerplate/ui/components/badge";
-import { formatDate, formatMoney, formatNumber } from "@monorepo-boilerplate/ui/lib/format";
+import {
+  formatDate,
+  formatMoney,
+  formatNumber,
+  formatPercent,
+} from "@monorepo-boilerplate/ui/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
-import { InboxIcon } from "lucide-react";
-import { useState } from "react";
+import {
+  CheckCircle2Icon,
+  CircleDollarSignIcon,
+  ClockIcon,
+  FileTextIcon,
+  InboxIcon,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 
 export const Route = createFileRoute("/_auth/demo/blocks")({
   component: BlocksDemo,
@@ -73,6 +84,8 @@ const columns = helper.columns([
   }),
 ]);
 
+const INVOICE_SPARKLINE = INVOICES.slice(-8).map((invoice) => invoice.amountMinor);
+
 function BlocksDemo() {
   // Client-driven mode: the block sorts and pages this array itself.
   const [pageIndex, setPageIndex] = useState(0);
@@ -80,43 +93,141 @@ function BlocksDemo() {
   const [sorting, setSorting] = useState<Array<{ id: string; desc: boolean }>>([
     { id: "issuedAt", desc: true },
   ]);
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "paid">("all");
+  const [kpiVariant, setKpiVariant] = useState<"cards" | "strip">("cards");
+
+  const openInvoices = useMemo(() => INVOICES.filter((invoice) => invoice.status === "open"), []);
+  const paidInvoices = useMemo(() => INVOICES.filter((invoice) => invoice.status === "paid"), []);
+  const openMinor = useMemo(
+    () => openInvoices.reduce((sum, invoice) => sum + invoice.amountMinor, 0),
+    [openInvoices],
+  );
+  const paidMinor = useMemo(
+    () => paidInvoices.reduce((sum, invoice) => sum + invoice.amountMinor, 0),
+    [paidInvoices],
+  );
+  const filteredInvoices = useMemo(() => {
+    if (statusFilter === "open") return openInvoices;
+    if (statusFilter === "paid") return paidInvoices;
+    return INVOICES;
+  }, [openInvoices, paidInvoices, statusFilter]);
+
+  function toggleStatusFilter(next: "open" | "paid") {
+    setStatusFilter((current) => (current === next ? "all" : next));
+    setPageIndex(0);
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Blocks"
         description="Client-driven DataTable, KPI cards, and empty/loading states. Deletable demo."
+        actions={
+          <div
+            className="inline-flex border border-border bg-card p-0.5"
+            role="group"
+            aria-label="KPI layout"
+          >
+            <Button
+              type="button"
+              size="xs"
+              variant={kpiVariant === "cards" ? "secondary" : "ghost"}
+              aria-pressed={kpiVariant === "cards"}
+              onClick={() => setKpiVariant("cards")}
+            >
+              Cards
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant={kpiVariant === "strip" ? "secondary" : "ghost"}
+              aria-pressed={kpiVariant === "strip"}
+              onClick={() => setKpiVariant("strip")}
+            >
+              Strip
+            </Button>
+          </div>
+        }
       />
 
-      <KpiGrid>
-        <KpiCard label="Rows" value={formatNumber(INVOICES.length)} hint="Local array, no fetch" />
+      <KpiGrid variant={kpiVariant}>
+        <KpiCard
+          label="Invoices"
+          icon={<FileTextIcon />}
+          value={formatNumber(INVOICES.length)}
+          sparkline={INVOICE_SPARKLINE}
+          hint={statusFilter === "all" ? "Showing all rows" : "Click to clear filter"}
+          active={statusFilter === "all"}
+          onClick={() => {
+            setStatusFilter("all");
+            setPageIndex(0);
+          }}
+        />
         <KpiCard
           label="Open"
-          value={formatNumber(INVOICES.filter((invoice) => invoice.status === "open").length)}
+          icon={<ClockIcon />}
+          tone="warning"
+          value={formatNumber(openInvoices.length)}
+          progress={{
+            value: openInvoices.length,
+            max: INVOICES.length,
+            label: "Open invoice share",
+          }}
+          hint={`${formatPercent(openInvoices.length / INVOICES.length)} of invoices`}
+          active={statusFilter === "open"}
+          onClick={() => toggleStatusFilter("open")}
         />
         <KpiCard
           label="Outstanding"
-          value={formatMoney({
-            minor: INVOICES.filter((invoice) => invoice.status === "open").reduce(
-              (sum, invoice) => sum + invoice.amountMinor,
-              0,
-            ),
-            currency: "USD",
-          })}
+          icon={<CircleDollarSignIcon />}
+          tone="warning"
+          value={formatMoney({ minor: openMinor, currency: "USD" })}
+          trend={{ value: -0.08, label: "vs prior cycle" }}
+          hint={`Across ${formatNumber(openInvoices.length)} open`}
+          active={statusFilter === "open"}
+          onClick={() => toggleStatusFilter("open")}
         />
-        <KpiCard label="Currency" value="USD" hint="Minor units everywhere" />
+        <KpiCard
+          label="Collected"
+          icon={<CheckCircle2Icon />}
+          tone="success"
+          value={formatMoney({ minor: paidMinor, currency: "USD" })}
+          progress={{
+            value: paidInvoices.length,
+            max: INVOICES.length,
+            label: "Paid invoice share",
+          }}
+          hint={`${formatNumber(paidInvoices.length)} paid (${formatPercent(paidInvoices.length / INVOICES.length)})`}
+          active={statusFilter === "paid"}
+          onClick={() => toggleStatusFilter("paid")}
+        />
       </KpiGrid>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Client-driven table</CardTitle>
-          <CardDescription>
-            No <code>manualPagination</code>: the block sorts in memory and pages the array.
-          </CardDescription>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+          <div className="flex flex-col gap-1">
+            <CardTitle>Client-driven table</CardTitle>
+            <CardDescription>
+              No <code>manualPagination</code>: the block sorts in memory and pages the array.
+            </CardDescription>
+          </div>
+          {statusFilter !== "all" ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                setStatusFilter("all");
+                setPageIndex(0);
+              }}
+            >
+              Filter: {statusFilter} · Clear
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent>
           <DataTable
-            data={INVOICES}
+            data={filteredInvoices}
             columns={columns}
             pagination={{ pageIndex, pageSize }}
             onPaginationChange={(next) => {
