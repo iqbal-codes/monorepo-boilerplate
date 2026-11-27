@@ -268,7 +268,6 @@ function CustomersScreen() {
             value: list.searchInput,
             onChange: list.onSearchInputChange,
           }}
-          isFetching={query.isFetching}
           hasActiveFilters={Boolean(list.searchInput) || list.status !== "all"}
           onClearFilters={list.clearFilters}
           filters={
@@ -280,8 +279,7 @@ function CustomersScreen() {
               }}
             >
               <SelectTrigger
-                size="sm"
-                className="w-40 border border-input px-3"
+                className="w-40"
                 aria-label="Filter by status"
                 showClear={list.status !== "all"}
                 onClear={() => list.setStatus("all")}
@@ -398,7 +396,8 @@ function CustomersScreen() {
           manualPagination
           manualSorting
           density={tableDensity}
-          isLoading={query.isPending || query.isPlaceholderData}
+          isLoading={query.isPending}
+          isFetching={query.isFetching && !query.isPending}
           onRowClick={(row) => {
             setEditingId(row.id);
             setDrawerOpen(true);

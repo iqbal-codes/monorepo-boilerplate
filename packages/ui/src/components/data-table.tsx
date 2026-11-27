@@ -22,6 +22,20 @@
  * asked for through `onPaginationChange` / `onSortingChange` and renders
  * `data` as given. `apps/web/src/lib/use-data-table-search-params.ts` bridges
  * nuqs to these callbacks; see docs/adr/0002.
+ *
+ * ## Loading
+ *
+ * Two separate states, because a table has two kinds of waiting:
+ *
+ * - `isLoading`: no rows to show yet. Skeleton rows reserve the requested page
+ *   size, so the initial paint and the first page have the same height.
+ * - `isFetching`: a request is in flight while rows are already rendered
+ *   (stale-while-revalidate). Rows stay mounted, become inert, and the region
+ *   is marked `aria-busy` with a layout-neutral rail. Paging, sorting, and
+ *   filtering therefore never flash an empty table or change its height.
+ *
+ * Do not pass both as the same value: `isLoading={isFetching}` reproduces the
+ * flicker this contract exists to prevent.
  */
 import * as React from "react";
 import { cn } from "cn";
@@ -130,7 +144,13 @@ export type DataTableProps<TData extends RowData> = {
   /** Sorting, filtering, and paging are performed by the API. */
   manualPagination?: boolean;
   manualSorting?: boolean;
+  /** No rows yet: renders skeleton rows sized to the requested page. */
   isLoading?: boolean;
+  /**
+   * A request is in flight while rows are already rendered. Keeps those rows
+   * mounted (and inert) instead of replacing them with skeletons.
+   */
+  isFetching?: boolean;
   /** Renders instead of rows when there is no data and nothing is loading. */
   emptyState?: React.ReactNode;
   onRowClick?: (row: TData) => void;
@@ -157,6 +177,7 @@ export function DataTable<TData extends RowData>({
   manualPagination = false,
   manualSorting = false,
   isLoading = false,
+  isFetching = false,
   emptyState,
   onRowClick,
   rowClassName,
@@ -197,6 +218,13 @@ export function DataTable<TData extends RowData>({
   const firstRow = total === 0 ? 0 : currentIndex * currentSize + 1;
   const lastRow = Math.min((currentIndex + 1) * currentSize, total);
   const rows = table.getRowModel().rows;
+  // Only a request with nothing to show may replace content. Once rows exist,
+  // a refetch keeps them mounted; see the Loading section above.
+  const showSkeleton = isLoading && rows.length === 0;
+  const isBusy = showSkeleton || isFetching;
+  // Reserve the height of the page the skeleton stands in for, not a fixed cap.
+  const skeletonRowCount = Math.max(1, currentSize);
+  const canActivateRow = Boolean(onRowClick) && !isBusy;
   const columnCount = table.getVisibleLeafColumns().length + Number(Boolean(selection));
   const pageIds = selection
     ? rows
@@ -207,7 +235,7 @@ export function DataTable<TData extends RowData>({
   const allSelected = pageIds.length > 0 && selectedCount === pageIds.length;
 
   function changeSelection(ids: readonly string[], checked: boolean) {
-    if (!selection || selection.disabled || isLoading) return;
+    if (!selection || selection.disabled || isBusy) return;
     const next = new Set(pageIds.filter((id) => selection.ids.has(id)));
     for (const id of ids) {
       if (checked) next.add(id);
@@ -222,7 +250,12 @@ export function DataTable<TData extends RowData>({
   const activeSort = sorting?.[0];
 
   return (
-    <div data-slot="data-table" className={cn("@container flex flex-col gap-3", className)}>
+    <div
+      data-slot="data-table"
+      aria-busy={isBusy || undefined}
+      className={cn("@container relative flex flex-col gap-3", className)}
+    >
+      {isFetching ? <LoadingRail /> : null}
       {/* Narrow-container stacked card list */}
       <div className="flex flex-col gap-2 @lg:hidden">
         {(selection || sortableHeaders.length > 0) && (
@@ -233,7 +266,7 @@ export function DataTable<TData extends RowData>({
                   aria-label={selection.pageLabel}
                   checked={allSelected}
                   indeterminate={selectedCount > 0 && !allSelected}
-                  disabled={selection.disabled || isLoading || pageIds.length === 0}
+                  disabled={selection.disabled || isBusy || pageIds.length === 0}
                   className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
                   onCheckedChange={(checked) => changeSelection(pageIds, checked)}
                 />
@@ -297,9 +330,9 @@ export function DataTable<TData extends RowData>({
           </div>
         )}
 
-        {isLoading ? (
+        {showSkeleton ? (
           <div className="flex flex-col divide-y rounded-lg border">
-            {Array.from({ length: Math.min(currentSize, 5) }, (_, index) => (
+            {Array.from({ length: skeletonRowCount }, (_, index) => (
               <div key={`mobile-skeleton-${index}`} className="flex flex-col gap-2 p-3">
                 <Skeleton className="h-4 w-40" />
                 <Skeleton className="h-3 w-28" />
@@ -339,10 +372,10 @@ export function DataTable<TData extends RowData>({
               return (
                 <div
                   key={`mobile-${row.id}`}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
                   className={cn(
                     "flex items-start gap-3 p-3 transition-colors",
-                    onRowClick && "cursor-pointer hover:bg-muted/50",
+                    canActivateRow && "cursor-pointer hover:bg-muted/50",
                     rowClassName?.(row.original),
                   )}
                 >
@@ -398,7 +431,7 @@ export function DataTable<TData extends RowData>({
                       aria-label={selection.pageLabel}
                       checked={allSelected}
                       indeterminate={selectedCount > 0 && !allSelected}
-                      disabled={selection.disabled || isLoading || pageIds.length === 0}
+                      disabled={selection.disabled || isBusy || pageIds.length === 0}
                       className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
                       onCheckedChange={(checked) => changeSelection(pageIds, checked)}
                     />
@@ -435,8 +468,8 @@ export function DataTable<TData extends RowData>({
             ))}
           </TableHeader>
           <TableBody>
-            {isLoading ? (
-              Array.from({ length: Math.min(currentSize, 10) }, (_, index) => (
+            {showSkeleton ? (
+              Array.from({ length: skeletonRowCount }, (_, index) => (
                 <TableRow key={`skeleton-${index}`} className="hover:bg-transparent">
                   {Array.from({ length: columnCount }, (_, cellIndex) => (
                     <TableCell key={`skeleton-${index}-${cellIndex}`}>
@@ -467,8 +500,8 @@ export function DataTable<TData extends RowData>({
               rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                  className={cn(onRowClick && "cursor-pointer", rowClassName?.(row.original))}
+                  onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
+                  className={cn(canActivateRow && "cursor-pointer", rowClassName?.(row.original))}
                 >
                   {selection && (
                     <TableCell className="w-10 ps-3" onClick={(event) => event.stopPropagation()}>
@@ -574,4 +607,17 @@ function currentPagination(pagination: PaginationState | undefined): PaginationS
 function stringifyHeader(header: unknown, fallback: string): string {
   if (typeof header === "string") return header;
   return fallback;
+}
+
+/**
+ * Activity line pinned to the top edge of the block. Absolutely positioned so
+ * showing or hiding it never moves the rows underneath.
+ */
+function LoadingRail() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary/60"
+    />
+  );
 }

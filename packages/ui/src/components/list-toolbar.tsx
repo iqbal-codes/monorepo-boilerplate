@@ -68,7 +68,14 @@ export function ListToolbar({
   clearFiltersLabel?: string;
   /** Trailing controls, rendered after the result label. */
   actions?: ReactNode;
+  /** Result count or summary; renders the fetching spinner beside it. */
   resultLabel?: string;
+  /**
+   * Shows a spinner beside `resultLabel` while a request is in flight. Without
+   * a label there is no text to pair it with, so nothing is rendered: a lone
+   * spinner used to add a wrapped line to this flex row and push the content
+   * below it down on every fetch.
+   */
   isFetching?: boolean;
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
@@ -202,12 +209,12 @@ export function ListToolbar({
         </Button>
       ) : null}
 
-      {(resultLabel || isFetching) && (
+      {resultLabel ? (
         <span className="flex w-full items-center gap-1.5 text-xs text-muted-foreground tabular-nums sm:ms-auto sm:w-auto">
           {isFetching && <Spinner aria-hidden />}
           {resultLabel}
         </span>
-      )}
+      ) : null}
 
       {actions && (
         <div data-slot="list-toolbar-actions" className="flex min-w-0 flex-wrap items-center gap-2">
