@@ -87,7 +87,6 @@ export function CustomerDetailContent({ customerId }: { customerId: string }) {
   return (
     <>
       <CustomerDetailView
-        key={customerId}
         customer={customerQuery.data}
         isLoading={customerQuery.isPending}
         error={customerQuery.isError ? customerQuery.error.message : null}
@@ -121,12 +120,7 @@ export function CustomerDetailContent({ customerId }: { customerId: string }) {
         )}
       />
 
-      <CustomerFormDrawer
-        key={customerId}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        customerId={customerId}
-      />
+      <CustomerFormDrawer open={editOpen} onOpenChange={setEditOpen} customerId={customerId} />
     </>
   );
 }

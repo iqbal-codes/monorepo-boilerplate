@@ -312,6 +312,7 @@ export function customerQueries(db: Database): CustomerQueries {
           .where(eq(customer.id, id))
           .for("update");
         if (!existing) return null;
+        if (Object.keys(normalizedPatch).length === 0) return existing;
 
         const [updated] = await tx
           .update(customer)

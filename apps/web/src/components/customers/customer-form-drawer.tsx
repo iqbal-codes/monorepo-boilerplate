@@ -1,3 +1,7 @@
+import {
+  STORED_ASSET_PATH_ERROR,
+  storedAssetPathSchema,
+} from "@monorepo-boilerplate/api/asset-path";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { FieldGroup } from "@monorepo-boilerplate/ui/components/field";
 import {
@@ -33,15 +37,6 @@ const STATUS_OPTIONS: ReadonlyArray<FieldOption> = [
   { value: "archived", label: "Archived" },
 ];
 
-const STORED_ASSET_PATH_REGEX = /^\/uploads\/(?:[^/\s\\?#]+\/)*[^/\s\\?#]+$/;
-
-function isStoredAssetPath(value: string): boolean {
-  return (
-    STORED_ASSET_PATH_REGEX.test(value) &&
-    !value.split("/").some((segment) => segment === "." || segment === "..")
-  );
-}
-
 const customerFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(200),
   email: z.email("Enter a valid email address."),
@@ -58,12 +53,34 @@ const customerFormSchema = z.object({
   notes: z.string().max(2000),
   avatarUrl: z
     .string()
-    .max(2048)
     .refine(
-      (val) => val === "" || isStoredAssetPath(val),
-      "Avatar must be a relative stored asset path under /uploads/.",
+      (val) => val === "" || storedAssetPathSchema.safeParse(val).success,
+      STORED_ASSET_PATH_ERROR,
     ),
 });
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+function buildCustomerEditPatch(value: CustomerFormValues, snapshot: CustomerFormValues) {
+  return {
+    ...(value.name !== snapshot.name ? { name: value.name } : {}),
+    ...(value.email !== snapshot.email ? { email: value.email } : {}),
+    ...(value.phone !== snapshot.phone ? { phone: value.phone } : {}),
+    ...(value.company !== snapshot.company ? { company: value.company } : {}),
+    ...(value.status !== snapshot.status ? { status: value.status } : {}),
+    ...((value.balanceMinor ?? 0) !== (snapshot.balanceMinor ?? 0)
+      ? { balanceMinor: value.balanceMinor ?? 0 }
+      : {}),
+    ...(value.currency !== snapshot.currency ? { currency: value.currency } : {}),
+    ...(!arraysEqual(value.tags, snapshot.tags) ? { tags: value.tags } : {}),
+    ...(value.notes !== snapshot.notes ? { notes: value.notes } : {}),
+    ...(value.avatarUrl !== snapshot.avatarUrl
+      ? { avatarUrl: value.avatarUrl ? value.avatarUrl : null }
+      : {}),
+  };
+}
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
@@ -184,27 +201,35 @@ export function CustomerFormDrawer({ open, onOpenChange, customerId }: CustomerF
       onSubmit: customerFormSchema,
     },
     onSubmit: async ({ value }) => {
-      const basePayload = {
-        name: value.name,
-        email: value.email,
-        status: value.status,
-        balanceMinor: value.balanceMinor ?? 0,
-        currency: value.currency,
-        tags: value.tags,
-        ...(value.phone ? { phone: value.phone } : {}),
-        ...(value.company ? { company: value.company } : {}),
-        ...(value.notes ? { notes: value.notes } : {}),
-      };
       try {
         if (isEditing && customerId) {
+          const patch = buildCustomerEditPatch(value, snapshot);
+          if (Object.keys(patch).length === 0) {
+            setSnapshot(EMPTY_VALUES);
+            form.reset(EMPTY_VALUES);
+            setTagInputValue("");
+            hydratedSessionRef.current = null;
+            if (blockerRef.current?.status === "blocked") {
+              blockerRef.current.reset?.();
+            }
+            onOpenChange(false);
+            return;
+          }
           await update.mutateAsync({
             id: customerId,
-            ...basePayload,
-            avatarUrl: value.avatarUrl ? value.avatarUrl : null,
+            ...patch,
           });
         } else {
           await create.mutateAsync({
-            ...basePayload,
+            name: value.name,
+            email: value.email,
+            status: value.status,
+            balanceMinor: value.balanceMinor ?? 0,
+            currency: value.currency,
+            tags: value.tags,
+            ...(value.phone ? { phone: value.phone } : {}),
+            ...(value.company ? { company: value.company } : {}),
+            ...(value.notes ? { notes: value.notes } : {}),
             ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
           });
         }

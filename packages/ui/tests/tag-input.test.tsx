@@ -273,7 +273,7 @@ describe("TagInput", () => {
       });
       expect(changes).toEqual([["initial", "tag-15"]]);
 
-      // Pressing Escape while menu is closed must not clear existing tags.
+      // Pressing Escape while menu is closed must not clear existing tags or pending draft.
       await act(async () => {
         setInputValue(input, "unsaved-draft");
       });
@@ -282,6 +282,83 @@ describe("TagInput", () => {
         input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       });
       expect(changes).toEqual([["initial", "tag-15"]]);
+      expect(input.value).toBe("unsaved-draft");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("preserves non-matching per-keystroke custom tags and pending text across blur and Escape", async () => {
+    const suggestions = ["vip", "enterprise", "tag-04", "renewal"];
+    function CustomTagHarness() {
+      const [tags, setTags] = React.useState<string[]>([]);
+      const [draft, setDraft] = React.useState("");
+      return (
+        <div>
+          <TagInput
+            aria-label="Custom tags"
+            value={tags}
+            onValueChange={setTags}
+            inputValue={draft}
+            onInputValueChange={setDraft}
+            suggestions={suggestions}
+          />
+          <button type="button">Outside target</button>
+        </div>
+      );
+    }
+
+    const view = await renderInDom(<CustomTagHarness />);
+
+    try {
+      const input = view.host.querySelector<HTMLInputElement>("input")!;
+      const outsideBtn = view.host.querySelector<HTMLButtonElement>("button")!;
+
+      await act(async () => {
+        input.focus();
+      });
+
+      // Type "q4review" character-by-character; 'q', 'r', etc. do not match suggestions.
+      let typed = "";
+      for (const ch of "q4review") {
+        typed += ch;
+        await act(async () => {
+          setInputValue(input, typed);
+        });
+        expect(input.value).toBe(typed);
+      }
+
+      await act(async () => {
+        input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(
+        [...view.host.querySelectorAll("[data-tag-pill]")].map((el) => el.textContent?.trim()),
+      ).toEqual(["q4review"]);
+      expect(input.value).toBe("");
+
+      // Type a matching prefix ("e"), then blur to outside button; pending text must survive.
+      await act(async () => {
+        input.focus();
+        setInputValue(input, "e");
+      });
+      expect(document.body.querySelectorAll('[role="option"]').length).toBeGreaterThan(0);
+
+      await act(async () => {
+        outsideBtn.focus();
+        input.dispatchEvent(
+          new win.FocusEvent("blur", { bubbles: true, relatedTarget: outsideBtn }),
+        );
+      });
+      expect(input.value).toBe("e");
+
+      // Re-focus, press Escape to close suggestions popup; pending text must survive.
+      await act(async () => {
+        input.focus();
+      });
+      await act(async () => {
+        input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      expect(input.value).toBe("e");
     } finally {
       await view.cleanup();
     }

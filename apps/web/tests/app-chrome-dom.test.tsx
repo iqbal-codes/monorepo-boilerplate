@@ -914,13 +914,7 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
       expect(updatedPayloads).toEqual([
         {
           id: "cust-edit",
-          name: "Ada Lovelace",
-          email: "ada@example.com",
-          status: "active",
-          balanceMinor: 5000,
-          currency: "USD",
           tags: ["vip", "renewal"],
-          company: "Analytical Engines",
           avatarUrl: null,
         },
       ]);
@@ -1059,6 +1053,192 @@ describe("CustomerFormDrawer pending save and Escape guard", () => {
         discardBtn?.click();
       });
       expect(openState).toBe(false);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("preserves colleague archive when saving an unrelated edit (diff-only update)", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const initialRecord = {
+      id: "cust-edit",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "",
+      company: "Analytical Engines",
+      status: "active",
+      balanceMinor: 5000,
+      currency: "USD",
+      avatarUrl: "/uploads/ada.png",
+      tags: ["vip"],
+      notes: "",
+    };
+    let serverRecord = initialRecord;
+    queryClient.setQueryData(["customers", "byId", "cust-edit"], initialRecord);
+    queryClient.setQueryData(["customers", "tags"], ["vip", "enterprise"]);
+    customerByIdImpl = async () => serverRecord;
+
+    const updatedPayloads: Array<Record<string, unknown>> = [];
+    updateCustomerImpl = async (input) => {
+      updatedPayloads.push(input as Record<string, unknown>);
+      return { id: "cust-edit" };
+    };
+
+    let openState = true;
+    const view = await renderWithQuery(
+      <CustomerFormDrawer
+        open
+        onOpenChange={(next) => {
+          openState = next;
+        }}
+        customerId="cust-edit"
+      />,
+      queryClient,
+    );
+
+    try {
+      // Colleague archives the open record concurrently and refetch arrives.
+      serverRecord = { ...initialRecord, status: "archived" };
+      await act(async () => {
+        await queryClient.invalidateQueries({ queryKey: ["customers", "byId", "cust-edit"] });
+        await Promise.resolve();
+      });
+
+      const companyInput = document.body.querySelector<HTMLInputElement>('input[name="company"]');
+      expect(companyInput).not.toBeNull();
+      await act(async () => {
+        if (companyInput) {
+          setInputValue(companyInput, "Lovelace Labs");
+        }
+      });
+
+      const formEl = document.body.querySelector<HTMLFormElement>("form");
+      await act(async () => {
+        formEl?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      expect(updatedPayloads).toEqual([
+        {
+          id: "cust-edit",
+          company: "Lovelace Labs",
+        },
+      ]);
+      expect(openState).toBe(false);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("CODE-02: retains pending tag text per-keystroke across blur, popup-open Cancel, Escape, and Keep editing", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    queryClient.setQueryData(["customers", "tags"], ["vip", "enterprise", "beta"]);
+    customerTagsImpl = async () => ["vip", "enterprise", "beta"];
+
+    let openState = true;
+    const view = await renderWithQuery(
+      <CustomerFormDrawer
+        open
+        onOpenChange={(next) => {
+          openState = next;
+        }}
+        customerId={null}
+      />,
+      queryClient,
+    );
+
+    try {
+      const tagInput = document.body.querySelector<HTMLInputElement>(
+        '[data-slot="tag-input"] input',
+      );
+      expect(tagInput).not.toBeNull();
+
+      await act(async () => {
+        tagInput?.focus();
+      });
+
+      // Type "ved-tag" character by character ('v' matches "vip", 'e' matches "enterprise", 'd' matches none).
+      let typed = "";
+      for (const ch of "ved-tag") {
+        typed += ch;
+        await act(async () => {
+          if (tagInput) setInputValue(tagInput, typed);
+        });
+        expect(tagInput?.value).toBe(typed);
+      }
+
+      const cancelBtn = Array.from(document.body.querySelectorAll("button")).find(
+        (btn) => btn.textContent?.trim() === "Cancel",
+      );
+      expect(cancelBtn).toBeDefined();
+
+      // Simulate focus moving to Cancel before click (real browser blur + outside press).
+      await act(async () => {
+        cancelBtn?.focus();
+        tagInput?.dispatchEvent(
+          new win.FocusEvent("blur", { bubbles: true, relatedTarget: cancelBtn }),
+        );
+        cancelBtn?.click();
+      });
+
+      let alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(alertDialog?.textContent).toContain("Discard unsaved changes?");
+      expect(openState).toBe(true);
+
+      const keepBtn = Array.from(alertDialog?.querySelectorAll("button") ?? []).find((btn) =>
+        btn.textContent?.includes("Keep editing"),
+      );
+      await act(async () => {
+        keepBtn?.click();
+      });
+      expect(tagInput?.value).toBe("ved-tag");
+
+      // Now type "b" so the suggestions popup ("beta") opens, then click Cancel.
+      await act(async () => {
+        tagInput?.focus();
+        if (tagInput) setInputValue(tagInput, "b");
+      });
+      expect(document.body.querySelectorAll('[role="option"]').length).toBeGreaterThan(0);
+
+      await act(async () => {
+        cancelBtn?.focus();
+        tagInput?.dispatchEvent(
+          new win.FocusEvent("blur", { bubbles: true, relatedTarget: cancelBtn }),
+        );
+        cancelBtn?.click();
+      });
+      alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(alertDialog?.textContent).toContain("Discard unsaved changes?");
+      expect(openState).toBe(true);
+
+      const keepBtn2 = Array.from(alertDialog?.querySelectorAll("button") ?? []).find((btn) =>
+        btn.textContent?.includes("Keep editing"),
+      );
+      await act(async () => {
+        keepBtn2?.click();
+      });
+      expect(tagInput?.value).toBe("b");
+
+      // Escape with closed popup must prompt instead of dropping pending text or closing silently.
+      await act(async () => {
+        tagInput?.focus();
+        tagInput?.dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      });
+      alertDialog = document.body.querySelector('[data-slot="alert-dialog-content"]');
+      expect(alertDialog?.textContent).toContain("Discard unsaved changes?");
+      expect(tagInput?.value).toBe("b");
+      expect(openState).toBe(true);
     } finally {
       await view.cleanup();
     }

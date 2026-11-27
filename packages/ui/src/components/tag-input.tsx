@@ -177,24 +177,33 @@ export function TagInput({
         onOpenChange={(nextOpen) => {
           if (!interactive || filteredSuggestions.length === 0) {
             setMenuOpen(false);
+            highlightedItemRef.current = undefined;
             return;
           }
           setMenuOpen(nextOpen);
+          if (!nextOpen) {
+            highlightedItemRef.current = undefined;
+          }
         }}
         onItemHighlighted={(item) => {
           highlightedItemRef.current = item;
         }}
         onInputValueChange={(nextInput, details) => {
           if (!interactive) return;
-          if (details.reason === "escape-key") {
+          // Ignore Base UI automatic/cleanup clears (popup close, blur, Escape,
+          // or zero filtered matches) so pending custom-tag text is never wiped.
+          if (details.reason !== "input-change" && details.reason !== "clear-press") {
+            details.cancel();
             return;
           }
           if (details.reason === "input-change" && delimiters.some((d) => nextInput.includes(d))) {
             addTokens(splitByDelimiters(nextInput));
             commitInputValue("");
+            highlightedItemRef.current = undefined;
             setMenuOpen(false);
             return;
           }
+          highlightedItemRef.current = undefined;
           commitInputValue(nextInput);
           if (details.reason === "input-change") {
             setMenuOpen(true);

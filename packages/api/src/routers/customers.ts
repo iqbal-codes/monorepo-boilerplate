@@ -7,8 +7,11 @@ import {
 import { customerStatus } from "@monorepo-boilerplate/db/schema/customer";
 import { z } from "zod";
 
+import { storedAssetPathSchema } from "../asset-path";
 import { protectedProcedure, router } from "../index";
 import { adminProcedure } from "../procedures";
+
+export { storedAssetPathSchema };
 
 const MAX_CUSTOMER_PAGE_SIZE = 100;
 
@@ -79,17 +82,6 @@ function toExportBalanceMinor(balanceMinor: string): number {
 }
 
 const TAG_REGEX = /^.+$/;
-const STORED_ASSET_PATH_REGEX = /^\/uploads\/(?:[^/\s\\?#]+\/)*[^/\s\\?#]+$/;
-
-export const storedAssetPathSchema = z
-  .string()
-  .max(2048)
-  .refine(
-    (value) =>
-      STORED_ASSET_PATH_REGEX.test(value) &&
-      !value.split("/").some((segment) => segment === "." || segment === ".."),
-    "Avatar must be a relative stored asset path under /uploads/.",
-  );
 
 const customerBaseFields = {
   name: z.string().trim().min(1).max(200),

@@ -999,5 +999,32 @@ describe.skipIf(!databaseUrl)(
         new Date(updateEvents[1]!.createdAt).getTime(),
       );
     });
+
+    test("preserves concurrent archive when saving an unrelated diff-only field patch", async () => {
+      const created = await staff.create({
+        name: "Concurrent Archive Guard",
+        email: unique(),
+        balanceMinor: 2500,
+        currency: "EUR",
+        company: "Before",
+        status: "active",
+      });
+      fixtureIds.push(created.id);
+
+      await staff.archiveMany({ ids: [created.id] });
+
+      // Client edits only `company` from its opening snapshot and omits `status`.
+      const updated = await staff.update({
+        id: created.id,
+        company: "After",
+      });
+
+      expect(updated.status).toBe("archived");
+      expect(updated.currency).toBe("EUR");
+      expect(updated.company).toBe("After");
+
+      const events = await staff.events.list({ customerId: created.id });
+      expect(events.map((event) => event.type)).toEqual(["created", "archived", "updated"]);
+    });
   },
 );
