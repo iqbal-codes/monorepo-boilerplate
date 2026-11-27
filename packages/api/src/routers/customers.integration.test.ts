@@ -465,9 +465,49 @@ describe.skipIf(!databaseUrl)("Customers archive with disposable Postgres", () =
       await expect(signedOut.importConfirm({ rows })).rejects.toMatchObject({
         code: "UNAUTHORIZED",
       });
+      await expect(
+        signedOut.importStatus({ importId: crypto.randomUUID(), emails: [rows[0]!.values.email] }),
+      ).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
       expect(await staff.list({ search: rows[0]!.values.email, status: "all" })).toMatchObject({
         rowCount: 0,
       });
+    });
+
+    test("replays idempotent importConfirm by importId and reconciles importStatus per user", async () => {
+      const importId = crypto.randomUUID();
+      const inputRow = row(2, { name: "Idempotent User" });
+
+      expect(await staff.importStatus({ importId, emails: [inputRow.values.email] })).toEqual({
+        status: "not_found",
+      });
+
+      const first = await staff.importConfirm({ rows: [inputRow], importId });
+      expect(first).toEqual({ ok: true, created: 1 });
+      const created = (await staff.list({ search: inputRow.values.email })).rows[0];
+      if (created) fixtureIds.push(created.id);
+
+      // Replaying the same importId returns the original success instead of reporting a duplicate conflict.
+      const replay = await staff.importConfirm({ rows: [inputRow], importId });
+      expect(replay).toEqual({ ok: true, created: 1 });
+
+      expect(await staff.importStatus({ importId, emails: [inputRow.values.email] })).toEqual({
+        status: "completed",
+        result: { ok: true, created: 1 },
+      });
+
+      // Another authenticated user cannot read this user's importId result, and sees ambiguous emails instead.
+      const otherCaller = customersRouter.createCaller({
+        db,
+        session: { ...session, user: { ...session.user, id: "other-staff" } },
+      });
+      expect(await otherCaller.importStatus({ importId, emails: [inputRow.values.email] })).toEqual(
+        {
+          status: "ambiguous",
+          existingEmails: [inputRow.values.email],
+        },
+      );
     });
   });
 });

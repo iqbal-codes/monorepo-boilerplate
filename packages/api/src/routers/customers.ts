@@ -118,7 +118,46 @@ export const customerImportRowInput = z.object({
 
 export const customerImportInput = z.object({
   rows: z.array(customerImportRowInput).max(MAX_IMPORT_ROWS),
+  importId: z.uuid().optional(),
 });
+
+export const customerImportStatusInput = z.object({
+  importId: z.uuid(),
+  emails: z.array(z.string().max(320)).max(MAX_IMPORT_ROWS).optional(),
+});
+
+type ImportConfirmOutcome =
+  | { ok: true; created: number }
+  | { ok: false; conflictLineNumbers: number[] };
+
+const IMPORT_ID_TTL_MS = 15 * 60_000;
+const MAX_COMPLETED_IMPORTS = 1_000;
+
+const inFlightImports = new Map<string, Promise<ImportConfirmOutcome>>();
+const completedImports = new Map<string, { result: ImportConfirmOutcome; expiresAt: number }>();
+
+function getCompletedImport(key: string): ImportConfirmOutcome | null {
+  const entry = completedImports.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    completedImports.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function recordCompletedImport(key: string, result: ImportConfirmOutcome): void {
+  const now = Date.now();
+  for (const [entryKey, entry] of completedImports) {
+    if (entry.expiresAt <= now) completedImports.delete(entryKey);
+  }
+  while (completedImports.size >= MAX_COMPLETED_IMPORTS) {
+    const oldestKey = completedImports.keys().next().value;
+    if (oldestKey === undefined) break;
+    completedImports.delete(oldestKey);
+  }
+  completedImports.set(key, { result, expiresAt: now + IMPORT_ID_TTL_MS });
+}
 
 type ImportRowInput = z.infer<typeof customerImportRowInput>;
 
@@ -365,44 +404,94 @@ export const customersRouter = router({
   /**
    * Revalidates server-side and inserts only new Customers. A conflict that
    * appeared after preview (or a concurrent unique violation) returns the
-   * affected line numbers with zero rows written.
+   * affected line numbers with zero rows written. When `importId` is supplied,
+   * repeated calls for the same user and `importId` replay the original
+   * outcome so lost responses can be reconciled idempotently.
    */
   importConfirm: protectedProcedure.input(customerImportInput).mutation(async ({ ctx, input }) => {
-    const { drafts, issues, existingEmails } = await validateImport(ctx.db, input.rows);
-
-    // Every issue already carries a line, so a row that failed validation is a
-    // conflict line too. `existingEmails` is the pre-check view used for the
-    // preview; it can be stale by the time the write runs.
-    const conflictingLines = new Set(issues.map((issue) => issue.lineNumber));
-    for (const draft of drafts) {
-      if (existingEmails.has(draft.email)) conflictingLines.add(draft.lineNumber);
+    const attemptKey = input.importId ? `${ctx.session.user.id}:${input.importId}` : null;
+    if (attemptKey) {
+      const completed = getCompletedImport(attemptKey);
+      if (completed) return completed;
+      const inFlight = inFlightImports.get(attemptKey);
+      if (inFlight) return await inFlight;
     }
 
-    const linesFor = (emails: Iterable<string>) => {
-      const wanted = new Set(emails);
+    const execute = async (): Promise<ImportConfirmOutcome> => {
+      const { drafts, issues, existingEmails } = await validateImport(ctx.db, input.rows);
+
+      // Every issue already carries a line, so a row that failed validation is a
+      // conflict line too. `existingEmails` is the pre-check view used for the
+      // preview; it can be stale by the time the write runs.
+      const conflictingLines = new Set(issues.map((issue) => issue.lineNumber));
       for (const draft of drafts) {
-        if (wanted.has(draft.email)) conflictingLines.add(draft.lineNumber);
+        if (existingEmails.has(draft.email)) conflictingLines.add(draft.lineNumber);
       }
-      return [...conflictingLines].sort((a, b) => a - b);
+
+      const linesFor = (emails: Iterable<string>) => {
+        const wanted = new Set(emails);
+        for (const draft of drafts) {
+          if (wanted.has(draft.email)) conflictingLines.add(draft.lineNumber);
+        }
+        return [...conflictingLines].sort((a, b) => a - b);
+      };
+
+      if (issues.length === 0) {
+        const { created, conflictEmails } = await customerQueries(ctx.db).importMany(
+          drafts.map(toCustomerInsert),
+        );
+        if (conflictEmails.length === 0 && created.length === drafts.length) {
+          return { ok: true as const, created: created.length };
+        }
+        // Either the transaction's re-read or the unique index saw a conflict the
+        // pre-check could not, and the batch rolled back in full.
+        return { ok: false as const, conflictLineNumbers: linesFor(conflictEmails) };
+      }
+
+      return {
+        ok: false as const,
+        conflictLineNumbers: [...conflictingLines].sort((a, b) => a - b),
+      };
     };
 
-    if (issues.length === 0) {
-      const { created, conflictEmails } = await customerQueries(ctx.db).importMany(
-        drafts.map(toCustomerInsert),
-      );
-      if (conflictEmails.length === 0 && created.length === drafts.length) {
-        return { ok: true as const, created: created.length };
-      }
-      // Either the transaction's re-read or the unique index saw a conflict the
-      // pre-check could not, and the batch rolled back in full.
-      return { ok: false as const, conflictLineNumbers: linesFor(conflictEmails) };
+    if (!attemptKey) return await execute();
+
+    const promise = execute().then((result) => {
+      recordCompletedImport(attemptKey, result);
+      return result;
+    });
+    inFlightImports.set(attemptKey, promise);
+    try {
+      return await promise;
+    } finally {
+      inFlightImports.delete(attemptKey);
     }
-
-    return {
-      ok: false as const,
-      conflictLineNumbers: [...conflictingLines].sort((a, b) => a - b),
-    };
   }),
+
+  /**
+   * Reconciles an import confirmation attempt after a lost response or
+   * transport failure without writing any Customers.
+   */
+  importStatus: protectedProcedure
+    .input(customerImportStatusInput)
+    .mutation(async ({ ctx, input }) => {
+      const attemptKey = `${ctx.session.user.id}:${input.importId}`;
+      const inFlight = inFlightImports.get(attemptKey);
+      if (inFlight) {
+        return { status: "completed" as const, result: await inFlight };
+      }
+      const completed = getCompletedImport(attemptKey);
+      if (completed) {
+        return { status: "completed" as const, result: completed };
+      }
+      if (input.emails && input.emails.length > 0) {
+        const existing = await customerQueries(ctx.db).existingEmails(input.emails);
+        if (existing.size > 0) {
+          return { status: "ambiguous" as const, existingEmails: [...existing] };
+        }
+      }
+      return { status: "not_found" as const };
+    }),
 
   // Destructive: administrators only. Proves the role gate end to end (docs/adr/0003).
   remove: adminProcedure

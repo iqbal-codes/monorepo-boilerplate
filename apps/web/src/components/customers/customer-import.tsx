@@ -18,6 +18,7 @@ import {
   type ImportIssue,
   type ImportRecord,
 } from "@monorepo-boilerplate/ui/components/import-block";
+import { TRPCClientError } from "@trpc/client";
 import { z } from "zod";
 
 import { trpcClient } from "@/utils/trpc";
@@ -149,6 +150,14 @@ function toProcedureRows(records: readonly ImportRecord[]) {
   }));
 }
 
+const KNOWN_PREWRITE_STATUSES = new Set([400, 401, 403, 404, 413, 422]);
+
+function isKnownPreWriteRejection(error: unknown): boolean {
+  if (!(error instanceof TRPCClientError)) return false;
+  const httpStatus = (error.data as { httpStatus?: unknown } | undefined)?.httpStatus;
+  return typeof httpStatus === "number" && KNOWN_PREWRITE_STATUSES.has(httpStatus);
+}
+
 export function CustomerImport({
   onImported,
   cancelSignal,
@@ -196,13 +205,56 @@ export function CustomerImport({
         });
         return preview.issues;
       }}
-      confirm={async (records): Promise<ImportConfirmResult> => {
-        const result = await trpcClient.customers.importConfirm.mutate({
-          rows: toProcedureRows(records),
+      confirm={async (records, context): Promise<ImportConfirmResult> => {
+        try {
+          const result = await trpcClient.customers.importConfirm.mutate({
+            rows: toProcedureRows(records),
+            importId: context?.attemptId,
+          });
+          if (!result.ok) return { ok: false, conflictLineNumbers: result.conflictLineNumbers };
+          onImported(result.created);
+          return { ok: true, created: result.created };
+        } catch (error) {
+          if (isKnownPreWriteRejection(error)) {
+            return {
+              ok: false,
+              outcome: "unsaved",
+              message:
+                "The import could not be accepted and no records were saved. Review the file and try again.",
+            };
+          }
+          throw error;
+        }
+      }}
+      reconcile={async (records, { attemptId }): Promise<ImportConfirmResult> => {
+        const emails = [
+          ...new Set(records.map((record) => (record.values.email ?? "").trim()).filter(Boolean)),
+        ];
+        const status = await trpcClient.customers.importStatus.mutate({
+          importId: attemptId,
+          emails,
         });
-        if (!result.ok) return { ok: false, conflictLineNumbers: result.conflictLineNumbers };
-        onImported(result.created);
-        return { ok: true, created: result.created };
+        if (status.status === "completed") {
+          if (status.result.ok) {
+            onImported(status.result.created);
+            return { ok: true, created: status.result.created };
+          }
+          return { ok: false, conflictLineNumbers: status.result.conflictLineNumbers };
+        }
+        if (status.status === "ambiguous") {
+          return {
+            ok: false,
+            outcome: "unknown",
+            message:
+              "Matching Customer emails already exist, so this import could not be verified as unsaved. Check the Customers list before importing again.",
+          };
+        }
+        return {
+          ok: false,
+          outcome: "unsaved",
+          message:
+            "No records from this import attempt were saved. Check your connection and try again.",
+        };
       }}
     />
   );

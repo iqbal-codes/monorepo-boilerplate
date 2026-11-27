@@ -929,6 +929,78 @@ describe("ImportBlock Excel (.xlsx)", () => {
       expect(emailCell).toBeDefined();
       expect(emailCell?.className).not.toContain("truncate");
       expect(emailCell?.className).toContain("whitespace-normal");
+
+      const jumpButton = buttonByText("Jump to issues", dialog() ?? undefined);
+      expect(jumpButton).not.toBeNull();
+      await click(jumpButton);
+      expect(win.document.activeElement?.textContent).toContain("1 issue to fix");
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test("reconciles a lost confirmation response and treats unreachable confirmation as unknown outcome", async () => {
+    const cleanBytes = await buildXlsx({
+      headers: [...COLUMNS],
+      rows: [["Ada", "ada@example.test", null, null, null, null, null, null]],
+    });
+
+    const attemptIds: string[] = [];
+    let shouldReconcileFail = true;
+    let reconcileOutcome: ImportConfirmResult = { ok: true, created: 1 };
+
+    const harness = await mount({
+      contract: XLSX_CONTRACT,
+      parseXlsx: realParseXlsx,
+      validate: () => [],
+      confirm: (_records, context) => {
+        if (context?.attemptId) attemptIds.push(context.attemptId);
+        throw new Error("response dropped");
+      },
+      reconcile: (_records, context) => {
+        attemptIds.push(context.attemptId);
+        if (shouldReconcileFail) throw new Error("still offline");
+        return reconcileOutcome;
+      },
+    });
+
+    try {
+      await openDialog();
+      await chooseFile(xlsxFile(cleanBytes));
+      await settle();
+      await click(confirmButton());
+      await settle();
+
+      // While unreachable, never falsely tell the operator "Nothing was saved".
+      const text = dialogText();
+      expect(text).toContain("Import outcome unknown");
+      expect(text).not.toContain("Nothing was saved");
+      expect(confirmButton()?.disabled).toBe(true);
+
+      const checkButton = buttonByText("Check import status", dialog() ?? undefined);
+      expect(checkButton).not.toBeNull();
+
+      // Once back online, reconciling an unsaved attempt restores safe retry with the same attemptId.
+      shouldReconcileFail = false;
+      reconcileOutcome = {
+        ok: false,
+        outcome: "unsaved",
+        message:
+          "No records from this import attempt were saved. Check your connection and try again.",
+      };
+      await click(checkButton);
+      await settle();
+
+      expect(dialogText()).toContain("No records from this import attempt were saved");
+      expect(confirmButton()?.disabled).toBe(false);
+
+      // If confirmation drops its response again and reconcile finds it succeeded, dialog closes cleanly.
+      reconcileOutcome = { ok: true, created: 1 };
+      await click(confirmButton());
+      await settle();
+
+      expect(dialog()).toBeNull();
+      expect(new Set(attemptIds).size).toBe(1);
     } finally {
       await harness.cleanup();
     }

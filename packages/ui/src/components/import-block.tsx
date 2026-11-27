@@ -78,9 +78,14 @@ export type ImportIssue = {
   message: string;
 };
 
+export type ImportConfirmContext = {
+  attemptId: string;
+};
+
 export type ImportConfirmResult =
   | { ok: true; created: number }
-  | { ok: false; conflictLineNumbers: number[] };
+  | { ok: false; conflictLineNumbers: number[] }
+  | { ok: false; outcome: "unsaved" | "unknown"; message?: string };
 
 export type ImportBlockProps = {
   contract: ImportContract;
@@ -89,7 +94,18 @@ export type ImportBlockProps = {
   /** Screen-owned rules. Issues are keyed by the record's original line. */
   validate: (records: ImportRecord[]) => ImportIssue[] | Promise<ImportIssue[]>;
   /** Screen-owned write. Returning `ok: false` keeps the preview open. */
-  confirm: (records: ImportRecord[]) => ImportConfirmResult | Promise<ImportConfirmResult>;
+  confirm: (
+    records: ImportRecord[],
+    context?: ImportConfirmContext,
+  ) => ImportConfirmResult | Promise<ImportConfirmResult>;
+  /**
+   * Reconciles a confirmation attempt when a transport failure leaves the
+   * outcome uncertain. Returning `null` keeps the outcome unverified.
+   */
+  reconcile?: (
+    records: ImportRecord[],
+    context: ImportConfirmContext,
+  ) => ImportConfirmResult | null | Promise<ImportConfirmResult | null>;
   parse?: CsvParser;
   parseXlsx?: XlsxParser;
   cancelSignal?: AbortSignal;
@@ -185,7 +201,14 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-type Phase = "choose" | "parsing" | "validating" | "preview" | "pending";
+type Phase =
+  | "choose"
+  | "parsing"
+  | "validating"
+  | "preview"
+  | "pending"
+  | "reconciling"
+  | "unverified";
 
 type ImportState = {
   phase: Phase;
@@ -213,11 +236,15 @@ const INITIAL_STATE: ImportState = {
 const UNREPORTED_CONFLICT =
   "The import could not be completed and no rows were saved, but the conflicting records could not be identified. Choose the file again to re-check every row.";
 
+const UNKNOWN_OUTCOME_MESSAGE =
+  "The confirmation response was lost or the server could not be reached, so it is unclear whether these records were saved. Check the Customers list before importing again, or check the import status once your connection returns.";
+
 export function ImportBlock({
   contract,
   defaults,
   validate,
   confirm,
+  reconcile,
   parse = parseInWorker,
   parseXlsx = parseXlsxInWorker,
   cancelSignal,
@@ -235,14 +262,19 @@ export function ImportBlock({
   const open = isControlled ? controlledOpen : internalOpen;
   const [state, setState] = React.useState<ImportState>(INITIAL_STATE);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const issuesHeadingRef = React.useRef<HTMLDivElement>(null);
   const requestRef = React.useRef(0);
   const abortRef = React.useRef<AbortController | null>(null);
   const pendingRef = React.useRef(false);
   const wasOpenRef = React.useRef(open);
+  const attemptIdRef = React.useRef<string | null>(null);
   const xlsxEnabled = Boolean(contract.xlsxFilename);
 
   const busy =
-    state.phase === "parsing" || state.phase === "validating" || state.phase === "pending";
+    state.phase === "parsing" ||
+    state.phase === "validating" ||
+    state.phase === "pending" ||
+    state.phase === "reconciling";
 
   const invalidate = React.useCallback(() => {
     requestRef.current += 1;
@@ -255,6 +287,7 @@ export function ImportBlock({
   const reset = React.useCallback(() => {
     invalidate();
     pendingRef.current = false;
+    attemptIdRef.current = null;
     setState(INITIAL_STATE);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [invalidate]);
@@ -407,6 +440,7 @@ export function ImportBlock({
       }
       if (requestRef.current !== token) return;
 
+      attemptIdRef.current = crypto.randomUUID();
       setState({
         phase: "preview",
         fileName: file.name,
@@ -419,19 +453,113 @@ export function ImportBlock({
     [contract.columns, defaults, invalidate, parse, parseXlsx, validate, xlsxEnabled],
   );
 
+  const applyConfirmResult = React.useCallback(
+    (result: ImportConfirmResult) => {
+      if (result.ok) {
+        handleOpenChange(false);
+        return;
+      }
+
+      if ("outcome" in result) {
+        if (result.outcome === "unknown") {
+          setState((previous) => ({
+            ...previous,
+            phase: "unverified",
+            error: result.message ?? UNKNOWN_OUTCOME_MESSAGE,
+          }));
+          return;
+        }
+        setState((previous) => ({
+          ...previous,
+          phase: "preview",
+          error:
+            result.message ??
+            "No records from this import attempt were saved. Check your connection and try again.",
+        }));
+        return;
+      }
+
+      attemptIdRef.current = crypto.randomUUID();
+      if (result.conflictLineNumbers.length === 0) {
+        setState((previous) => ({
+          ...previous,
+          phase: "choose",
+          records: [],
+          issues: [],
+          error: UNREPORTED_CONFLICT,
+        }));
+        return;
+      }
+
+      setState((previous) => ({
+        ...previous,
+        phase: "preview",
+        error: null,
+        conflictLineNumbers: result.conflictLineNumbers,
+      }));
+    },
+    [handleOpenChange],
+  );
+
+  const runReconcile = React.useCallback(
+    async (records: ImportRecord[], attemptId: string, token: number) => {
+      if (!reconcile) return;
+      pendingRef.current = true;
+      setState((previous) => ({
+        ...previous,
+        phase: "reconciling",
+        error: null,
+        conflictLineNumbers: null,
+      }));
+
+      let outcome: ImportConfirmResult | null = null;
+      try {
+        outcome = await reconcile(records, { attemptId });
+      } catch {
+        outcome = null;
+      }
+
+      pendingRef.current = false;
+      if (requestRef.current !== token) return;
+
+      if (!outcome) {
+        setState((previous) => ({
+          ...previous,
+          phase: "unverified",
+          error: UNKNOWN_OUTCOME_MESSAGE,
+        }));
+        return;
+      }
+      applyConfirmResult(outcome);
+    },
+    [applyConfirmResult, reconcile],
+  );
+
   const handleConfirm = React.useCallback(async () => {
     if (state.phase !== "preview" || state.issues.length > 0) return;
     const token = requestRef.current;
     const records = state.records;
+    const attemptId = attemptIdRef.current ?? crypto.randomUUID();
+    attemptIdRef.current = attemptId;
 
     pendingRef.current = true;
-    setState((previous) => ({ ...previous, phase: "pending", conflictLineNumbers: null }));
+    setState((previous) => ({
+      ...previous,
+      phase: "pending",
+      error: null,
+      conflictLineNumbers: null,
+    }));
 
     let result: ImportConfirmResult;
     try {
-      result = await confirm(records);
+      result = await confirm(records, { attemptId });
     } catch {
       pendingRef.current = false;
+      if (requestRef.current !== token) return;
+      if (reconcile) {
+        await runReconcile(records, attemptId, token);
+        return;
+      }
       setState((previous) => ({
         ...previous,
         phase: "choose",
@@ -443,29 +571,23 @@ export function ImportBlock({
 
     pendingRef.current = false;
     if (requestRef.current !== token) return;
+    applyConfirmResult(result);
+  }, [
+    applyConfirmResult,
+    confirm,
+    reconcile,
+    runReconcile,
+    state.issues.length,
+    state.phase,
+    state.records,
+  ]);
 
-    if (result.ok) {
-      handleOpenChange(false);
-      return;
-    }
-
-    if (result.conflictLineNumbers.length === 0) {
-      setState((previous) => ({
-        ...previous,
-        phase: "choose",
-        records: [],
-        issues: [],
-        error: UNREPORTED_CONFLICT,
-      }));
-      return;
-    }
-
-    setState((previous) => ({
-      ...previous,
-      phase: "preview",
-      conflictLineNumbers: result.conflictLineNumbers,
-    }));
-  }, [confirm, handleOpenChange, state.issues.length, state.phase, state.records]);
+  const handleManualReconcile = React.useCallback(async () => {
+    if (state.phase !== "unverified" || !reconcile) return;
+    const attemptId = attemptIdRef.current ?? crypto.randomUUID();
+    attemptIdRef.current = attemptId;
+    await runReconcile(state.records, attemptId, requestRef.current);
+  }, [reconcile, runReconcile, state.phase, state.records]);
 
   const downloadCsvTemplate = React.useCallback(() => {
     triggerBlobDownload(
@@ -489,7 +611,8 @@ export function ImportBlock({
 
   const total = state.records.length;
   const sample = state.records.slice(0, sampleLimit);
-  const hasPreview = state.phase === "preview" || state.phase === "pending";
+  const hasPreview =
+    state.phase === "preview" || state.phase === "pending" || state.phase === "reconciling";
   const hasIssues = state.issues.length > 0;
   const hasConflicts = Boolean(state.conflictLineNumbers && state.conflictLineNumbers.length > 0);
   const canConfirm = state.phase === "preview" && !hasIssues;
@@ -555,7 +678,7 @@ export function ImportBlock({
                 variant="secondary"
                 size="sm"
                 className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
-                disabled={state.phase === "pending"}
+                disabled={state.phase === "pending" || state.phase === "reconciling"}
                 onClick={() => fileInputRef.current?.click()}
               >
                 {state.fileName
@@ -585,8 +708,26 @@ export function ImportBlock({
 
             {state.error && (
               <Alert variant="destructive">
-                <AlertTitle>This file cannot be imported</AlertTitle>
-                <AlertDescription>{state.error}</AlertDescription>
+                <AlertTitle>
+                  {state.phase === "unverified"
+                    ? "Import outcome unknown"
+                    : state.phase === "preview"
+                      ? "Import was not saved"
+                      : "This file cannot be imported"}
+                </AlertTitle>
+                <AlertDescription className="flex flex-col items-start gap-2">
+                  <span>{state.error}</span>
+                  {state.phase === "unverified" && reconcile && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleManualReconcile()}
+                    >
+                      Check import status
+                    </Button>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
 
@@ -601,13 +742,30 @@ export function ImportBlock({
 
             {hasPreview && total > 0 && (
               <div className="flex min-w-0 flex-col gap-2">
-                <p role="status" className="text-sm">
-                  {hasIssues
-                    ? `Import blocked: ${formatNumber(state.issues.length)} ${plural(state.issues.length, "issue", "issues")} to fix across ${formatNumber(total)} ${plural(total, "record", "records")}. Nothing has been saved.`
-                    : hasConflicts
-                      ? `${formatNumber(total)} ${plural(total, "record", "records")} checked. Review the conflict below before importing.`
-                      : `${formatNumber(total)} ${plural(total, "record", "records")} ready to import.`}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p role="status" className="text-sm">
+                    {hasIssues
+                      ? `Import blocked: ${formatNumber(state.issues.length)} ${plural(state.issues.length, "issue", "issues")} to fix across ${formatNumber(total)} ${plural(total, "record", "records")}. Nothing has been saved.`
+                      : hasConflicts
+                        ? `${formatNumber(total)} ${plural(total, "record", "records")} checked. Review the conflict below before importing.`
+                        : `${formatNumber(total)} ${plural(total, "record", "records")} ready to import.`}
+                  </p>
+                  {hasIssues && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const target = issuesHeadingRef.current;
+                        if (!target) return;
+                        target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        target.focus();
+                      }}
+                    >
+                      Jump to issues
+                    </Button>
+                  )}
+                </div>
                 <div className="flex min-w-0 flex-col gap-2 rounded-none border">
                   <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3">
                     <p className="text-xs font-semibold tracking-widest uppercase">Preview</p>
@@ -618,32 +776,34 @@ export function ImportBlock({
                         : " rows."}
                     </p>
                   </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16">Line</TableHead>
-                        {contract.columns.map((column) => (
-                          <TableHead key={column}>{column}</TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sample.map((record) => (
-                        <TableRow key={record.lineNumber}>
-                          <TableCell className="align-top tabular-nums text-muted-foreground">
-                            {record.lineNumber}
-                          </TableCell>
+                  <div className="max-h-64 overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-16">Line</TableHead>
                           {contract.columns.map((column) => (
-                            <TableCell key={column} className="align-top whitespace-normal">
-                              <div className="w-max max-w-60 break-words">
-                                {record.values[column] ?? ""}
-                              </div>
-                            </TableCell>
+                            <TableHead key={column}>{column}</TableHead>
                           ))}
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {sample.map((record) => (
+                          <TableRow key={record.lineNumber}>
+                            <TableCell className="align-top tabular-nums text-muted-foreground">
+                              {record.lineNumber}
+                            </TableCell>
+                            {contract.columns.map((column) => (
+                              <TableCell key={column} className="align-top whitespace-normal">
+                                <div className="w-max max-w-60 break-words">
+                                  {record.values[column] ?? ""}
+                                </div>
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </div>
             )}
@@ -661,7 +821,11 @@ export function ImportBlock({
 
             {hasPreview && hasIssues && (
               <div className="flex min-w-0 flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
+                <div
+                  ref={issuesHeadingRef}
+                  tabIndex={-1}
+                  className="flex flex-wrap items-center gap-2 focus:outline-none"
+                >
                   <p className="text-sm font-medium">
                     {formatNumber(state.issues.length)}{" "}
                     {plural(state.issues.length, "issue", "issues")} to fix
@@ -687,16 +851,18 @@ export function ImportBlock({
               </div>
             )}
 
-            {hasPreview && !hasIssues && !hasConflicts && (
+            {hasPreview && !hasIssues && !hasConflicts && !state.error && (
               <p className="text-sm text-muted-foreground">
                 Every row passes validation. Nothing has been saved yet.
               </p>
             )}
 
-            {state.phase === "pending" && (
+            {(state.phase === "pending" || state.phase === "reconciling") && (
               <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner aria-hidden />
-                Importing {formatNumber(total)} {plural(total, "record", "records")}…
+                {state.phase === "reconciling"
+                  ? "Checking whether the import completed…"
+                  : `Importing ${formatNumber(total)} ${plural(total, "record", "records")}…`}
               </p>
             )}
           </div>
@@ -705,7 +871,7 @@ export function ImportBlock({
             <Button
               type="button"
               variant="ghost"
-              disabled={state.phase === "pending"}
+              disabled={state.phase === "pending" || state.phase === "reconciling"}
               onClick={() => handleOpenChange(false)}
             >
               Cancel
@@ -714,18 +880,22 @@ export function ImportBlock({
               type="button"
               data-slot="import-confirm"
               disabled={!canConfirm}
-              aria-busy={state.phase === "pending"}
+              aria-busy={state.phase === "pending" || state.phase === "reconciling"}
               onClick={() => {
                 if (!canConfirm) return;
                 void handleConfirm();
               }}
             >
-              {state.phase === "pending" && <Spinner aria-hidden />}
-              {state.phase === "pending"
-                ? "Importing…"
-                : canConfirm
-                  ? `Import ${formatNumber(total)} ${plural(total, "record", "records")}`
-                  : "Import"}
+              {(state.phase === "pending" || state.phase === "reconciling") && (
+                <Spinner aria-hidden />
+              )}
+              {state.phase === "reconciling"
+                ? "Checking…"
+                : state.phase === "pending"
+                  ? "Importing…"
+                  : canConfirm
+                    ? `Import ${formatNumber(total)} ${plural(total, "record", "records")}`
+                    : "Import"}
             </Button>
           </DialogFooter>
         </DialogContent>
