@@ -929,7 +929,7 @@ function KanbanDemo() {
                 <SheetTitle>{selectedDeal.title}</SheetTitle>
                 <SheetDescription>{selectedDeal.company}</SheetDescription>
               </SheetHeader>
-              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-8 pb-8">
+              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-5 pb-5 sm:px-6 sm:pb-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted-foreground">Deal value</span>
@@ -1037,7 +1037,7 @@ function KanbanDemo() {
                 <SheetTitle>{selectedTask.title}</SheetTitle>
                 <SheetDescription>Assigned to {selectedTask.assigneeName}</SheetDescription>
               </SheetHeader>
-              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-8 pb-8">
+              <div className="flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-5 pb-5 sm:px-6 sm:pb-6">
                 <div className="flex items-center justify-between gap-2">
                   <PriorityBadge priority={selectedTask.priority} />
                   <span className="text-xs text-muted-foreground tabular-nums">

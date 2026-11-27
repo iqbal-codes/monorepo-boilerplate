@@ -648,7 +648,7 @@ export function ImportBlock({
           className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl"
         >
           <DialogHeader>
-            <DialogTitle className="pr-8">Import customers</DialogTitle>
+            <DialogTitle>Import customers</DialogTitle>
             <DialogDescription>
               Download the template, fill in one row per new Customer, and review every issue before
               anything is saved. Existing Customers are never changed.

@@ -3,10 +3,18 @@
 import * as React from "react";
 import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer";
 import { cn } from "cn";
+import { XIcon } from "lucide-react";
+
+import {
+  OverlayCloseButtonVisual,
+  OverlayHeader,
+  OverlayHeaderAction,
+} from "@monorepo-boilerplate/ui/components/overlay-header";
 
 type DrawerContextProps = {
   hasSnapPoints: boolean;
   modal: DrawerPrimitive.Root.Props["modal"];
+  showCloseButton: boolean;
   showSwipeHandle: boolean;
   swipeDirection: NonNullable<DrawerPrimitive.Root.Props["swipeDirection"]>;
 };
@@ -34,7 +42,7 @@ function Drawer({
 }) {
   const hasSnapPoints = snapPoints != null && snapPoints.length > 0;
   const contextValue = React.useMemo(
-    () => ({ hasSnapPoints, modal, showSwipeHandle, swipeDirection }),
+    () => ({ hasSnapPoints, modal, showCloseButton: false, showSwipeHandle, swipeDirection }),
     [hasSnapPoints, modal, showSwipeHandle, swipeDirection],
   );
 
@@ -90,9 +98,21 @@ function DrawerSwipeHandle({ className, ...props }: React.ComponentProps<"div">)
   );
 }
 
-function DrawerContent({ className, children, ...props }: DrawerPrimitive.Popup.Props) {
-  const { hasSnapPoints, modal, showSwipeHandle, swipeDirection } = useDrawer();
+function DrawerContent({
+  className,
+  children,
+  showCloseButton = false,
+  ...props
+}: DrawerPrimitive.Popup.Props & {
+  showCloseButton?: boolean;
+}) {
+  const drawerContext = useDrawer();
+  const { hasSnapPoints, modal, showSwipeHandle, swipeDirection } = drawerContext;
   const swipeAxis = swipeDirection === "down" || swipeDirection === "up" ? "y" : "x";
+  const contentContextValue = React.useMemo(
+    () => ({ ...drawerContext, showCloseButton }),
+    [drawerContext, showCloseButton],
+  );
 
   return (
     <DrawerPortal data-slot="drawer-portal">
@@ -139,10 +159,19 @@ function DrawerContent({ className, children, ...props }: DrawerPrimitive.Popup.
           <DrawerPrimitive.Content
             data-slot="drawer-content"
             className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain rounded-[inherit] transition-opacity duration-300 ease-[cubic-bezier(0.45,1.005,0,1.005)] select-text group-data-nested-drawer-open/drawer-popup:opacity-0 group-data-nested-drawer-swiping/drawer-popup:opacity-100 group-data-swiping/drawer-popup:select-none",
+              "relative flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain rounded-[inherit] transition-opacity duration-300 ease-[cubic-bezier(0.45,1.005,0,1.005)] select-text group-data-nested-drawer-open/drawer-popup:opacity-0 group-data-nested-drawer-swiping/drawer-popup:opacity-100 group-data-swiping/drawer-popup:select-none",
             )}
           >
-            {children}
+            <DrawerContext.Provider value={contentContextValue}>{children}</DrawerContext.Provider>
+            {showCloseButton && (
+              <DrawerPrimitive.Close
+                data-slot="drawer-close"
+                render={<OverlayCloseButtonVisual surface="drawer" />}
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </DrawerPrimitive.Close>
+            )}
           </DrawerPrimitive.Content>
         </DrawerPrimitive.Popup>
       </DrawerPrimitive.Viewport>
@@ -151,13 +180,20 @@ function DrawerContent({ className, children, ...props }: DrawerPrimitive.Popup.
 }
 
 function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
+  const { showCloseButton } = useDrawer();
+
   return (
-    <div
-      data-slot="drawer-header"
-      className={cn("flex shrink-0 flex-col gap-1 p-4 pb-0 text-start md:gap-2", className)}
+    <OverlayHeader
+      surface="drawer"
+      hasCloseButton={showCloseButton}
+      className={className}
       {...props}
     />
   );
+}
+
+function DrawerAction({ className, ...props }: React.ComponentProps<"div">) {
+  return <OverlayHeaderAction surface="drawer" className={className} {...props} />;
 }
 
 function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
@@ -178,7 +214,7 @@ function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
     <DrawerPrimitive.Title
       data-slot="drawer-title"
       className={cn(
-        "font-heading text-lg font-semibold tracking-wider text-foreground uppercase",
+        "min-w-0 font-heading text-lg leading-snug font-semibold tracking-wider text-foreground uppercase",
         className,
       )}
       {...props}
@@ -190,7 +226,10 @@ function DrawerDescription({ className, ...props }: DrawerPrimitive.Description.
   return (
     <DrawerPrimitive.Description
       data-slot="drawer-description"
-      className={cn("mt-0.5 text-sm leading-relaxed text-balance text-muted-foreground", className)}
+      className={cn(
+        "mt-0.5 min-w-0 text-sm leading-relaxed text-balance text-muted-foreground",
+        className,
+      )}
       {...props}
     />
   );
@@ -198,6 +237,7 @@ function DrawerDescription({ className, ...props }: DrawerPrimitive.Description.
 
 export {
   Drawer,
+  DrawerAction,
   DrawerPortal,
   DrawerOverlay,
   DrawerSwipeHandle,
