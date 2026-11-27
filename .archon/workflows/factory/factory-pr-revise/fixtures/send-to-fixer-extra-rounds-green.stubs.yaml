@@ -1,0 +1,153 @@
+# Escalation path on PR revise: 2 rounds exhausted -> operator selects send-to-fixer -> extra-rounds passes -> finalize + merge.
+fixture:
+  expect: completed
+  inputs:
+    pr: "26"
+    merge_mode: auto
+
+fetch-pr-feedback:
+  ready: true
+  cancel_reason: ""
+  repo: owner/repo
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  issue_number: 11
+  title: "Fix pagination offset"
+  slice_id: ""
+  phase: ""
+  risk_tier: standard
+  review_mode: standard
+  has_ui: false
+  run_ux: false
+  preview_cmd: ""
+  base_branch: main
+  base_sha: "1111111111111111111111111111111111111111"
+  branch_name: factory/issue-11-fix-pagination
+  verification_command: "npm test"
+  allowed_folders: ["src/api/"]
+  forbidden_paths: ["package.json"]
+  contract_path: "/tmp/contract.md"
+  feedback_path: "/tmp/pr-feedback.md"
+  before_summary: "PR #26 base main @ 1111111."
+  feedback_summary: "0 review(s), 0 inline comment(s), 1 directive(s)"
+
+revise:
+  done: true
+  blocked: false
+  summary: "Initial revision."
+
+push-revise:
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  head_sha: "4444444444444444444444444444444444444444"
+  diff_stat: "2 files changed, 22 insertions(+)"
+  is_draft: false
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Pushed revision commit 4444444 to PR #26."
+
+qa__mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "2 files changed, 22 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+qa__review-code:
+  lgtm: false
+  blocking_count: 1
+  summary: "Missing clamp test."
+
+qa__verdict:
+  round: 2
+  done: false
+  ready: false
+  effective_has_ui: false
+  reason: review_findings
+  diff_stat: "2 files changed, 22 insertions(+)"
+  summary: "Round findings open."
+
+escalation-prompt:
+  posted: true
+  attention_note: "Read round-feedback.md before deciding."
+  summary: "escalation prompt posted to PR #26"
+
+escalate-rounds:
+  decision: send-to-fixer
+  text: "Add negative page offset clamp test."
+
+extra-fix:
+  done: true
+  blocked: false
+  summary: "Added clamp test."
+
+extra-push-fix:
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  head_sha: "5555555555555555555555555555555555555555"
+  diff_stat: "2 files changed, 30 insertions(+)"
+  is_draft: false
+  merge_action: pr-only
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "Pushed extra round fix."
+
+extra-qa__mechanical-gate:
+  passed: true
+  boundary_ok: true
+  checks_ok: true
+  effective_has_ui: false
+  effective_run_ux: false
+  preview_cmd: ""
+  diff_stat: "2 files changed, 30 insertions(+)"
+  summary: "boundary clean & checks passed"
+
+extra-qa__review-code:
+  lgtm: true
+  blocking_count: 0
+  summary: "LGTM"
+
+extra-qa__verdict:
+  round: 3
+  done: true
+  ready: true
+  effective_has_ui: false
+  reason: ready
+  diff_stat: "2 files changed, 30 insertions(+)"
+  summary: "Round 3 passed."
+
+rounds-gate:
+  finalize: true
+  effective_ready: true
+  effective_reason: ready
+  effective_summary: "Round 3 passed."
+  effective_round: 3
+  effective_diff_stat: "2 files changed, 30 insertions(+)"
+  effective_has_ui: false
+
+finalize-pr:
+  pr_number: 26
+  pr_url: "https://github.com/owner/repo/pull/26"
+  head_sha: "5555555555555555555555555555555555555555"
+  diff_stat: "2 files changed, 30 insertions(+)"
+  is_draft: false
+  merge_action: auto
+  needs_human_merge_approval: false
+  approval_message: ""
+  summary: "PR #26 ready."
+
+ci-merge:
+  merged: true
+  ci_status: green
+  summary: "Squash-merged PR #26."
+
+summary:
+  delivered: true
+  merged: true
+  pr_url: "https://github.com/owner/repo/pull/26"
+  status: merged
+  summary: "PR #26 merged."

@@ -227,6 +227,7 @@ nodes:
       rounds_summary: ""
       impl_summary: "$implement.output.summary"
       round: "1"
+      fallback_round: ""
       diff_stat: ""
       merge_mode: "$INPUTS.merge_mode"
     output_format:
@@ -270,7 +271,7 @@ nodes:
       nodes:
         - id: fix
           command: fix
-          model: medium
+          model: large
           context: fresh
           skills:
             - { name: agent-browser, optional: true }
@@ -287,6 +288,7 @@ nodes:
             allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
             forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
             prev_summary: "$LOOP_PREV.qa.output.summary"
+            operator_guidance: ""
           output_format:
             type: object
             properties:
@@ -323,6 +325,7 @@ nodes:
             rounds_summary: ""
             impl_summary: "$fix.output.summary"
             round: "$LOOP_PREV.qa.output.round"
+            fallback_round: ""
             diff_stat: ""
             merge_mode: "$INPUTS.merge_mode"
           output_format:
@@ -382,10 +385,12 @@ nodes:
       pr_number: "$publish-draft-pr.output.pr_number"
       reason: "$rounds.output.reason"
       summary: "$rounds.output.summary"
+      allow_fix: "true"
     output_format:
       type: object
       properties:
         posted: { type: boolean }
+        attention_note: { type: string }
         summary: { type: string }
       required: [posted, summary]
 
@@ -398,10 +403,12 @@ nodes:
         Slice "$fetch-contract.output.title" (Draft PR $publish-draft-pr.output.pr_url) did not reach green LGTM ($rounds.output.reason).
         Summary: $rounds.output.summary
 
-        Reason `implement_blocked` is a scope blocker: the work needs a path outside the reserved folders, and the fixer cannot widen the reservation itself.
-        Read round-feedback.md and mechanical-gate.md in this run's artifacts before deciding.
+        $escalation-prompt.output.attention_note
       form: select
       options:
+        - id: send-to-fixer
+          label: "Send instructions to fixer & run another round"
+          does: "Runs up to 2 more fix -> QA rounds using your optional instructions text as guidance."
         - id: leave-open
           label: "Keep the Draft PR for manual follow-up"
           does: "Ends the run after finalizing the PR body and evidence; nothing merges. Use when the remaining work is small enough to finish by hand."
@@ -422,27 +429,209 @@ nodes:
     when: "$escalate-rounds.output.decision == 'cancel'"
     cancel: "Cancelled after QA round escalation: $escalate-rounds.output.text"
 
+  # Post-escalation targeted fix + QA rounds when operator sends instructions to the fixer.
+  - id: extra-rounds
+    depends_on: [escalate-rounds]
+    when: "$escalate-rounds.output.decision == 'send-to-fixer'"
+    loop_group:
+      max_iterations: 2
+      on_exhausted: complete
+      until_bash: |
+        done=$extra-qa.output.done
+        test "$done" = "true"
+      nodes:
+        - id: extra-fix
+          command: fix
+          model: large
+          context: fresh
+          skills:
+            - { name: agent-browser, optional: true }
+            - { name: shadcn, optional: true }
+            - { name: modern-web-guidance, optional: true }
+            - { name: better-interface, optional: true }
+            - { name: assistant-ui, optional: true }
+          with:
+            contract_path: "$fetch-contract.output.contract_path"
+            verification_command: "$fetch-contract.output.verification_command"
+            has_ui: "$fetch-contract.output.has_ui"
+            preview_cmd: "$fetch-contract.output.preview_cmd"
+            allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+            forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+            prev_summary: "$LOOP_PREV.extra-qa.output.summary"
+            operator_guidance: "$escalate-rounds.output.text"
+          output_format:
+            type: object
+            properties:
+              done: { type: boolean }
+              blocked: { type: boolean }
+              summary: { type: string }
+            required: [done, blocked, summary]
+
+        - id: extra-push-fix
+          script: publish-pr
+          runtime: bun
+          depends_on: [extra-fix]
+          when: "$extra-fix.output.blocked == false"
+          with:
+            mode: "sync"
+            repo: "$fetch-contract.output.repo"
+            issue_number: "$fetch-contract.output.issue_number"
+            title: "$fetch-contract.output.title"
+            slice_id: "$fetch-contract.output.slice_id"
+            phase: "$fetch-contract.output.phase"
+            risk_tier: "$fetch-contract.output.risk_tier"
+            has_ui: "$fetch-contract.output.has_ui"
+            base_branch: "$fetch-contract.output.base_branch"
+            base_sha: "$fetch-contract.output.base_sha"
+            allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+            exclusive: "$INPUTS.exclusive"
+            forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+            run_id: "$WORKFLOW_ID"
+            branch_name: "$fetch-contract.output.branch_name"
+            before_summary: "$fetch-contract.output.before_summary"
+            before_capture_summary: { from: "$capture-before.output.summary", if_skipped: null }
+            rounds_ready: "false"
+            rounds_reason: ""
+            rounds_summary: ""
+            impl_summary: "$extra-fix.output.summary"
+            round: "$LOOP_PREV.extra-qa.output.round"
+            fallback_round: "$rounds.output.round"
+            diff_stat: ""
+            merge_mode: "$INPUTS.merge_mode"
+          output_format:
+            type: object
+            properties:
+              pr_number: { type: integer }
+              pr_url: { type: string }
+              head_sha: { type: string }
+              diff_stat: { type: string }
+              is_draft: { type: boolean }
+              merge_action: { type: string, enum: [auto, ask, pr-only] }
+              needs_human_merge_approval: { type: boolean }
+              approval_message: { type: string }
+              summary: { type: string }
+            required:
+              - pr_number
+              - pr_url
+              - head_sha
+              - diff_stat
+              - is_draft
+              - merge_action
+              - needs_human_merge_approval
+              - approval_message
+              - summary
+
+        - id: extra-qa
+          include: factory-qa
+          depends_on: [extra-fix, extra-push-fix]
+          trigger_rule: all_done
+          with:
+            base_sha: "$fetch-contract.output.base_sha"
+            verification_command: "$fetch-contract.output.verification_command"
+            allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
+            forbidden_paths: { from: "$fetch-contract.output.forbidden_paths" }
+            contract_has_ui: "$fetch-contract.output.has_ui"
+            preview_cmd: "$fetch-contract.output.preview_cmd"
+            contract_path: "$fetch-contract.output.contract_path"
+            review_mode: "$fetch-contract.output.review_mode"
+            repo: "$fetch-contract.output.repo"
+            issue_number: "$fetch-contract.output.issue_number"
+            pr_number: "$publish-draft-pr.output.pr_number"
+            previous_round: "$LOOP_PREV.extra-qa.output.round"
+            fallback_previous_round: "$rounds.output.round"
+            fix_blocked: { from: "$extra-fix.output.blocked", if_skipped: false }
+            fix_summary: { from: "$extra-fix.output.summary", if_skipped: "" }
+
+  - id: escalation-prompt-final
+    script: escalation-prompt
+    runtime: bun
+    depends_on: [extra-rounds]
+    when: "$escalate-rounds.output.decision == 'send-to-fixer' && $extra-rounds.output.ready == false"
+    with:
+      repo: "$fetch-contract.output.repo"
+      pr_number: "$publish-draft-pr.output.pr_number"
+      reason: "$extra-rounds.output.reason"
+      summary: "$extra-rounds.output.summary"
+      allow_fix: "false"
+    output_format:
+      type: object
+      properties:
+        posted: { type: boolean }
+        attention_note: { type: string }
+        summary: { type: string }
+      required: [posted, summary]
+
+  - id: escalate-final
+    depends_on: [extra-rounds, escalation-prompt-final]
+    when: "$escalate-rounds.output.decision == 'send-to-fixer' && $extra-rounds.output.ready == false"
+    wait:
+      attention: |
+        Slice "$fetch-contract.output.title" (Draft PR $publish-draft-pr.output.pr_url) did not reach green LGTM after extra fixer rounds ($extra-rounds.output.reason).
+        Summary: $extra-rounds.output.summary
+
+        $escalation-prompt-final.output.attention_note
+      form: select
+      options:
+        - id: leave-open
+          label: "Keep the Draft PR for manual follow-up"
+          does: "Ends the run after finalizing the PR body and evidence; nothing merges. Use when the remaining work is small enough to finish by hand."
+        - id: widen-reservation
+          label: "Widen the reservation, then re-run"
+          does: "Ends the run untouched. You add the needed folder to `**Allowed Folders:**` (or the `allowed_folders` input) and start a new run; the reservation is re-checked against other live runs."
+        - id: split-slice
+          label: "Split the out-of-scope work into another slice"
+          does: "Ends the run untouched. You file the extra work as its own slice, then re-run this one with its reservation unchanged."
+        - id: cancel
+          label: "Cancel this run"
+          does: "Cancels the run. The branch and Draft PR stay on disk for you to delete or keep."
+      labels:
+        factory: "escalated"
+
+  - id: cancel-final
+    depends_on: [escalate-final]
+    when: "$escalate-final.output.decision == 'cancel'"
+    cancel: "Cancelled after extra QA round escalation: $escalate-final.output.text"
+
   # Typed decision gate: a skipped loop_group has no output, so finalize-pr must not
-  # dot-access it. Resolve readiness here and gate finalize-pr on this node.
+  # dot-access it. Resolve readiness and effective loop outputs here.
   - id: rounds-gate
     script: rounds-gate
     runtime: bun
-    depends_on: [rounds, escalate-rounds]
+    depends_on: [rounds, escalate-rounds, extra-rounds, escalate-final]
     trigger_rule: all_done
     with:
       rounds_ready: { from: "$rounds.output.ready", if_skipped: false }
+      rounds_reason: { from: "$rounds.output.reason", if_skipped: "" }
+      rounds_summary: { from: "$rounds.output.summary", if_skipped: "" }
+      rounds_round: { from: "$rounds.output.round", if_skipped: 0 }
+      rounds_diff_stat: { from: "$rounds.output.diff_stat", if_skipped: "" }
+      rounds_has_ui: { from: "$rounds.output.effective_has_ui", if_skipped: false }
       escalation_decision: { from: "$escalate-rounds.output.decision", if_skipped: "" }
+      extra_ran: { from: "$extra-rounds.output.ready", if_skipped: null }
+      extra_ready: { from: "$extra-rounds.output.ready", if_skipped: false }
+      extra_reason: { from: "$extra-rounds.output.reason", if_skipped: "" }
+      extra_summary: { from: "$extra-rounds.output.summary", if_skipped: "" }
+      extra_round: { from: "$extra-rounds.output.round", if_skipped: 0 }
+      extra_diff_stat: { from: "$extra-rounds.output.diff_stat", if_skipped: "" }
+      extra_has_ui: { from: "$extra-rounds.output.effective_has_ui", if_skipped: false }
+      final_decision: { from: "$escalate-final.output.decision", if_skipped: "" }
     output_format:
       type: object
       properties:
         finalize: { type: boolean }
+        effective_ready: { type: boolean }
+        effective_reason: { type: string }
+        effective_summary: { type: string }
+        effective_round: { type: integer }
+        effective_diff_stat: { type: string }
+        effective_has_ui: { type: boolean }
       required: [finalize]
 
   # Stage 4: Finalize PR body, embed pr-evidence PNGs, mark Ready for Review, and evaluate merge policy.
   - id: finalize-pr
     script: publish-pr
     runtime: bun
-    depends_on: [fetch-contract, capture-before, publish-draft-pr, rounds, escalate-rounds, rounds-gate]
+    depends_on: [fetch-contract, capture-before, publish-draft-pr, rounds, escalate-rounds, extra-rounds, escalate-final, rounds-gate]
     trigger_rule: none_failed_min_one_success
     when: "$rounds-gate.output.finalize == true"
     with:
@@ -453,7 +642,7 @@ nodes:
       slice_id: "$fetch-contract.output.slice_id"
       phase: "$fetch-contract.output.phase"
       risk_tier: "$fetch-contract.output.risk_tier"
-      has_ui: "$rounds.output.effective_has_ui"
+      has_ui: "$rounds-gate.output.effective_has_ui"
       base_branch: "$fetch-contract.output.base_branch"
       base_sha: "$fetch-contract.output.base_sha"
       allowed_folders: { from: "$fetch-contract.output.allowed_folders" }
@@ -463,12 +652,13 @@ nodes:
       branch_name: "$fetch-contract.output.branch_name"
       before_summary: "$fetch-contract.output.before_summary"
       before_capture_summary: { from: "$capture-before.output.summary", if_skipped: null }
-      rounds_ready: "$rounds.output.ready"
-      rounds_reason: "$rounds.output.reason"
-      rounds_summary: "$rounds.output.summary"
+      rounds_ready: "$rounds-gate.output.effective_ready"
+      rounds_reason: "$rounds-gate.output.effective_reason"
+      rounds_summary: "$rounds-gate.output.effective_summary"
       impl_summary: ""
-      round: "$rounds.output.round"
-      diff_stat: "$rounds.output.diff_stat"
+      round: "$rounds-gate.output.effective_round"
+      fallback_round: ""
+      diff_stat: "$rounds-gate.output.effective_diff_stat"
       merge_mode: "$INPUTS.merge_mode"
     output_format:
       type: object
@@ -535,13 +725,13 @@ nodes:
   - id: summary
     script: summary
     runtime: bun
-    depends_on: [escalate-blocked, finalize-pr, merge-approval, ci-merge, ci-escalation]
+    depends_on: [escalate-blocked, rounds-gate, finalize-pr, merge-approval, ci-merge, ci-escalation]
     trigger_rule: none_failed_min_one_success
     with:
       pr_url: { from: "$finalize-pr.output.pr_url", if_skipped: null }
       impl_blocked: "$implement.output.blocked"
       impl_summary: "$implement.output.summary"
-      rounds_ready: { from: "$rounds.output.ready", if_skipped: null }
+      rounds_ready: { from: "$rounds-gate.output.effective_ready", if_skipped: null }
       merge_decision: { from: "$merge-approval.output.decision", if_skipped: null }
       merged: { from: "$ci-merge.output.merged", if_skipped: null }
       ci_status: { from: "$ci-merge.output.ci_status", if_skipped: null }

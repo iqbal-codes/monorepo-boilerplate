@@ -21,7 +21,9 @@ import {
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
 mkdirSync(artifactsDir, { recursive: true });
 
-const prevRound = Number.parseInt(text(process.env.INPUTS_PREVIOUS_ROUND), 10);
+const prevRoundRaw =
+  text(process.env.INPUTS_PREVIOUS_ROUND) || text(process.env.INPUTS_FALLBACK_PREVIOUS_ROUND);
+const prevRound = Number.parseInt(prevRoundRaw, 10);
 const round = (Number.isNaN(prevRound) ? 0 : prevRound) + 1;
 
 const repo = text(process.env.INPUTS_REPO);
@@ -199,12 +201,33 @@ function mergeQaTestCasesLedger() {
   writeFileSync(ledgerPath, lines.join('\n'), 'utf8');
   return lines.flatMap((line) => {
     const row = line.match(ledgerRow);
-    return row ? [{ id: row[1]!.toUpperCase(), status: row[3]!.trim().toUpperCase(), note: row[4]! }] : [];
+    return row
+      ? [
+          {
+            id: row[1]!.toUpperCase(),
+            description: row[2]!.trim(),
+            status: row[3]!.trim().toUpperCase(),
+            note: row[4]!,
+          },
+        ]
+      : [];
   });
 }
 
 const cases = mergeQaTestCasesLedger();
 const incompleteCases = cases.filter((item) => item.status !== 'PASS');
+const passedExploratoryInvariants = cases
+  .filter((item) => item.status === 'PASS' && /^TC-R1-/i.test(item.id))
+  .map((item) => {
+    const desc = item.description.replace(/^\[Round 1 Exploratory\]\s*/i, '').trim();
+    const detail =
+      item.note && item.note !== '—' && !/^Round \d+$/i.test(item.note)
+        ? `${desc} (${item.note})`
+        : desc;
+    const clipped = detail.length > 140 ? `${detail.slice(0, 137)}...` : detail;
+    return `- \`${item.id}\` (invariant): ${clipped}`;
+  });
+const priorVerifiedClean = [...cleanBullets, ...passedExploratoryInvariants];
 const missingLedger = Boolean(text(process.env.INPUTS_CONTRACT_PATH)) && cases.length === 0;
 if (reviewsRan) {
   if (missingLedger) {
@@ -302,7 +325,7 @@ const feedbackMd = [
   ...(openHandoffItems.length > 0 ? openHandoffItems : ['- None.']),
   '',
   '### Prior Verified Clean (Re-audit Only If Touched by Delta)',
-  ...(cleanBullets.length > 0 ? cleanBullets : ['- None recorded.']),
+  ...(priorVerifiedClean.length > 0 ? priorVerifiedClean : ['- None recorded.']),
 ].join('\n');
 
 writeFileSync(join(artifactsDir, 'round-feedback.md'), feedbackMd, 'utf8');
