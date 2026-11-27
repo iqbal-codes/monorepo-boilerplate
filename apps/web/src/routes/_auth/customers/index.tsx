@@ -246,7 +246,11 @@ function CustomersScreen() {
                 }}
               />
               <ExportButton
-                label="Export CSV"
+                label="Export"
+                formats={[
+                  { format: "xlsx", label: "Excel (.xlsx)" },
+                  { format: "csv", label: "CSV (.csv)" },
+                ]}
                 buttonClassName="flex-1 sm:flex-none"
                 describedById={exportHintId}
                 onFeedbackChange={setExportFeedback}
@@ -272,7 +276,7 @@ function CustomersScreen() {
               </Button>
             </div>
             <p id={exportHintId} className="text-xs text-muted-foreground sm:text-end">
-              CSV escaping may change literal text.
+              Excel preserves literal text and balances; CSV escaping may change literal text.
             </p>
             <p
               role="status"

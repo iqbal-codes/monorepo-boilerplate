@@ -16,11 +16,32 @@
  */
 import * as React from "react";
 import { cn } from "cn";
-import { DownloadIcon } from "lucide-react";
+import { ChevronDownIcon, DownloadIcon } from "lucide-react";
 
 import { Button } from "@monorepo-boilerplate/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@monorepo-boilerplate/ui/components/dropdown-menu";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
-import type { CsvExportHttpRequest, CsvExportRequest, CsvExportResponse } from "./export/csv";
+import type {
+  CsvExportHttpRequest,
+  CsvExportRequest,
+  CsvExportResponse,
+  ExportFormat,
+} from "./export/csv";
+
+export type { ExportFormat };
+
+export type ExportFormatOption = {
+  format: ExportFormat;
+  label: React.ReactNode;
+  /** Optional per-format filename provider; falls back to `getFilename(activatedAt, format)`. */
+  getFilename?: (activatedAt: Date) => string;
+};
 
 export type ExportHttpSource = CsvExportHttpRequest & {
   kind: "http";
@@ -51,8 +72,13 @@ export type ExportFeedback = {
  */
 const FALLBACK_ERROR = "Could not prepare the export. Check your connection and try again.";
 
+function exportFormatLabel(format: ExportFormat): string {
+  return format === "xlsx" ? "Excel" : "CSV";
+}
+
 export function ExportButton({
   label,
+  formats,
   getFilename,
   fetchExport,
   hint,
@@ -65,8 +91,10 @@ export function ExportButton({
   buttonClassName,
 }: {
   label: React.ReactNode;
+  /** Optional format choices rendered as a dropdown menu instead of a one-tap button. */
+  formats?: readonly ExportFormatOption[];
   /** Called once per activation; the returned name is never recomputed mid-run. */
-  getFilename: (activatedAt: Date) => string;
+  getFilename: (activatedAt: Date, format: ExportFormat) => string;
   /**
    * Screen-owned data access. Resolves either with the opaque payload string or
    * with an HTTP descriptor so the worker receives and decodes the response off
@@ -95,6 +123,7 @@ export function ExportButton({
   buttonClassName?: string;
 }) {
   const [busy, setBusy] = React.useState(false);
+  const [menuOpen, setMenuOpen] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const hintId = React.useId();
@@ -188,13 +217,18 @@ export function ExportButton({
     };
   }, [cancelRun, revokeAllUrls]);
 
-  async function start() {
+  async function start(
+    format: ExportFormat = "csv",
+    optionGetFilename?: (activatedAt: Date) => string,
+  ) {
     if (inFlight.current || disabled || cancelSignalRef.current?.aborted) return;
     inFlight.current = true;
+    setMenuOpen(false);
     setBusy(true);
     setError(null);
     setMessage("Preparing the export.");
 
+    const formatName = exportFormatLabel(format);
     const controller = new AbortController();
     abortRef.current = controller;
     /** True when this run may still deliver a file for the Screen. */
@@ -204,7 +238,9 @@ export function ExportButton({
     try {
       // The Screen owns the filename policy, so a throwing provider is a normal
       // failure: it must settle the control and offer a retry, not strand it.
-      const filename = getFilename(new Date());
+      const filename = optionGetFilename
+        ? optionGetFilename(new Date())
+        : getFilename(new Date(), format);
       const source = await fetchExport(controller.signal);
       if (!isActive()) {
         cancelRun();
@@ -217,7 +253,7 @@ export function ExportButton({
       workerRef.current = worker;
       workerPhaseRef.current = typeof source === "string" ? "generating" : "loading";
       if (typeof source === "string") {
-        setMessage("Generating the CSV file.");
+        setMessage(`Generating the ${formatName} file.`);
       }
 
       worker.onmessage = (event) => {
@@ -226,7 +262,7 @@ export function ExportButton({
         if (response.type === "stage") {
           workerPhaseRef.current = response.stage;
           if (response.stage === "generating" && isActive()) {
-            setMessage("Generating the CSV file.");
+            setMessage(`Generating the ${formatName} file.`);
           }
           return;
         }
@@ -255,7 +291,7 @@ export function ExportButton({
         if (response.type === "aborted") {
           return;
         }
-        setError(`Could not prepare the CSV file. ${response.message} Try again.`);
+        setError(`Could not prepare the ${formatName} file. ${response.message} Try again.`);
       };
       worker.onerror = () => {
         if (workerRef.current !== worker) return;
@@ -266,14 +302,16 @@ export function ExportButton({
         setError(FALLBACK_ERROR);
       };
 
+      const formatField = format === "xlsx" ? { format } : {};
       if (typeof source === "string") {
-        worker.postMessage({ payload: source, filename });
+        worker.postMessage({ payload: source, filename, ...formatField });
       } else {
         const { url, credentials, headers, payloadPath } = source;
         worker.postMessage({
           type: "http",
           request: { url, credentials, headers, payloadPath },
           filename,
+          ...formatField,
         });
       }
     } catch (cause) {
@@ -329,34 +367,67 @@ export function ExportButton({
     });
   }, [busy, busyLabel, message, error]);
 
-  const button = (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      className={buttonClassName}
-      // Busy is a disabled state for assistive tech and for the click handler,
-      // but the control stays focusable so a keyboard user lands back on the
-      // Export action for an immediate retry. The guarded click handler above
-      // is what actually prevents overlapping exports. A Screen-set `disabled`
-      // is a real disabled state and does drop out of the tab order.
-      disabled={disabled || busy}
-      focusableWhenDisabled={busy && !disabled}
-      aria-busy={busy || undefined}
-      aria-describedby={hint ? hintId : describedById}
-      onClick={() => void start()}
+  const hasFormats = Boolean(formats && formats.length > 0);
+  const triggerIcon = busy ? (
+    <Spinner data-icon="inline-start" aria-hidden />
+  ) : (
+    <DownloadIcon data-icon="inline-start" aria-hidden />
+  );
+
+  const buttonProps = {
+    type: "button" as const,
+    size: "sm" as const,
+    variant: "outline" as const,
+    className: buttonClassName,
+    // Busy is a disabled state for assistive tech and for the click handler,
+    // but the control stays focusable so a keyboard user lands back on the
+    // Export action for an immediate retry. The guarded click handler above
+    // is what actually prevents overlapping exports. A Screen-set `disabled`
+    // is a real disabled state and does drop out of the tab order.
+    disabled: disabled || busy,
+    focusableWhenDisabled: busy && !disabled,
+    "aria-busy": busy || undefined,
+    "aria-describedby": hint ? hintId : describedById,
+  };
+
+  const control = hasFormats ? (
+    <DropdownMenu
+      open={menuOpen && !disabled && !busy}
+      onOpenChange={(next) => {
+        if (!disabled && !busy) setMenuOpen(next);
+      }}
     >
-      {busy ? (
-        <Spinner data-icon="inline-start" aria-hidden />
-      ) : (
-        <DownloadIcon data-icon="inline-start" aria-hidden />
-      )}
+      <DropdownMenuTrigger disabled={disabled} render={<Button {...buttonProps} />}>
+        {triggerIcon}
+        {label}
+        <ChevronDownIcon data-icon="inline-end" aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          {formats?.map((option) => (
+            <DropdownMenuItem
+              key={option.format}
+              disabled={disabled || busy}
+              onClick={() => {
+                setMenuOpen(false);
+                void start(option.format, option.getFilename);
+              }}
+            >
+              {option.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : (
+    <Button {...buttonProps} onClick={() => void start("csv")}>
+      {triggerIcon}
       {label}
     </Button>
   );
 
   if (onFeedbackChange) {
-    return button;
+    return control;
   }
 
   return (
@@ -364,7 +435,7 @@ export function ExportButton({
       data-slot="export-button"
       className={cn("flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1", className)}
     >
-      {button}
+      {control}
       {hint ? (
         <p id={hintId} className="min-w-0 text-xs text-muted-foreground">
           {hint}
