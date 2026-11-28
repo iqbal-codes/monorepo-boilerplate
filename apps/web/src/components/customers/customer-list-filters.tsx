@@ -1,5 +1,4 @@
 import { MAX_CUSTOMER_FILTER_TAGS } from "@monorepo-boilerplate/api/customer-filter-limits";
-import type { ActiveFilterChip } from "@monorepo-boilerplate/ui/components/active-filter-chips";
 import { Checkbox } from "@monorepo-boilerplate/ui/components/checkbox";
 import {
   FacetedFilter,
@@ -27,10 +26,8 @@ const STATUS_ORDER: readonly CustomerStatusValue[] = ["active", "inactive", "arc
 
 type CustomerListFilters = {
   facets?: CustomerFacets;
-  search: string;
   statuses: readonly CustomerStatusValue[];
   tags: readonly string[];
-  onClearSearch: () => void;
   onStatusesChange: (next: readonly CustomerStatusValue[]) => void;
   onTagsChange: (next: readonly string[]) => void;
 };
@@ -38,10 +35,8 @@ type CustomerListFilters = {
 /** Builds both presentations of the same URL-backed filters. */
 export function useCustomerListFilters({
   facets,
-  search,
   statuses,
   tags,
-  onClearSearch,
   onStatusesChange,
   onTagsChange,
 }: CustomerListFilters) {
@@ -62,25 +57,9 @@ export function useCustomerListFilters({
       .map(([value, count]) => ({ value, label: value, count }));
   }, [facets, tags]);
 
-  const activeFilters: ActiveFilterChip[] = [
-    ...(search ? [{ id: "search", label: "Search", value: search, onRemove: onClearSearch }] : []),
-    ...statuses.map((status) => ({
-      id: `status:${status}`,
-      label: "Status",
-      value: CUSTOMER_STATUS_META[status].label,
-      onRemove: () => onStatusesChange(statuses.filter((value) => value !== status)),
-    })),
-    ...tags.map((tag) => ({
-      id: `tag:${tag}`,
-      label: "Tag",
-      value: tag,
-      onRemove: () => onTagsChange(tags.filter((value) => value !== tag)),
-    })),
-  ];
-  const activeCount = statuses.length + tags.length;
+  const activeCount = Number(statuses.length > 0) + Number(tags.length > 0);
 
   return {
-    activeFilters,
     filters: (
       <>
         <FacetedFilter

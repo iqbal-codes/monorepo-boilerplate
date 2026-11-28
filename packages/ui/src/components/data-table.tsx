@@ -409,7 +409,7 @@ export function DataTable<TData extends RowData>({
     >
       {isFetching ? <LoadingRail /> : null}
       {/* Narrow-container stacked card list */}
-      <div className={cn("flex flex-col gap-2 @lg:hidden", mobileInfinite && "pb-16")}>
+      <div className="flex flex-col gap-2 @lg:hidden">
         {!hideMobileSort && sortableHeaders.length > 0 && (
           <div className="flex items-center justify-end gap-1.5 px-1">
             <Select
@@ -547,7 +547,7 @@ export function DataTable<TData extends RowData>({
                 );
               })}
             </div>
-            {mobileInfinite ? (
+            {mobileInfinite && (mobileInfinite.hasMore || mobileInfinite.isLoadingMore) ? (
               <div
                 data-slot="data-table-infinite-footer"
                 className="flex flex-col items-center gap-2 pt-1"
@@ -561,7 +561,7 @@ export function DataTable<TData extends RowData>({
                     <Spinner aria-hidden />
                     <span>Loading more…</span>
                   </div>
-                ) : mobileInfinite.hasMore ? (
+                ) : (
                   <Button
                     type="button"
                     variant="outline"
@@ -572,12 +572,6 @@ export function DataTable<TData extends RowData>({
                   >
                     {mobileInfinite.loadMoreLabel ?? "Load more"}
                   </Button>
-                ) : (
-                  <p className="py-1 text-center text-xs text-muted-foreground tabular-nums">
-                    {mobileInfinite.totalCount !== undefined
-                      ? `Showing all ${mobileInfinite.totalCount} ${mobileInfinite.totalCount === 1 ? "item" : "items"}`
-                      : `Showing all ${rows.length} ${rows.length === 1 ? "item" : "items"}`}
-                  </p>
                 )}
               </div>
             ) : null}

@@ -410,12 +410,12 @@ describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
     }
   });
 
-  test("renders Row 2 chips when filtered, skeletons when loading, rail when fetching, error with Retry, and disables bulk selection in Archived view", async () => {
+  test("omits redundant Row 2 chips, shows filtered field count on mobile button, skeletons when loading, rail when fetching, error with Retry, and disables bulk selection in Archived view", async () => {
     let retried = 0;
     const view = await renderInDom(
       <CustomersTableView
         {...makeProps({
-          statuses: ["active"],
+          statuses: ["active", "inactive"],
           tags: ["vip"],
           isFetching: true,
         })}
@@ -423,10 +423,15 @@ describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
     );
 
     try {
-      const chips = view.host.querySelector("[data-slot='active-filter-chips']");
-      expect(chips).toBeTruthy();
-      expect(chips!.textContent).toContain("Active");
-      expect(chips!.textContent).toContain("vip");
+      expect(Boolean(view.host.querySelector("[data-slot='active-filter-chips']"))).toBe(false);
+      const toolbarText = view.host.querySelector("[data-slot='list-toolbar']")?.textContent ?? "";
+      expect(toolbarText).toContain("Active");
+      expect(toolbarText).toContain("vip");
+      const mobileFilterBtn = [
+        ...view.host.querySelectorAll('button[aria-haspopup="dialog"]'),
+      ].find((button) => button.textContent?.startsWith("Filters"))!;
+      expect(mobileFilterBtn.getAttribute("aria-label")).toBe("Filters (2 active)");
+      expect(mobileFilterBtn.textContent).toContain("2");
       expect(view.host.querySelector("[data-slot='data-table']")?.getAttribute("aria-busy")).toBe(
         "true",
       );

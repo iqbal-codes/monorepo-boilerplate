@@ -157,12 +157,10 @@ export function CustomersTableView({
   const hasAnyFilter = Boolean(search) || statuses.length > 0 || tags.length > 0;
   const filterControls = useCustomerListFilters({
     facets,
-    search,
     statuses,
     tags,
     onStatusesChange,
     onTagsChange,
-    onClearSearch: onClearSearch ?? (() => onSearchInputChange("")),
   });
   const lifecycle = useCustomerListLifecycle({
     scope,
@@ -201,7 +199,7 @@ export function CustomersTableView({
 
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-2">
+      <div className="sticky -top-3 z-20 -mx-3 flex min-w-0 flex-col gap-2 border-b border-border/60 bg-background/95 px-3 pt-3 pb-2 backdrop-blur-sm sm:static sm:mx-0 sm:border-b-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
         <ListToolbar
           search={{
             inputRef: searchRef,
@@ -209,6 +207,7 @@ export function CustomersTableView({
             placeholder: "Search name, email, or company",
             value: searchInput,
             onChange: onSearchInputChange,
+            onClear: onClearSearch,
           }}
           {...filterControls}
           sortSheet={{

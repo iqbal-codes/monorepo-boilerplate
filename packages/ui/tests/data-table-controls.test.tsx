@@ -756,8 +756,8 @@ describe("Mobile ListToolbar & DataTable enhancements", () => {
 
         await view.rerender(renderTable(false, false));
         expect(
-          mobileContainer.querySelector("[data-slot='data-table-infinite-footer']")?.textContent,
-        ).toContain("Showing all 1 item");
+          Boolean(mobileContainer.querySelector("[data-slot='data-table-infinite-footer']")),
+        ).toBe(false);
       } finally {
         await view.cleanup();
       }

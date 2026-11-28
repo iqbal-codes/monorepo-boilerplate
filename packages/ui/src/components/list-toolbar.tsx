@@ -90,6 +90,7 @@ export function ListToolbar({
     placeholder?: string;
     value: string;
     onChange: (value: string) => void;
+    onClear?: () => void;
     inputRef?: Ref<HTMLInputElement>;
   };
   filters?: ReactNode;
@@ -175,7 +176,8 @@ export function ListToolbar({
                 data-slot="list-toolbar-search-clear"
                 aria-label={`Clear ${search.label}`}
                 onClick={() => {
-                  search.onChange("");
+                  if (search.onClear) search.onClear();
+                  else search.onChange("");
                   internalSearchRef.current?.focus();
                 }}
               >
@@ -375,7 +377,10 @@ export function ListToolbar({
             size="sm"
             data-slot="list-toolbar-clear-filters"
             onClick={onClearFilters}
-            className="text-muted-foreground hover:text-foreground"
+            className={cn(
+              "text-muted-foreground hover:text-foreground",
+              hasMobileSheet && "hidden sm:inline-flex",
+            )}
           >
             <XIcon data-icon="inline-start" aria-hidden />
             {clearFiltersLabel}
