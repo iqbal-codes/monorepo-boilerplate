@@ -5,16 +5,17 @@
 
 export interface ParsedPrSummary {
   summary: string;
+  evidence: string;
   mergeDanger: string;
 }
 
 /**
- * Extracts `## Summary` and `## Merge Danger` from `$ARTIFACTS_DIR/pr-summary.md`
- * written by the implementer following the `/pr` structure.
+ * Extracts `## Summary`, optional `## Evidence`, and `## Merge Danger` from
+ * `$ARTIFACTS_DIR/pr-summary.md` written by the implementer following the `/pr` structure.
  */
 export function parsePrSummarySections(markdown: string): ParsedPrSummary {
   const clean = markdown.trim();
-  if (!clean) return { summary: '', mergeDanger: '' };
+  if (!clean) return { summary: '', evidence: '', mergeDanger: '' };
 
   const extractSection = (headingRe: RegExp): string => {
     const lines = clean.split(/\r?\n/);
@@ -35,8 +36,9 @@ export function parsePrSummarySections(markdown: string): ParsedPrSummary {
   };
 
   const summary = extractSection(/^##\s+Summary\b/i);
+  const evidence = extractSection(/^##\s+Evidence\b/i);
   const mergeDanger = extractSection(/^##\s+Merge\s+Danger\b/i);
-  return { summary, mergeDanger };
+  return { summary, evidence, mergeDanger };
 }
 
 /**
@@ -535,21 +537,37 @@ export interface RenderEvidenceOptions {
   before: EvidenceImage[];
   after: EvidenceImage[];
   afterLabel: string;
+  /** Concise `/pr`-style execution/behavioral evidence (BE, API, DB, tests, CLI, perf). */
+  executionEvidence?: string;
   beforeSummary?: string;
   fallbackAfterLine?: string;
 }
 
 /**
  * Renders `## Evidence` cleanly based on what actually changed:
- * - True Before/After visual diffs render side by side with zero empty `—` cells.
- * - New surfaces / interactive states render in a focused After showcase table (no `Before: —` noise).
- * - Any unmatched Before captures are tucked into a collapsible `<details>` block when After shots exist.
+ * - Visual changes: true Before/After pairs render side by side with zero `—` cells,
+ *   new surfaces/states render in a focused After table, and unmatched Before captures collapse.
+ * - Non-UI / BE / full-stack changes: includes concise `/pr`-style execution/behavioral evidence
+ *   (Before -> After behavior, API/DB diffs, exact test/check results) as primary evidence when
+ *   there are no screenshots, or paired under `### Execution & Behavioral Evidence` alongside visuals.
  */
 export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[] {
-  const { before, after, afterLabel, beforeSummary = '', fallbackAfterLine = '' } = options;
+  const {
+    before,
+    after,
+    afterLabel,
+    executionEvidence = '',
+    beforeSummary = '',
+    fallbackAfterLine = '',
+  } = options;
+  const cleanExecution = executionEvidence.trim();
   const lines: string[] = ['## Evidence'];
 
   if (before.length === 0 && after.length === 0) {
+    if (cleanExecution) {
+      lines.push('', cleanExecution, '');
+      return lines;
+    }
     if (beforeSummary) lines.push(`- **Before:** ${beforeSummary}`);
     if (fallbackAfterLine) lines.push(`- **After:** ${fallbackAfterLine}`);
     lines.push('');
@@ -563,7 +581,7 @@ export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[]
   }
 
   if (comparisons.length > 0) {
-    if (afterOnly.length > 0) {
+    if (afterOnly.length > 0 || cleanExecution) {
       lines.push('### Before / After');
     }
     lines.push(`| Surface | Before | ${afterLabel} |`, '| :--- | :---: | :---: |');
@@ -576,8 +594,12 @@ export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[]
   }
 
   if (afterOnly.length > 0) {
-    if (comparisons.length > 0) {
-      lines.push(`### Additional States — ${afterLabel}`);
+    if (comparisons.length > 0 || cleanExecution) {
+      lines.push(
+        comparisons.length > 0
+          ? `### Additional States — ${afterLabel}`
+          : `### Visual Evidence — ${afterLabel}`
+      );
     }
     lines.push(`| State | ${afterLabel} |`, '| :--- | :---: |');
     for (const row of afterOnly) {
@@ -605,6 +627,10 @@ export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[]
       }
       lines.push('');
     }
+  }
+
+  if (cleanExecution) {
+    lines.push('### Execution & Behavioral Evidence', '', cleanExecution, '');
   }
 
   return lines;

@@ -40,10 +40,16 @@ Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD i
 5. **Implementation Notes & Compact PR Summary (`/pr` style):**
    - Write full technical notes to `$ARTIFACTS_DIR/implementation.md` (for QA reviewers: `## Overview`, `## Key Changes & Behavior`, `## Verification Results`, `## Risks & Trade-offs`).
    - For scaffolds, record setup commands, versions and working directories actually used, deviations with reasons, and results of the handoff integration checks. Include the concise setup evidence in the PR summary.
-   - Also write a compact, human-scannable PR digest to `$ARTIFACTS_DIR/pr-summary.md` (use the smallest clear visual):
+   - Also write a compact, human-scannable PR digest to `$ARTIFACTS_DIR/pr-summary.md` (following `/pr` structure — use the smallest clear visual and concrete Before/After proof for what changed):
      ```markdown
      ## Summary
      <Choose the smallest clear visual: `diff` sketch of component/file/control-flow changes, shallow file tree, state pseudocode, or Mermaid `sequenceDiagram`; keep prose brief>
+
+     ## Evidence
+     <Concrete execution/behavioral proof tailored to what changed — especially for BE, API, DB, CLI, library, or non-UI parts of full-stack slices:
+     - **Before:** failing test, broken behavior, or previous API/DB/bundle contract
+     - **After:** passing test/command output (exact commands & counts actually run), API/payload/schema diff, or concise failing->passing test pseudocode
+     (Do NOT hand-write screenshot URLs here — `publish-pr.ts` embeds `$ARTIFACTS_DIR/evidence/*.png` automatically alongside this section.)>
 
      ## Merge Danger
      **Door:** <One-way | Two-way> — <brief rollback note>
