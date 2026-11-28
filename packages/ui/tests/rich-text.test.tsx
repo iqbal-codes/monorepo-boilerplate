@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import type { Editor } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import { Window } from "happy-dom";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import * as React from "react";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -382,6 +383,81 @@ describe("Serialization: toPlainText & toMarkdown (TC-04)", () => {
       ].join("\n"),
     );
   });
+
+  test.each([
+    {
+      name: "an ordered list starting at 10",
+      child: {
+        type: "orderedList",
+        attrs: { start: 10 },
+        content: [
+          {
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Nested" }] }],
+          },
+        ],
+      },
+      parsedChild: {
+        type: "list",
+        ordered: true,
+        start: 10,
+        children: [
+          {
+            type: "listItem",
+            children: [{ type: "paragraph", children: [{ type: "text", value: "Nested" }] }],
+          },
+        ],
+      },
+    },
+    {
+      name: "a divider",
+      child: { type: "horizontalRule" },
+      parsedChild: { type: "thematicBreak" },
+    },
+  ])(
+    "preserves $name after a list item paragraph (TC-04, TC-R1-CODE-01)",
+    ({ child, parsedChild }) => {
+      for (const parentText of ["Parent", ""]) {
+        const doc: JSONContent = {
+          type: "doc",
+          content: [
+            {
+              type: "bulletList",
+              content: [
+                {
+                  type: "listItem",
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: parentText ? [{ type: "text", text: parentText }] : [],
+                    },
+                    child,
+                  ],
+                },
+              ],
+            },
+          ],
+        };
+        const parsedParagraph = {
+          type: "paragraph",
+          children: [{ type: "text", value: parentText }],
+        };
+
+        expect(fromMarkdown(toMarkdown(doc)).children).toMatchObject([
+          {
+            type: "list",
+            ordered: false,
+            children: [
+              {
+                type: "listItem",
+                children: parentText ? [parsedParagraph, parsedChild] : [parsedChild],
+              },
+            ],
+          },
+        ]);
+      }
+    },
+  );
 
   test("toMarkdown strips unsafe link protocols and handles combined marks cleanly", () => {
     const doc: NonNullable<JSONContent> = {

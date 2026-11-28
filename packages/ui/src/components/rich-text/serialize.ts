@@ -230,6 +230,7 @@ function serializeMarkdownInline(nodes: ReadonlyArray<JSONContent> | undefined):
 function serializeMarkdownListItem(item: JSONContent, prefix: string): string {
   const indent = " ".repeat(prefix.length);
   const lines: string[] = [];
+  let hasContent = false;
 
   for (const child of item.content ?? []) {
     const block = serializeMarkdownBlock(child);
@@ -237,10 +238,21 @@ function serializeMarkdownListItem(item: JSONContent, prefix: string): string {
     if (lines.length === 0) {
       lines.push(first ? `${prefix}${first}` : prefix.trimEnd());
     } else if (block) {
-      if (child.type === "paragraph") lines.push("");
+      // CommonMark can't interrupt a paragraph with an ordered list starting above 1,
+      // and reads an adjacent `---` as a setext underline. Leave a block boundary,
+      // but never put a blank line immediately after an empty list marker.
+      if (
+        hasContent &&
+        (child.type === "paragraph" ||
+          child.type === "orderedList" ||
+          child.type === "horizontalRule")
+      ) {
+        lines.push("");
+      }
       lines.push(first ? `${indent}${first}` : "");
     }
     lines.push(...rest.map((line) => (line ? `${indent}${line}` : "")));
+    hasContent ||= block.trim().length > 0;
   }
 
   return lines.length ? lines.join("\n") : prefix.trimEnd();
