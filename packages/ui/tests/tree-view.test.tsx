@@ -347,6 +347,48 @@ describe("TreeView WAI-ARIA, keyboard nav, selection, lazy-load & virtualization
     }
   });
 
+  test("a vetoed controlled expansion is not included in the next proposal", async () => {
+    const proposals: string[][] = [];
+
+    function Harness() {
+      const [expandedIds, setExpandedIds] = React.useState<ReadonlySet<string>>(
+        new Set(["workspace"]),
+      );
+      return (
+        <TreeView
+          nodes={SAMPLE_NODES}
+          expandedIds={expandedIds}
+          onExpandedIdsChange={(ids) => {
+            proposals.push([...ids]);
+            if (ids.has("packages")) setExpandedIds(ids);
+          }}
+        />
+      );
+    }
+
+    const view = await renderInDom(<Harness />);
+    try {
+      const apps = view.host.querySelector<HTMLElement>('[data-node-id="apps"]')!;
+      const packages = view.host.querySelector<HTMLElement>('[data-node-id="packages"]')!;
+      const toggle = (item: HTMLElement) =>
+        item.querySelector<HTMLElement>('[data-slot="tree-node-toggle"]')!.click();
+
+      await act(async () => toggle(apps));
+      expect(proposals).toEqual([["workspace", "apps"]]);
+      expect(apps.getAttribute("aria-expanded")).toBe("false");
+
+      await act(async () => toggle(packages));
+      expect(proposals).toEqual([
+        ["workspace", "apps"],
+        ["workspace", "packages"],
+      ]);
+      expect(apps.getAttribute("aria-expanded")).toBe("false");
+      expect(packages.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
   test("triggers async onLoadChildren with loading spinner and merges resolved children", async () => {
     let resolveLoad!: (children: TreeNode[]) => void;
     const loadPromise = new Promise<TreeNode[]>((resolve) => {
@@ -476,6 +518,74 @@ describe("TreeView WAI-ARIA, keyboard nav, selection, lazy-load & virtualization
       await view.cleanup();
     }
   });
+
+  test.each(["after", "before"])(
+    "children supplied by the parent %s a deferred rejection take precedence over failure",
+    async (refreshTiming) => {
+      const request = Promise.withResolvers<TreeNode[]>();
+      const load = mock(() => request.promise);
+      const proposeExpansion = mock((_ids: ReadonlySet<string>) => {});
+      const collapsed = new Set(["workspace"]);
+      const expanded = new Set(["workspace", "packages"]);
+      const refreshed = SAMPLE_NODES.map((node) => ({
+        ...node,
+        children: node.children?.map((child) =>
+          child.id === "packages"
+            ? { ...child, children: [{ id: "refreshed-child", label: "Refreshed package" }] }
+            : child,
+        ),
+      }));
+      const tree = (nodes: TreeNode[], expandedIds: ReadonlySet<string>) => (
+        <TreeView
+          nodes={nodes}
+          expandedIds={expandedIds}
+          onExpandedIdsChange={proposeExpansion}
+          onLoadChildren={load}
+        />
+      );
+
+      const view = await renderInDom(tree(SAMPLE_NODES, collapsed));
+      try {
+        const packages = view.host.querySelector<HTMLElement>('[data-node-id="packages"]')!;
+        const status = view.host.querySelector('[role="status"]')!;
+        const child = () => packages.querySelector('[data-node-id="refreshed-child"]');
+        await act(async () => {
+          packages.querySelector<HTMLElement>('[data-slot="tree-node-toggle"]')!.click();
+        });
+        expect(proposeExpansion).toHaveBeenNthCalledWith(1, expanded);
+        await view.rerender(tree(SAMPLE_NODES, expanded));
+        expect(packages.getAttribute("aria-busy")).toBe("true");
+
+        if (refreshTiming === "before") {
+          await view.rerender(tree(refreshed, expanded));
+          expect(child()).not.toBeNull();
+        }
+        await act(async () => request.reject(new Error("Request failed")));
+        expect(packages.getAttribute("aria-busy")).toBeNull();
+
+        if (refreshTiming === "after") {
+          expect(packages.getAttribute("aria-expanded")).toBe("false");
+          expect(status.textContent).toContain("Could not load children for Packages");
+          expect(proposeExpansion).toHaveBeenNthCalledWith(2, collapsed);
+          await view.rerender(tree(refreshed, expanded));
+        } else {
+          expect(proposeExpansion).toHaveBeenCalledTimes(1);
+        }
+
+        expect(packages.getAttribute("aria-expanded")).toBe("true");
+        expect(child()?.textContent).toContain("Refreshed package");
+        expect(status.textContent).toBe("");
+        expect(load).toHaveBeenCalledTimes(1);
+
+        // Retire the old error rather than just hiding it while children are present.
+        await view.rerender(tree(SAMPLE_NODES, expanded));
+        expect(packages.getAttribute("aria-expanded")).toBe("true");
+        expect(status.textContent).toBe("");
+      } finally {
+        await view.cleanup();
+      }
+    },
+  );
 
   test.each([false, true])(
     "expanded children belong to their parent's group (virtualized: %s)",

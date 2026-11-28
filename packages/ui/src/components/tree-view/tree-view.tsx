@@ -24,6 +24,14 @@ import {
   toIdSet,
 } from "./utils";
 
+function hasSuppliedChildren<TMeta>(nodes: readonly TreeNode<TMeta>[], id: string): boolean {
+  return nodes.some((node) =>
+    node.id === id
+      ? node.children !== undefined
+      : node.children !== undefined && hasSuppliedChildren(node.children, id),
+  );
+}
+
 /**
  * Controlled, router-free Tree View block implementing WAI-ARIA `role="tree"` /
  * `role="treeitem"` / roving tabindex keyboard navigation, single/multi selection,
@@ -62,8 +70,23 @@ export function TreeView<TMeta = unknown>({
     Map<string, readonly TreeNode<TMeta>[]>
   >(() => new Map());
   const [internalLoadingIds, setInternalLoadingIds] = React.useState<Set<string>>(() => new Set());
-  const [loadErrors, setLoadErrors] = React.useState<ReadonlyMap<string, string>>(() => new Map());
+  const [failedLoads, setFailedLoads] = React.useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
   const pendingLoads = React.useRef(new Set<string>());
+
+  const loadErrors = React.useMemo(() => {
+    let remainingErrors: Map<string, string> | undefined;
+    for (const id of failedLoads.keys()) {
+      if (hasSuppliedChildren(nodes, id)) {
+        remainingErrors ??= new Map(failedLoads);
+        remainingErrors.delete(id);
+      }
+    }
+    return remainingErrors ?? failedLoads;
+  }, [failedLoads, nodes]);
+  // Discard resolved failures so they cannot reappear if the parent unloads the branch again.
+  if (loadErrors !== failedLoads) setFailedLoads(loadErrors);
 
   const itemRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
   const pendingFocusIdRef = React.useRef<string | null>(null);
@@ -75,13 +98,23 @@ export function TreeView<TMeta = unknown>({
     [controlledExpandedIds, uncontrolledExpanded],
   );
 
-  const expansionRef = React.useRef({ expandedIds, controlledExpandedIds, onExpandedIdsChange });
+  const expansionRef = React.useRef({
+    nodes,
+    expandedIds,
+    controlledExpandedIds,
+    onExpandedIdsChange,
+  });
   React.useLayoutEffect(() => {
-    expansionRef.current = { expandedIds, controlledExpandedIds, onExpandedIdsChange };
+    expansionRef.current = { nodes, expandedIds, controlledExpandedIds, onExpandedIdsChange };
     return () => {
-      expansionRef.current = { expandedIds, controlledExpandedIds, onExpandedIdsChange: undefined };
+      expansionRef.current = {
+        nodes,
+        expandedIds,
+        controlledExpandedIds,
+        onExpandedIdsChange: undefined,
+      };
     };
-  }, [expandedIds, controlledExpandedIds, onExpandedIdsChange]);
+  }, [nodes, expandedIds, controlledExpandedIds, onExpandedIdsChange]);
 
   const selectedIds = React.useMemo(
     () =>
@@ -157,9 +190,10 @@ export function TreeView<TMeta = unknown>({
   function commitExpandedIds(next: Set<string>) {
     const expansion = expansionRef.current;
     if (expansion.controlledExpandedIds === undefined) {
+      expansion.expandedIds = next;
       setUncontrolledExpanded(next);
     }
-    expansion.expandedIds = next;
+    // In controlled mode the callback only proposes a change; the parent may veto it.
     expansion.onExpandedIdsChange?.(next);
   }
 
@@ -208,7 +242,7 @@ export function TreeView<TMeta = unknown>({
     if (!needsLazyLoad || pendingLoads.current.has(node.id) || loadingIds.has(node.id)) return;
     pendingLoads.current.add(node.id);
     setInternalLoadingIds((prev) => new Set(prev).add(node.id));
-    setLoadErrors((prev) => {
+    setFailedLoads((prev) => {
       if (!prev.has(node.id)) return prev;
       const nextErrors = new Map(prev);
       nextErrors.delete(node.id);
@@ -224,10 +258,13 @@ export function TreeView<TMeta = unknown>({
         });
       }
     } catch {
-      setLoadErrors((prev) => new Map(prev).set(node.id, node.label));
-      // Merge against the latest expansion, not the snapshot before awaiting.
-      const latest = new Set(expansionRef.current.expandedIds);
-      if (latest.delete(node.id)) commitExpandedIds(latest);
+      const latest = expansionRef.current;
+      // A parent refresh can fulfill the branch while this request is still pending.
+      if (hasSuppliedChildren(latest.nodes, node.id)) return;
+      setFailedLoads((prev) => new Map(prev).set(node.id, node.label));
+      // Roll back only the failed branch from the latest expansion, not the pre-load snapshot.
+      const next = new Set(latest.expandedIds);
+      if (next.delete(node.id)) commitExpandedIds(next);
     } finally {
       pendingLoads.current.delete(node.id);
       setInternalLoadingIds((prev) => {
