@@ -22,7 +22,7 @@ You are revising an existing Factory pull request (`$INPUTS.pr_url`) inside its 
 
 4. **Write reviewer & PR notes:**
    - Write full technical notes to `$ARTIFACTS_DIR/implementation.md` mapping each maintainer request to the change and test/verification proof.
-   - Write `$ARTIFACTS_DIR/pr-summary.md` (`## Summary` + `## Merge Danger`).
+   - Write `$ARTIFACTS_DIR/pr-summary.md` (`## Summary` + `## Evidence` execution/behavioral Before/After proof + `## Merge Danger`).
    - Save all changes on disk (do not commit or push—the publisher script handles committing and pushing to the PR branch).
 
 ## Output

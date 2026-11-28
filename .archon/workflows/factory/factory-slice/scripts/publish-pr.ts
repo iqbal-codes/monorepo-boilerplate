@@ -86,15 +86,25 @@ function readSnippet(filePath: string, maxChars = 3000): string {
   return content.length > maxChars ? `${content.slice(0, maxChars)}\n... (truncated)` : content;
 }
 
-function readCompactSummaryAndDanger(): { summaryBlock: string; dangerBlock: string } {
-  const prSummaryRaw = readSnippet(join(artifactsDir, 'pr-summary.md'), 6000);
+function readCompactPrSections(): {
+  summaryBlock: string;
+  evidenceBlock: string;
+  dangerBlock: string;
+} {
+  const prSummaryRaw = readSnippet(join(artifactsDir, 'pr-summary.md'), 9000);
   const parsed = parsePrSummarySections(prSummaryRaw);
-  const implRaw = readSnippet(join(artifactsDir, 'implementation.md'), 4000);
+  const implRaw = readSnippet(join(artifactsDir, 'implementation.md'), 6000);
 
   let summaryBlock = parsed.summary;
   if (!summaryBlock && implRaw) {
     const overviewMatch = implRaw.match(/##\s+Overview[^\n]*\n([\s\S]*?)(?=\n##\s+|$)/i);
     summaryBlock = (overviewMatch?.[1] || implRaw).trim().slice(0, 1200);
+  }
+
+  let evidenceBlock = parsed.evidence;
+  if (!evidenceBlock && implRaw) {
+    const verifyMatch = implRaw.match(/##\s+Verification\s+Results[^\n]*\n([\s\S]*?)(?=\n##\s+|$)/i);
+    evidenceBlock = (verifyMatch?.[1] || '').trim().slice(0, 1800);
   }
 
   let dangerBlock = parsed.mergeDanger;
@@ -108,6 +118,7 @@ function readCompactSummaryAndDanger(): { summaryBlock: string; dangerBlock: str
 
   return {
     summaryBlock: summaryBlock || implSummary || 'See diff for changes.',
+    evidenceBlock,
     dangerBlock,
   };
 }
@@ -222,7 +233,8 @@ function loadEvidenceManifest(): Map<string, EvidenceManifestEntry> {
 function renderEvidenceSection(
   evidence: UploadedEvidence,
   resolvedBeforeSummary: string,
-  fallbackAfterLine: string
+  fallbackAfterLine: string,
+  executionEvidence = ''
 ): string[] {
   const primaryAfter = evidence.after.length > 0 ? evidence.after : evidence.impl;
   const afterLabel = evidence.after.length > 0 ? 'After (QA)' : 'After (Implementer)';
@@ -231,6 +243,7 @@ function renderEvidenceSection(
     before: evidence.before,
     after: primaryAfter,
     afterLabel,
+    executionEvidence,
     beforeSummary: resolvedBeforeSummary,
     fallbackAfterLine,
   });
@@ -305,7 +318,7 @@ if (existing) {
   prUrl = existing.url;
 }
 
-const { summaryBlock, dangerBlock } = readCompactSummaryAndDanger();
+const { summaryBlock, evidenceBlock, dangerBlock } = readCompactPrSections();
 const resolvedBeforeSummary =
   beforeCaptureSummary || beforeSummary || `Base \`${baseBranch}\` (${baseSha.slice(0, 7) || 'HEAD'}).`;
 const uploadedEvidence = uploadEvidenceImages(shortSha);
@@ -326,7 +339,8 @@ if (mode === 'draft' || mode === 'sync') {
     ...renderEvidenceSection(
       uploadedEvidence,
       resolvedBeforeSummary,
-      `Commit \`${shortSha}\` undergoing Mechanical Gate & Independent QA.`
+      `Commit \`${shortSha}\` undergoing Mechanical Gate & Independent QA.`,
+      evidenceBlock
     ),
     '## Merge Danger',
     '',
@@ -414,7 +428,8 @@ const bodyLines: string[] = [
     resolvedBeforeSummary,
     verifyLine
       ? `${verifyLine} (\`${shortSha}\`)`
-      : `All checks passed on \`${shortSha}\`.`
+      : `All checks passed on \`${shortSha}\`.`,
+    evidenceBlock
   ),
 ];
 
