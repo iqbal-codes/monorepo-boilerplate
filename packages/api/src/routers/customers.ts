@@ -26,6 +26,8 @@ const MAX_BALANCE_MINOR = 9_007_199_254_740_991;
 export const customerScopeInput = z.object({
   search: z.string().trim().max(200).optional(),
   status: z.enum(["all", "active", "inactive", "archived"]).default("all"),
+  statuses: z.array(z.enum(customerStatus.enumValues)).max(10).optional(),
+  tags: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
   sortBy: z.enum(["name", "company", "status", "balanceMinor", "createdAt"]).default("createdAt"),
   sortDir: z.enum(["asc", "desc"]).default("desc"),
 });

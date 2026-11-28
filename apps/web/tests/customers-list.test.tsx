@@ -1,0 +1,617 @@
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { dirname, resolve } from "node:path";
+import { withNuqsTestingAdapter } from "nuqs/adapters/testing";
+import * as React from "react";
+import { act } from "react";
+
+const uiPkgPath = resolve(import.meta.dir, "../../../packages/ui/package.json");
+const { Window } = (await import(
+  Bun.resolveSync("happy-dom", uiPkgPath)
+)) as typeof import("happy-dom");
+const baseUiRoot = dirname(dirname(Bun.resolveSync("@base-ui/react/dialog", uiPkgPath)));
+
+mock.module(Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", baseUiRoot), () => ({
+  useIsoLayoutEffect: React.useLayoutEffect,
+}));
+
+const win = new Window({ url: "http://localhost/customers" });
+win.HTMLElement.prototype.scrollIntoView ??= () => {};
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+const DOM_KEYS = [
+  "window",
+  "document",
+  "Document",
+  "ShadowRoot",
+  "HTMLElement",
+  "HTMLInputElement",
+  "HTMLButtonElement",
+  "Element",
+  "Node",
+  "Event",
+  "MouseEvent",
+  "PointerEvent",
+  "KeyboardEvent",
+  "MutationObserver",
+  "ResizeObserver",
+  "location",
+  "history",
+  "navigator",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
+
+const previousGlobals = Object.fromEntries(
+  DOM_KEYS.map((key) => [key, (globalThis as Record<string, unknown>)[key]]),
+);
+
+Object.assign(globalThis, {
+  window: win,
+  document: win.document,
+  Document: win.Document,
+  ShadowRoot: win.ShadowRoot,
+  HTMLElement: win.HTMLElement,
+  HTMLInputElement: win.HTMLInputElement,
+  HTMLButtonElement: win.HTMLButtonElement,
+  Element: win.Element,
+  Node: win.Node,
+  Event: win.Event,
+  MouseEvent: win.MouseEvent,
+  PointerEvent: win.PointerEvent,
+  KeyboardEvent: win.KeyboardEvent,
+  MutationObserver: win.MutationObserver,
+  ResizeObserver: MockResizeObserver,
+  location: win.location,
+  history: win.history,
+  navigator: win.navigator,
+  getComputedStyle: win.getComputedStyle.bind(win),
+  requestAnimationFrame: win.requestAnimationFrame.bind(win),
+  cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
+
+mock.module("@/lib/server-url", () => ({
+  serverUrl: "http://localhost:3000",
+  getServerUrl: (url: string) => url,
+}));
+
+const { createRoot } = await import("react-dom/client");
+const { useListSearchParams, customerListSearch } =
+  await import("../src/lib/use-data-table-search-params");
+const { CustomersTableView } = await import("../src/components/customers/customers-table-view");
+
+afterAll(() => {
+  for (const key of DOM_KEYS) {
+    (globalThis as Record<string, unknown>)[key] = previousGlobals[key];
+  }
+  win.close();
+});
+
+async function renderInDom(node: React.ReactNode) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(node);
+  });
+  return {
+    host,
+    rerender: async (next: React.ReactNode) => {
+      await act(async () => {
+        root.render(next);
+      });
+    },
+    cleanup: async () => {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+    },
+  };
+}
+
+function click(el: Element) {
+  el.dispatchEvent(new win.MouseEvent("click", { bubbles: true, cancelable: true }));
+}
+
+const SAMPLE_ROWS = [
+  {
+    id: "cust-1",
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    phone: "+15550100",
+    company: "Analytical Engines",
+    status: "active" as const,
+    balanceMinor: 123450,
+    currency: "USD",
+    avatarUrl: "/uploads/ada.png",
+    tags: ["vip", "enterprise"],
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "cust-2",
+    name: "Grace Hopper",
+    email: "grace@example.com",
+    phone: null,
+    company: null,
+    status: "archived" as const,
+    balanceMinor: -500,
+    currency: "USD",
+    avatarUrl: null,
+    tags: ["onboarding"],
+    createdAt: "2026-01-02T00:00:00.000Z",
+  },
+];
+
+describe("useListSearchParams with nuqs (TC-05)", () => {
+  test("reads and updates multi-value statuses and tags cleanly via nuqs", async () => {
+    const updates: Array<{ queryString: string }> = [];
+    let resolveNextUpdate: ((queryString: string) => void) | null = null;
+    const waitForUrlUpdate = () =>
+      new Promise<string>((resolve) => {
+        resolveNextUpdate = resolve;
+      });
+    let latest!: ReturnType<typeof useListSearchParams>;
+
+    function Probe() {
+      latest = useListSearchParams({
+        sortKeys: ["name", "createdAt"] as const,
+        defaultSortKey: "createdAt",
+      });
+      return <output>{JSON.stringify({ statuses: latest.statuses, tags: latest.tags })}</output>;
+    }
+
+    const Wrapper = withNuqsTestingAdapter({
+      searchParams: "?statuses=active,inactive&tags=vip,onboarding&page=2",
+      hasMemory: true,
+      onUrlUpdate: (event) => {
+        updates.push({ queryString: event.queryString });
+        resolveNextUpdate?.(event.queryString);
+        resolveNextUpdate = null;
+      },
+    });
+
+    const view = await renderInDom(
+      <Wrapper>
+        <Probe />
+      </Wrapper>,
+    );
+
+    try {
+      expect(latest.statuses).toEqual(["active", "inactive"]);
+      expect(latest.tags).toEqual(["vip", "onboarding"]);
+      expect(latest.pagination.pageIndex).toBe(2);
+
+      const p1 = waitForUrlUpdate();
+      await act(async () => {
+        latest.setStatuses(["archived"]);
+        expect(await p1).toContain("statuses=archived");
+      });
+      expect(latest.statuses).toEqual(["archived"]);
+      expect(latest.pagination.pageIndex).toBe(0);
+
+      const p2 = waitForUrlUpdate();
+      await act(async () => {
+        latest.setTags(["enterprise"]);
+        expect(await p2).toContain("tags=enterprise");
+      });
+      expect(latest.tags).toEqual(["enterprise"]);
+
+      const p3 = waitForUrlUpdate();
+      await act(async () => {
+        latest.clearFilters();
+        expect(await p3).toBe("");
+      });
+      expect(latest.statuses).toEqual([]);
+      expect(latest.tags).toEqual([]);
+      expect(latest.search).toBe("");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("customerListSearch keeps Command Center link serialization working", () => {
+    expect(customerListSearch({ q: "ada", page: 0, status: "all" })).toBe("?q=ada");
+  });
+});
+
+describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
+  let lastViewId = "";
+  let lastEditId = "";
+  let lastArchiveIds: string[] = [];
+  let lastRestore: { id: string; status: "active" | "inactive" } | null = null;
+  let lastDeleteId = "";
+
+  beforeEach(() => {
+    lastViewId = "";
+    lastEditId = "";
+    lastArchiveIds = [];
+    lastRestore = null;
+    lastDeleteId = "";
+  });
+
+  function makeProps(overrides: Record<string, unknown> = {}) {
+    return {
+      rows: SAMPLE_ROWS,
+      rowCount: 2,
+      facets: {
+        status: { active: 1, inactive: 0, archived: 1 },
+        tags: [
+          { value: "vip", count: 1 },
+          { value: "enterprise", count: 1 },
+          { value: "onboarding", count: 1 },
+        ],
+      },
+      search: "",
+      searchInput: "",
+      onSearchInputChange: () => {},
+      statuses: [] as Array<"active" | "inactive" | "archived">,
+      onStatusesChange: () => {},
+      tags: [] as string[],
+      onTagsChange: () => {},
+      onClearFilters: () => {},
+      onResetFilters: () => {},
+      pagination: { pageIndex: 0, pageSize: 20 },
+      onPaginationChange: () => {},
+      sorting: [{ id: "createdAt", desc: true }],
+      onSortingChange: () => {},
+      density: "comfortable" as const,
+      onDensityChange: () => {},
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      errorMessage: undefined,
+      onRetry: () => {},
+      canSelect: true,
+      canDelete: false,
+      onNewCustomer: () => {},
+      onViewCustomer: (id: string) => {
+        lastViewId = id;
+      },
+      onEditCustomer: (id: string) => {
+        lastEditId = id;
+      },
+      onArchiveCustomers: async (ids: string[]) => {
+        lastArchiveIds = ids;
+      },
+      archiving: false,
+      onRestoreCustomer: async (id: string, status: "active" | "inactive") => {
+        lastRestore = { id, status };
+      },
+      restoring: false,
+      onDeleteCustomer: async (id: string) => {
+        lastDeleteId = id;
+      },
+      deleting: false,
+      renderCustomerLink: ({ customerId, children, className }: any) => (
+        <a href={`/customers/${customerId}`} className={className}>
+          {children}
+        </a>
+      ),
+      ...overrides,
+    };
+  }
+
+  test("renders populated default (no Row 2 chips, no active BulkActionBar, Avatar + StatusBadge)", async () => {
+    const view = await renderInDom(<CustomersTableView {...makeProps()} />);
+    try {
+      expect(view.host.querySelector("[data-slot='active-filter-chips']")).toBeNull();
+      const bulkBar = view.host.querySelector("[data-slot='bulk-action-bar']");
+      expect(bulkBar?.className).toContain("sr-only");
+      expect(bulkBar?.querySelector("button")).toBeNull();
+      expect(view.host.querySelectorAll("[data-slot='avatar']").length).toBeGreaterThanOrEqual(2);
+      expect(view.host.textContent).toContain("GH");
+      expect(
+        view.host.querySelectorAll("[data-slot='status-badge']").length,
+      ).toBeGreaterThanOrEqual(2);
+      expect(view.host.textContent).toContain("Active");
+      expect(view.host.textContent).toContain("Archived");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("renders Row 2 chips when filtered, skeletons when loading, rail when fetching, error with Retry, and disables bulk selection in Archived view", async () => {
+    let retried = 0;
+    const view = await renderInDom(
+      <CustomersTableView
+        {...makeProps({
+          statuses: ["active"],
+          tags: ["vip"],
+          isFetching: true,
+        })}
+      />,
+    );
+
+    try {
+      const chips = view.host.querySelector("[data-slot='active-filter-chips']");
+      expect(chips).toBeTruthy();
+      expect(chips!.textContent).toContain("Active");
+      expect(chips!.textContent).toContain("vip");
+      expect(view.host.querySelector("[data-slot='data-table']")?.getAttribute("aria-busy")).toBe(
+        "true",
+      );
+
+      // Archived view disables bulk archive selection checkboxes
+      await view.rerender(
+        <CustomersTableView
+          {...makeProps({
+            statuses: ["archived"],
+            rows: [SAMPLE_ROWS[1]!],
+            rowCount: 1,
+          })}
+        />,
+      );
+      expect(
+        view.host.querySelector('input[aria-label="Select all customers on this page"]'),
+      ).toBeNull();
+      expect(
+        view.host.querySelector('[aria-label="Select all customers on this page"]'),
+      ).toBeNull();
+
+      // Loading skeletons
+      await view.rerender(
+        <CustomersTableView
+          {...makeProps({
+            rows: [],
+            rowCount: 0,
+            isLoading: true,
+          })}
+        />,
+      );
+      expect(view.host.querySelectorAll("[data-slot='skeleton']").length).toBeGreaterThan(0);
+
+      // Error state with Retry
+      await view.rerender(
+        <CustomersTableView
+          {...makeProps({
+            isError: true,
+            errorMessage: "Network down",
+            onRetry: () => {
+              retried += 1;
+            },
+          })}
+        />,
+      );
+      expect(view.host.textContent).toContain("Could not load customers");
+      const retryBtn = [...view.host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Retry",
+      )!;
+      await act(async () => {
+        click(retryBtn);
+      });
+      expect(retried).toBe(1);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("wires RowActions (View, Edit, Archive, explicit Restore, admin-gated Delete) without triggering row Edit", async () => {
+    const view = await renderInDom(<CustomersTableView {...makeProps({ canDelete: false })} />);
+
+    try {
+      // Non-admin: Delete must not be rendered
+      const adaTrigger = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="Actions for Ada Lovelace"]',
+      )!;
+      await act(async () => {
+        click(adaTrigger);
+      });
+      const menuLabels = [...document.body.querySelectorAll("[role='menuitem']")].map((m) =>
+        m.textContent?.trim(),
+      );
+      expect(menuLabels).toContain("View");
+      expect(menuLabels).toContain("Edit");
+      expect(menuLabels).toContain("Archive");
+      expect(menuLabels).not.toContain("Delete");
+
+      // Click View -> invokes onViewCustomer, NOT onEditCustomer
+      const viewItem = [...document.body.querySelectorAll("[role='menuitem']")].find(
+        (m) => m.textContent?.trim() === "View",
+      )!;
+      await act(async () => {
+        click(viewItem);
+      });
+      expect(lastViewId).toBe("cust-1");
+      expect(lastEditId).toBe("");
+
+      // Click Archive -> opens Archive dialog and confirms onArchiveCustomers(["cust-1"])
+      await act(async () => {
+        click(adaTrigger);
+      });
+      const archiveItem = [...document.body.querySelectorAll("[role='menuitem']")].find(
+        (m) => m.textContent?.trim() === "Archive",
+      )!;
+      await act(async () => {
+        click(archiveItem);
+      });
+      const archiveDialog = document.body.querySelector("[role='alertdialog']")!;
+      expect(archiveDialog.textContent).toContain("Archive customer?");
+      const archiveConfirmBtn = [...archiveDialog.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Archive customer",
+      )!;
+      await act(async () => {
+        click(archiveConfirmBtn);
+      });
+      expect(lastArchiveIds).toEqual(["cust-1"]);
+      expect(lastEditId).toBe("");
+
+      // Admin user sees Delete on archived row + Restore with explicit Active/Inactive dialog
+      await view.rerender(<CustomersTableView {...makeProps({ canDelete: true })} />);
+      const graceTrigger = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="Actions for Grace Hopper"]',
+      )!;
+      await act(async () => {
+        click(graceTrigger);
+      });
+      const archivedLabels = [...document.body.querySelectorAll("[role='menuitem']")].map((m) =>
+        m.textContent?.trim(),
+      );
+      expect(archivedLabels).toContain("Restore");
+      expect(archivedLabels).toContain("Delete");
+
+      const restoreItem = [...document.body.querySelectorAll("[role='menuitem']")].find(
+        (m) => m.textContent?.trim() === "Restore",
+      )!;
+      await act(async () => {
+        click(restoreItem);
+      });
+      const restoreDialog = document.body.querySelector("[role='dialog']")!;
+      expect(restoreDialog.textContent).toContain("Restore customer");
+      const inactiveRadio = restoreDialog.querySelector<HTMLElement>("#restore-status-inactive")!;
+      await act(async () => {
+        click(inactiveRadio);
+      });
+      const restoreConfirmBtn = [...restoreDialog.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Restore customer",
+      )!;
+      await act(async () => {
+        click(restoreConfirmBtn);
+      });
+      expect(lastRestore).toEqual({ id: "cust-2", status: "inactive" });
+
+      // Admin Delete confirmation
+      await act(async () => {
+        click(graceTrigger);
+      });
+      const deleteItem = [...document.body.querySelectorAll("[role='menuitem']")].find(
+        (m) => m.textContent?.trim() === "Delete",
+      )!;
+      await act(async () => {
+        click(deleteItem);
+      });
+      const deleteDialog = document.body.querySelector("[role='alertdialog']")!;
+      const deleteConfirmBtn = [...deleteDialog.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Delete customer",
+      )!;
+      await act(async () => {
+        click(deleteConfirmBtn);
+      });
+      expect(lastDeleteId).toBe("cust-2");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("renders filtered empty vs org empty and clears selection when filters change (TC-01, TC-05)", async () => {
+    let resetCalls = 0;
+    let newCustomerCalls = 0;
+    let densityChanges: Array<"comfortable" | "compact"> = [];
+
+    const view = await renderInDom(
+      <CustomersTableView
+        {...makeProps({
+          onResetFilters: () => {
+            resetCalls += 1;
+          },
+          onNewCustomer: () => {
+            newCustomerCalls += 1;
+          },
+          onDensityChange: (next: "comfortable" | "compact") => {
+            densityChanges.push(next);
+          },
+        })}
+      />,
+    );
+
+    try {
+      // Select the active row (Ada Lovelace)
+      const adaCheckbox = view.host.querySelector<HTMLElement>(
+        '[role="checkbox"][aria-label*="Ada Lovelace"]',
+      )!;
+      const adaInput = adaCheckbox
+        .closest("td, div")!
+        .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      await act(async () => {
+        adaInput.click();
+      });
+      expect(view.host.querySelector("[data-slot='bulk-action-bar']")?.textContent).toContain(
+        "1 selected",
+      );
+
+      // Change filters -> row selection must clear immediately
+      await view.rerender(
+        <CustomersTableView
+          {...makeProps({
+            statuses: ["active"],
+            onDensityChange: (next: "comfortable" | "compact") => {
+              densityChanges.push(next);
+            },
+          })}
+        />,
+      );
+      expect(view.host.querySelector("[data-slot='bulk-action-bar']")?.className).toContain(
+        "sr-only",
+      );
+
+      // View options: switch density to compact inside CustomersTableView
+      const viewBtn = view.host.querySelector<HTMLButtonElement>(
+        "[data-slot='data-table-view-options-trigger']",
+      )!;
+      await act(async () => {
+        click(viewBtn);
+      });
+      const compactBtn = [...document.body.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Compact",
+      )!;
+      await act(async () => {
+        click(compactBtn);
+      });
+      expect(densityChanges).toContain("compact");
+
+      // Filtered empty state
+      await view.rerender(
+        <CustomersTableView
+          {...makeProps({
+            rows: [],
+            rowCount: 0,
+            statuses: ["inactive"],
+            onResetFilters: () => {
+              resetCalls += 1;
+            },
+          })}
+        />,
+      );
+      expect(view.host.textContent).toContain("No customers found");
+      expect(view.host.textContent).toContain("Nothing matches these filters.");
+      const clearEmptyBtn = [...view.host.querySelectorAll("[data-slot='empty'] button")].find(
+        (b) => b.textContent?.trim() === "Clear filters",
+      )!;
+      await act(async () => {
+        click(clearEmptyBtn);
+      });
+      expect(resetCalls).toBe(1);
+
+      // Org empty state (no active filters)
+      await view.rerender(
+        <CustomersTableView
+          {...makeProps({
+            rows: [],
+            rowCount: 0,
+            onNewCustomer: () => {
+              newCustomerCalls += 1;
+            },
+          })}
+        />,
+      );
+      expect(view.host.textContent).toContain(
+        "Create the first customer to populate the reference flow.",
+      );
+      const newCustomerBtn = [...view.host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "New customer",
+      )!;
+      await act(async () => {
+        click(newCustomerBtn);
+      });
+      expect(newCustomerCalls).toBe(1);
+    } finally {
+      await view.cleanup();
+    }
+  });
+});

@@ -1,5 +1,6 @@
 import {
   createSerializer,
+  parseAsArrayOf,
   parseAsInteger,
   parseAsString,
   parseAsStringLiteral,
@@ -7,14 +8,18 @@ import {
 } from "nuqs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-export type CustomerStatusFilter = "all" | "active" | "inactive" | "archived";
+export type CustomerStatusValue = "active" | "inactive" | "archived";
+export type CustomerStatusFilter = "all" | CustomerStatusValue;
 
-const customerStatusValues = ["all", "active", "inactive", "archived"] as const;
+const customerStatusLiteralValues = ["active", "inactive", "archived"] as const;
+const customerStatusValues = ["all", ...customerStatusLiteralValues] as const;
 
 const customerListNavigationParsers = {
   q: parseAsString.withDefault(""),
   page: parseAsInteger.withDefault(0),
   status: parseAsStringLiteral<CustomerStatusFilter>(customerStatusValues).withDefault("all"),
+  statuses: parseAsArrayOf(parseAsStringLiteral(customerStatusLiteralValues)).withDefault([]),
+  tags: parseAsArrayOf(parseAsString).withDefault([]),
 };
 
 /**
@@ -35,7 +40,7 @@ type UseListSearchParamsOptions<TSortKey extends string> = {
 };
 
 /**
- * Bridges URL state (nuqs) to the controlled props of `DataTable`.
+ * Bridges URL state (nuqs) to the controlled props of `DataTable` and `ListToolbar`.
  *
  * The table block never reads the URL (docs/adr/0002): this hook is the single
  * writer of the list parameters, so paging, sorting, and filtering have one
@@ -80,6 +85,23 @@ export function useListSearchParams<TSortKey extends string>({
     [setState, searchDebounceMs],
   );
 
+  const clearSearch = useCallback(() => {
+    clearTimeout(timer.current);
+    setSearchInput("");
+    void setState({ q: "", page: 0 });
+  }, [setState]);
+
+  const statuses: CustomerStatusValue[] = useMemo(() => {
+    if (state.statuses.length > 0) return state.statuses;
+    if (state.status !== "all") return [state.status];
+    return [];
+  }, [state.statuses, state.status]);
+
+  const tags: string[] = useMemo(
+    () => state.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
+    [state.tags],
+  );
+
   const pagination = useMemo(
     () => ({ pageIndex: state.page, pageSize: state.size }),
     [state.page, state.size],
@@ -110,7 +132,36 @@ export function useListSearchParams<TSortKey extends string>({
   );
 
   const setStatus = useCallback(
-    (status: CustomerStatusFilter) => void setState({ status, page: 0 }),
+    (status: CustomerStatusFilter) => {
+      void setState({
+        status,
+        statuses: [],
+        page: 0,
+      });
+    },
+    [setState],
+  );
+
+  const setStatuses = useCallback(
+    (next: readonly CustomerStatusValue[]) => {
+      const unique = [...new Set(next)];
+      void setState({
+        statuses: unique,
+        status: "all",
+        page: 0,
+      });
+    },
+    [setState],
+  );
+
+  const setTags = useCallback(
+    (next: readonly string[]) => {
+      const unique = [...new Set(next.map((t) => t.trim()).filter(Boolean))];
+      void setState({
+        tags: unique,
+        page: 0,
+      });
+    },
     [setState],
   );
 
@@ -121,6 +172,8 @@ export function useListSearchParams<TSortKey extends string>({
       page: 0,
       q: "",
       status: "all",
+      statuses: [],
+      tags: [],
     });
   }, [setState]);
 
@@ -131,6 +184,8 @@ export function useListSearchParams<TSortKey extends string>({
       page: 0,
       q: "",
       status: "all",
+      statuses: [],
+      tags: [],
       sort: defaultSortKey,
       dir: defaultSortDir,
     });
@@ -140,8 +195,13 @@ export function useListSearchParams<TSortKey extends string>({
     search: state.q,
     searchInput,
     onSearchInputChange,
+    clearSearch,
     status: state.status,
     setStatus,
+    statuses,
+    setStatuses,
+    tags,
+    setTags,
     sortBy: state.sort,
     sortDir: state.dir,
     pagination,

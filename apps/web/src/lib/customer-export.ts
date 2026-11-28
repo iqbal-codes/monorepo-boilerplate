@@ -33,6 +33,8 @@ type CustomerExportProcedureInput = Parameters<
 export type CustomerExportScope = {
   search?: string | undefined;
   status: NonNullable<CustomerScopeInput["status"]>;
+  statuses?: CustomerScopeInput["statuses"];
+  tags?: CustomerScopeInput["tags"];
   sortBy: NonNullable<CustomerScopeInput["sortBy"]>;
   sortDir: NonNullable<CustomerScopeInput["sortDir"]>;
 };
@@ -98,6 +100,8 @@ export function customerExportUrl(scope: CustomerExportScope): string {
   const snapshot: CustomerExportProcedureInput = {
     search: scope.search || undefined,
     status: scope.status,
+    ...(scope.statuses && scope.statuses.length > 0 ? { statuses: scope.statuses } : {}),
+    ...(scope.tags && scope.tags.length > 0 ? { tags: scope.tags } : {}),
     sortBy: scope.sortBy,
     sortDir: scope.sortDir,
   };
