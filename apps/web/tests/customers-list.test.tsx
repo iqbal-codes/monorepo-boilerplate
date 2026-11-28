@@ -868,4 +868,57 @@ describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
       await view.cleanup();
     }
   });
+
+  test("wires mobile sort drawer and infinite footer in CustomersTableView", async () => {
+    let sortChanges = 0;
+    let loadMoreCalls = 0;
+    const view = await renderInDom(
+      <CustomersTableView
+        {...makeProps({
+          onSortingChange: () => {
+            sortChanges += 1;
+          },
+          mobileInfinite: {
+            hasMore: true,
+            isLoadingMore: false,
+            totalCount: 10,
+            onLoadMore: () => {
+              loadMoreCalls += 1;
+            },
+          },
+        })}
+      />,
+    );
+    try {
+      const viewTrigger = view.host.querySelector<HTMLButtonElement>(
+        "[data-slot='data-table-view-options-trigger']",
+      )!;
+      expect(viewTrigger.className).toContain("hidden sm:inline-flex");
+
+      const sortTrigger = view.host.querySelector<HTMLButtonElement>(
+        "[data-slot='list-toolbar-sort-trigger']",
+      )!;
+      expect(sortTrigger).toBeTruthy();
+      await act(async () => {
+        click(sortTrigger);
+      });
+      const companyRadio = [...document.body.querySelectorAll("[data-slot='drawer-content'] label")]
+        .find((el) => el.textContent?.includes("Company"))!
+        .querySelector<HTMLInputElement>('input[type="radio"]')!;
+      await act(async () => {
+        companyRadio.click();
+      });
+      expect(sortChanges).toBe(1);
+
+      const loadMoreBtn = [
+        ...view.host.querySelectorAll("[data-slot='data-table-infinite-footer'] button"),
+      ].find((btn) => btn.textContent?.includes("Load more"))!;
+      await act(async () => {
+        click(loadMoreBtn);
+      });
+      expect(loadMoreCalls).toBe(1);
+    } finally {
+      await view.cleanup();
+    }
+  });
 });

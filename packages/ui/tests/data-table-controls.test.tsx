@@ -540,6 +540,194 @@ describe("DataTableViewOptions & DataTable controls (TC-02)", () => {
   });
 });
 
+describe("Mobile ListToolbar & DataTable enhancements", () => {
+  test("ActiveFilterChips scrolls horizontally on mobile and wraps on sm+", async () => {
+    const view = await renderInDom(
+      <ActiveFilterChips
+        chips={[
+          { id: "status:active", label: "Status", value: "Active", onRemove: () => {} },
+          { id: "tag:vip", label: "Tag", value: "vip", onRemove: () => {} },
+        ]}
+        onClearAll={() => {}}
+      />,
+    );
+    try {
+      const strip = view.host.querySelector("[data-slot='active-filter-chips']")!;
+      const rail = strip.firstElementChild!;
+      expect(rail.className).toContain("overflow-x-auto");
+      expect(rail.className).toContain("flex-nowrap");
+      expect(rail.className).toContain("sm:flex-wrap");
+      const chip = view.host.querySelector("[data-slot='active-filter-chip']")!;
+      expect(chip.className).toContain("shrink-0");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("ListToolbar renders mobile sort drawer and updates sort field, direction, and reset", async () => {
+    const changes: Array<{ id: string; desc: boolean }> = [];
+    function Harness() {
+      const [sort, setSort] = React.useState({ id: "createdAt", desc: true });
+      return (
+        <ListToolbar
+          search={{ label: "Search", value: "", onChange: () => {} }}
+          sortSheet={{
+            options: [
+              { id: "name", label: "Customer" },
+              { id: "createdAt", label: "Created" },
+            ],
+            value: sort,
+            defaultValue: { id: "createdAt", desc: true },
+            onChange: (next) => {
+              changes.push(next);
+              setSort(next);
+            },
+            title: "Sort customers",
+          }}
+        />
+      );
+    }
+
+    const view = await renderInDom(<Harness />);
+    try {
+      const sortBtn = view.host.querySelector<HTMLButtonElement>(
+        "[data-slot='list-toolbar-sort-trigger']",
+      )!;
+      expect(sortBtn).toBeTruthy();
+      await act(async () => {
+        click(sortBtn);
+      });
+
+      const nameOption = [...document.body.querySelectorAll("[data-slot='drawer-content'] label")]
+        .find((el) => el.textContent?.includes("Customer"))!
+        .querySelector<HTMLInputElement>('input[type="radio"]')!;
+      await act(async () => {
+        nameOption.click();
+      });
+      expect(changes.at(-1)).toEqual({ id: "name", desc: true });
+
+      const ascOption = [...document.body.querySelectorAll("[data-slot='drawer-content'] label")]
+        .find((el) => el.textContent?.includes("Ascending"))!
+        .querySelector<HTMLInputElement>('input[type="radio"]')!;
+      await act(async () => {
+        ascOption.click();
+      });
+      expect(changes.at(-1)).toEqual({ id: "name", desc: false });
+
+      const resetBtn = [
+        ...document.body.querySelectorAll("[data-slot='drawer-content'] button"),
+      ].find((btn) => btn.textContent?.trim() === "Reset")!;
+      await act(async () => {
+        click(resetBtn);
+      });
+      expect(changes.at(-1)).toEqual({ id: "createdAt", desc: true });
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("DataTable omits mobile checkboxes/Select all and supports mobileInfinite with IntersectionObserver", async () => {
+    type Row = { id: string; name: string; status: string };
+    const helper = columnsFor<Row>();
+    const columns = helper.columns([
+      helper.accessor("name", { header: "Name" }),
+      helper.accessor("status", { header: "Status" }),
+    ]);
+
+    let loadMoreCalls = 0;
+    let observerCallback: IntersectionObserverCallback | null = null;
+    const prevObserver = globalThis.IntersectionObserver;
+    class LocalIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds = [0];
+      constructor(cb: IntersectionObserverCallback) {
+        observerCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    globalThis.IntersectionObserver = LocalIntersectionObserver;
+
+    try {
+      const renderTable = (hasMore: boolean, isLoadingMore = false) => (
+        <DataTable
+          data={[{ id: "1", name: "Ada Lovelace", status: "active" }]}
+          columns={columns}
+          pagination={{ pageIndex: 0, pageSize: 20 }}
+          rowCount={25}
+          manualPagination
+          hideMobileSort
+          selection={{
+            ids: new Set(),
+            getId: (row) => row.id,
+            getLabel: (row) => `Select ${row.name}`,
+            pageLabel: "Select all on page",
+            onChange: () => {},
+          }}
+          mobileInfinite={{
+            hasMore,
+            isLoadingMore,
+            totalCount: hasMore ? 25 : 1,
+            onLoadMore: () => {
+              loadMoreCalls += 1;
+            },
+          }}
+        />
+      );
+
+      const view = await renderInDom(renderTable(true));
+      try {
+        const mobileContainer = view.host.querySelector(".\\@lg\\:hidden")!;
+        expect(mobileContainer).toBeTruthy();
+        expect(mobileContainer.textContent).not.toContain("Select all");
+        expect(mobileContainer.querySelector('[role="checkbox"]')).toBeNull();
+        expect(mobileContainer.querySelector('button[aria-label="Sort by"]')).toBeNull();
+
+        const desktopContainer = view.host.querySelector(".\\@lg\\:block")!;
+        expect(desktopContainer.querySelector('[aria-label="Select all on page"]')).toBeTruthy();
+
+        const footer = mobileContainer.querySelector("[data-slot='data-table-infinite-footer']")!;
+        expect(footer.textContent).toContain("Load more");
+
+        await act(async () => {
+          observerCallback?.(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            {} as IntersectionObserver,
+          );
+        });
+        expect(loadMoreCalls).toBe(1);
+
+        const loadMoreBtn = [...footer.querySelectorAll("button")].find((btn) =>
+          btn.textContent?.includes("Load more"),
+        )!;
+        await act(async () => {
+          click(loadMoreBtn);
+        });
+        expect(loadMoreCalls).toBe(2);
+
+        await view.rerender(renderTable(true, true));
+        expect(
+          mobileContainer.querySelector("[data-slot='data-table-infinite-footer']")?.textContent,
+        ).toContain("Loading more");
+
+        await view.rerender(renderTable(false, false));
+        expect(
+          mobileContainer.querySelector("[data-slot='data-table-infinite-footer']")?.textContent,
+        ).toContain("Showing all 1 item");
+      } finally {
+        await view.cleanup();
+      }
+    } finally {
+      globalThis.IntersectionObserver = prevObserver;
+    }
+  });
+});
+
 describe("RowActions (TC-02)", () => {
   test("is keyboard accessible, isolates clicks from row onClick, and supports destructive confirmation", async () => {
     let rowClicks = 0;

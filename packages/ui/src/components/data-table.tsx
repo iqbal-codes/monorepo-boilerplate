@@ -86,6 +86,7 @@ import {
   SelectValue,
 } from "@monorepo-boilerplate/ui/components/select";
 import { Skeleton } from "@monorepo-boilerplate/ui/components/skeleton";
+import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
 import {
   Table,
   TableBody,
@@ -144,6 +145,14 @@ export type {
 
 export type DataTableDensity = "comfortable" | "compact";
 
+export type DataTableMobileInfinite = {
+  hasMore: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore: () => void;
+  totalCount?: number;
+  loadMoreLabel?: string;
+};
+
 export type DataTableProps<TData extends RowData> = {
   data: readonly TData[];
   columns: readonly ColumnDef<DataTableFeatures, TData>[];
@@ -181,6 +190,10 @@ export type DataTableProps<TData extends RowData> = {
   density?: DataTableDensity;
   /** Accessible name for the scrollable table region. */
   regionLabel?: string;
+  /** Mobile infinite scroll configuration; hides the paged footer below `@lg` when set. */
+  mobileInfinite?: DataTableMobileInfinite;
+  /** Hides the built-in mobile sort bar when sorting is rendered in an external toolbar. */
+  hideMobileSort?: boolean;
 };
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
@@ -210,6 +223,8 @@ export function DataTable<TData extends RowData>({
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   density = "comfortable",
   regionLabel = "Data table",
+  mobileInfinite,
+  hideMobileSort = false,
 }: DataTableProps<TData>) {
   const table = useTable({
     features: dataTableFeatures,
@@ -343,6 +358,29 @@ export function DataTable<TData extends RowData>({
     .filter((header) => !header.isPlaceholder && header.column.getCanSort());
   const activeSort = sorting?.[0];
 
+  const sentinelRef = React.useRef<HTMLDivElement>(null);
+  const canLoadMore = Boolean(mobileInfinite?.hasMore && !mobileInfinite.isLoadingMore && !isBusy);
+  const onLoadMoreRef = React.useRef(mobileInfinite?.onLoadMore);
+  onLoadMoreRef.current = mobileInfinite?.onLoadMore;
+
+  React.useEffect(() => {
+    if (!canLoadMore) return;
+    const node = sentinelRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMoreRef.current?.();
+        }
+      },
+      { rootMargin: "200px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [canLoadMore]);
+
+  const mobileSkeletonCount = Math.min(skeletonRowCount, 8);
+
   function pinnedCellProps(columnId: string, pinned: false | "start" | "end") {
     if (!pinned) return {};
     const style: React.CSSProperties =
@@ -371,82 +409,61 @@ export function DataTable<TData extends RowData>({
     >
       {isFetching ? <LoadingRail /> : null}
       {/* Narrow-container stacked card list */}
-      <div className="flex flex-col gap-2 @lg:hidden">
-        {(selection || sortableHeaders.length > 0) && (
-          <div className="flex items-center justify-between gap-2 px-1">
-            {selection ? (
-              <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Checkbox
-                  aria-label={selection.pageLabel}
-                  checked={allSelected}
-                  indeterminate={selectedCount > 0 && !allSelected}
-                  disabled={selection.disabled || rowsInert || pageIds.length === 0}
-                  className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
-                  onCheckedChange={(checked) => changeSelection(pageIds, checked)}
-                />
-                <span>Select all</span>
-              </label>
-            ) : (
-              <span />
-            )}
-            {sortableHeaders.length > 0 ? (
-              <div className="flex items-center gap-1.5">
-                <Select
-                  value={activeSort?.id ?? ""}
-                  onValueChange={(columnId) => {
-                    if (!columnId) return;
-                    const nextDesc = activeSort?.id === columnId ? !activeSort.desc : false;
-                    onSortingChange?.([{ id: columnId, desc: nextDesc }]);
+      <div className={cn("flex flex-col gap-2 @lg:hidden", mobileInfinite && "pb-16")}>
+        {!hideMobileSort && sortableHeaders.length > 0 && (
+          <div className="flex items-center justify-end gap-1.5 px-1">
+            <Select
+              value={activeSort?.id ?? ""}
+              onValueChange={(columnId) => {
+                if (!columnId) return;
+                const nextDesc = activeSort?.id === columnId ? !activeSort.desc : false;
+                onSortingChange?.([{ id: columnId, desc: nextDesc }]);
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-8 w-auto min-w-28 border border-input px-2.5 text-xs"
+                aria-label="Sort by"
+              >
+                <ArrowUpDownIcon className="size-3 text-muted-foreground" aria-hidden />
+                <SelectValue placeholder="Sort">
+                  {(value) => {
+                    const header = sortableHeaders.find((h) => h.column.id === value);
+                    return header
+                      ? stringifyHeader(header.column.columnDef.header, header.id)
+                      : "Sort";
                   }}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-8 w-auto min-w-28 border border-input px-2.5 text-xs"
-                    aria-label="Sort by"
-                  >
-                    <ArrowUpDownIcon className="size-3 text-muted-foreground" aria-hidden />
-                    <SelectValue placeholder="Sort">
-                      {(value) => {
-                        const header = sortableHeaders.find((h) => h.column.id === value);
-                        return header
-                          ? stringifyHeader(header.column.columnDef.header, header.id)
-                          : "Sort";
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    {sortableHeaders.map((header) => (
-                      <SelectItem key={header.column.id} value={header.column.id}>
-                        {stringifyHeader(header.column.columnDef.header, header.id)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {activeSort ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    aria-label={
-                      activeSort.desc
-                        ? "Sort descending, switch to ascending"
-                        : "Sort ascending, switch to descending"
-                    }
-                    onClick={() =>
-                      onSortingChange?.([{ id: activeSort.id, desc: !activeSort.desc }])
-                    }
-                  >
-                    {activeSort.desc ? <ArrowDownIcon aria-hidden /> : <ArrowUpIcon aria-hidden />}
-                  </Button>
-                ) : null}
-              </div>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="end">
+                {sortableHeaders.map((header) => (
+                  <SelectItem key={header.column.id} value={header.column.id}>
+                    {stringifyHeader(header.column.columnDef.header, header.id)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {activeSort ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label={
+                  activeSort.desc
+                    ? "Sort descending, switch to ascending"
+                    : "Sort ascending, switch to descending"
+                }
+                onClick={() => onSortingChange?.([{ id: activeSort.id, desc: !activeSort.desc }])}
+              >
+                {activeSort.desc ? <ArrowDownIcon aria-hidden /> : <ArrowUpIcon aria-hidden />}
+              </Button>
             ) : null}
           </div>
         )}
 
         {showSkeleton ? (
           <div className="flex flex-col divide-y rounded-lg border">
-            {Array.from({ length: skeletonRowCount }, (_, index) => (
+            {Array.from({ length: mobileSkeletonCount }, (_, index) => (
               <div key={`mobile-skeleton-${index}`} className="flex flex-col gap-2 p-3">
                 <Skeleton className="h-4 w-40" />
                 <Skeleton className="h-3 w-28" />
@@ -474,77 +491,97 @@ export function DataTable<TData extends RowData>({
             )}
           </div>
         ) : (
-          <div className="flex flex-col divide-y rounded-lg border">
-            {rows.map((row) => {
-              const cells = row.getVisibleCells();
-              const actionCell = cells.find((cell) => cell.column.id === "actions");
-              const dataCells = cells.filter((cell) => cell.column.id !== "actions");
-              const [primaryCell, ...secondaryCells] = dataCells;
-              const rowId = selection?.getId(row.original);
-              const isSelectable = selection
-                ? selection.canSelect?.(row.original) !== false
-                : false;
+          <>
+            <div className="flex flex-col divide-y rounded-lg border">
+              {rows.map((row) => {
+                const cells = row.getVisibleCells();
+                const actionCell = cells.find((cell) => cell.column.id === "actions");
+                const dataCells = cells.filter((cell) => cell.column.id !== "actions");
+                const [primaryCell, ...secondaryCells] = dataCells;
 
-              return (
-                <div
-                  key={`mobile-${row.id}`}
-                  inert={rowsInert || undefined}
-                  onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
-                  className={cn(
-                    "flex items-start gap-3 transition-colors",
-                    density === "compact" ? "p-2.5" : "p-3",
-                    canActivateRow && "cursor-pointer hover:bg-muted/50",
-                    rowClassName?.(row.original),
-                  )}
-                >
-                  {selection && (
-                    <div className="pt-0.5" onClick={(event) => event.stopPropagation()}>
-                      {isSelectable && rowId !== undefined ? (
-                        <Checkbox
-                          aria-label={selection.getLabel(row.original)}
-                          checked={selection.ids.has(rowId)}
-                          disabled={selection.disabled || rowsInert}
-                          onCheckedChange={(checked) => changeSelection([rowId], checked)}
-                        />
+                return (
+                  <div
+                    key={`mobile-${row.id}`}
+                    inert={rowsInert || undefined}
+                    onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
+                    className={cn(
+                      "flex items-start gap-3 transition-colors",
+                      density === "compact" ? "p-2.5" : "p-3",
+                      canActivateRow && "cursor-pointer hover:bg-muted/50 active:bg-muted/70",
+                      rowClassName?.(row.original),
+                    )}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      {primaryCell || actionCell ? (
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          {primaryCell ? (
+                            <div className="min-w-0 flex-1">
+                              <table.FlexRender cell={primaryCell} />
+                            </div>
+                          ) : (
+                            <span />
+                          )}
+                          {actionCell ? (
+                            <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                              <table.FlexRender cell={actionCell} />
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {secondaryCells.length > 0 ? (
+                        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                          {secondaryCells.map((cell) => (
+                            <div key={cell.id} className="flex min-w-0 flex-col gap-0.5">
+                              <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                                {stringifyHeader(cell.column.columnDef.header, cell.column.id)}
+                              </dt>
+                              <dd className="min-w-0 truncate">
+                                <table.FlexRender cell={cell} />
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
                       ) : null}
                     </div>
-                  )}
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    {primaryCell || actionCell ? (
-                      <div className="flex min-w-0 items-start justify-between gap-2">
-                        {primaryCell ? (
-                          <div className="min-w-0 flex-1">
-                            <table.FlexRender cell={primaryCell} />
-                          </div>
-                        ) : (
-                          <span />
-                        )}
-                        {actionCell ? (
-                          <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                            <table.FlexRender cell={actionCell} />
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {secondaryCells.length > 0 ? (
-                      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                        {secondaryCells.map((cell) => (
-                          <div key={cell.id} className="flex min-w-0 flex-col gap-0.5">
-                            <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                              {stringifyHeader(cell.column.columnDef.header, cell.column.id)}
-                            </dt>
-                            <dd className="min-w-0 truncate">
-                              <table.FlexRender cell={cell} />
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    ) : null}
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            {mobileInfinite ? (
+              <div
+                data-slot="data-table-infinite-footer"
+                className="flex flex-col items-center gap-2 pt-1"
+              >
+                <div ref={sentinelRef} aria-hidden className="h-px w-full" />
+                {mobileInfinite.isLoadingMore ? (
+                  <div
+                    role="status"
+                    className="flex items-center gap-2 py-2 text-xs text-muted-foreground"
+                  >
+                    <Spinner aria-hidden />
+                    <span>Loading more…</span>
+                  </div>
+                ) : mobileInfinite.hasMore ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={isBusy}
+                    onClick={() => mobileInfinite.onLoadMore()}
+                  >
+                    {mobileInfinite.loadMoreLabel ?? "Load more"}
+                  </Button>
+                ) : (
+                  <p className="py-1 text-center text-xs text-muted-foreground tabular-nums">
+                    {mobileInfinite.totalCount !== undefined
+                      ? `Showing all ${mobileInfinite.totalCount} ${mobileInfinite.totalCount === 1 ? "item" : "items"}`
+                      : `Showing all ${rows.length} ${rows.length === 1 ? "item" : "items"}`}
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
 
@@ -708,7 +745,12 @@ export function DataTable<TData extends RowData>({
         </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm",
+          mobileInfinite && "hidden @lg:flex",
+        )}
+      >
         <p aria-live="polite" className="tabular-nums">
           {total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}
         </p>

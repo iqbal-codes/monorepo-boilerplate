@@ -4,6 +4,7 @@ import {
   DataTable,
   type ColumnPinningState,
   type DataTableDensity,
+  type DataTableMobileInfinite,
   type PaginationState,
   type SortingState,
   type VisibilityState,
@@ -64,6 +65,7 @@ export type CustomersTableViewProps = CustomerColumnActions &
     onDensityChange: (density: DataTableDensity) => void;
     isLoading: boolean;
     isFetching: boolean;
+    mobileInfinite?: DataTableMobileInfinite;
     isError: boolean;
     errorMessage?: string;
     onRetry: () => void;
@@ -97,6 +99,7 @@ export function CustomersTableView({
   onDensityChange,
   isLoading,
   isFetching,
+  mobileInfinite,
   isError,
   errorMessage,
   onRetry,
@@ -208,12 +211,21 @@ export function CustomersTableView({
             onChange: onSearchInputChange,
           }}
           {...filterControls}
+          sortSheet={{
+            options: CUSTOMER_VIEW_COLUMNS.map((col) => ({ id: col.id, label: col.label })),
+            value: sorting[0] ?? { id: "createdAt", desc: true },
+            defaultValue: { id: "createdAt", desc: true },
+            onChange: (next) => onSortingChange([next]),
+            title: "Sort customers",
+            description: "Choose a field and sort direction.",
+          }}
           hasActiveFilters={hasAnyFilter || Boolean(searchInput)}
           onClearFilters={onClearFilters}
           resultLabel={rowCount === 1 ? "1 customer" : `${rowCount} customers`}
           isFetching={isFetching}
           actions={
             <DataTableViewOptions
+              className="hidden sm:inline-flex"
               columns={CUSTOMER_VIEW_COLUMNS}
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}
@@ -297,6 +309,8 @@ export function CustomersTableView({
           density={density}
           isLoading={isLoading}
           isFetching={isFetching}
+          mobileInfinite={mobileInfinite}
+          hideMobileSort
           disableRows={!current}
           onRowClick={(row) => onEditCustomer(row.id)}
           emptyState={
