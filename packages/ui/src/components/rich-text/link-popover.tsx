@@ -41,10 +41,15 @@ export function RichTextLinkPopover({
   const [urlValue, setUrlValue] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const urlInputId = React.useId();
+  const unavailable = disabled || !editor;
+
+  React.useEffect(() => {
+    if (unavailable) setOpen(false);
+  }, [unavailable]);
 
   function handleOpenChange(nextOpen: boolean) {
-    if (disabled) return;
-    if (nextOpen && editor) {
+    if (nextOpen) {
+      if (unavailable || !editor.isEditable) return;
       const currentHref = editor.getAttributes("link").href;
       setUrlValue(typeof currentHref === "string" ? currentHref : "");
       setErrorMessage(null);
@@ -54,7 +59,9 @@ export function RichTextLinkPopover({
 
   function handleApply(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editor) return;
+    // The popover is portaled, but React still bubbles the submit to its parent form.
+    event.stopPropagation();
+    if (!open || unavailable || !editor.isEditable) return;
 
     const trimmed = urlValue.trim();
     if (!trimmed) {
@@ -74,14 +81,14 @@ export function RichTextLinkPopover({
   }
 
   function handleUnlink() {
-    if (!editor) return;
+    if (!open || unavailable || !editor.isEditable) return;
     editor.chain().focus().extendMarkRange("link").unsetLink().run();
     setOpen(false);
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger render={trigger} />
+    <Popover open={open && !unavailable} onOpenChange={handleOpenChange}>
+      <PopoverTrigger render={trigger} disabled={unavailable} aria-disabled={unavailable} />
       <PopoverContent align="start" className="w-72 gap-3 p-3">
         <form onSubmit={handleApply} noValidate className="flex flex-col gap-3">
           <Field data-invalid={Boolean(errorMessage) || undefined} className="gap-1.5">
@@ -92,6 +99,7 @@ export function RichTextLinkPopover({
               id={urlInputId}
               type="text"
               inputMode="url"
+              disabled={unavailable}
               placeholder="https://example.com"
               value={urlValue}
               aria-invalid={Boolean(errorMessage) || undefined}
@@ -105,12 +113,18 @@ export function RichTextLinkPopover({
 
           <div className="flex items-center justify-end gap-1.5">
             {active ? (
-              <Button type="button" size="xs" variant="ghost" onClick={handleUnlink}>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                disabled={unavailable}
+                onClick={handleUnlink}
+              >
                 <UnlinkIcon data-icon="inline-start" aria-hidden="true" />
                 Remove
               </Button>
             ) : null}
-            <Button type="submit" size="xs">
+            <Button type="submit" size="xs" disabled={unavailable}>
               <Link2Icon data-icon="inline-start" aria-hidden="true" />
               Apply
             </Button>

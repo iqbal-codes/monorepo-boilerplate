@@ -130,7 +130,7 @@ const SlashCommandMenuList = React.forwardRef<
           setSelectedIndex((prev) => (prev + 1) % items.length);
           return true;
         }
-        if (event.key === "Enter") {
+        if (event.key === "Enter" && !event.isComposing) {
           event.preventDefault();
           selectItem(selectedIndex);
           return true;
@@ -159,12 +159,10 @@ const SlashCommandMenuList = React.forwardRef<
               type="button"
               role="option"
               aria-selected={isSelected}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                selectItem(index);
-              }}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectItem(index)}
               className={cn(
-                "flex w-full flex-col items-start gap-0.5 rounded-none px-2.5 py-1.5 text-left transition-colors outline-none",
+                "flex w-full flex-col items-start gap-0.5 rounded-none px-2.5 py-1.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                 isSelected
                   ? "bg-muted text-foreground"
                   : "text-popover-foreground hover:bg-muted/60",
@@ -214,7 +212,7 @@ export function createSlashCommandExtension(
             range: Range;
             props: SlashCommandItem;
           }) => {
-            props.run({ editor, range });
+            if (editor.isEditable) props.run({ editor, range });
           },
           render: () => {
             let renderer: ReactRenderer<

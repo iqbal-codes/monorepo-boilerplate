@@ -1,6 +1,8 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import type { Editor } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -127,6 +129,12 @@ async function renderInDom(node: React.ReactNode) {
       host.remove();
     },
   };
+}
+
+function getEditor(host: HTMLElement) {
+  const textbox = host.querySelector<HTMLElement & { editor: Editor }>(".tiptap");
+  if (!textbox?.editor) throw new Error("Expected a mounted Tiptap editor");
+  return textbox.editor;
 }
 
 function collectTsFiles(dir: string): string[] {
@@ -304,6 +312,77 @@ describe("Serialization: toPlainText & toMarkdown (TC-04)", () => {
     );
   });
 
+  test("escapes literal Markdown and HTML without escaping real code or marks (TC-R1-CODE-01)", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "<div>& #tag [literal] *asterisks* `ticks`</div> " },
+            { type: "text", text: "<strong>", marks: [{ type: "bold" }] },
+            { type: "text", text: " " },
+            { type: "text", text: "<code>*", marks: [{ type: "code" }] },
+          ],
+        },
+      ],
+    };
+    expect(toMarkdown(doc)).toBe(
+      "&lt;div&gt;&amp; \\#tag \\[literal\\] \\*asterisks\\* \\`ticks\\`&lt;/div&gt; **&lt;strong&gt;** `<code>*`",
+    );
+    expect(toPlainText(doc)).toBe(
+      "<div>& #tag [literal] *asterisks* `ticks`</div> <strong> <code>*",
+    );
+  });
+
+  test("indents nested fenced code under the full ordered and bullet prefixes (TC-R1-CODE-01)", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "orderedList",
+          attrs: { start: 10 },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                { type: "paragraph", content: [{ type: "text", text: "Outer" }] },
+                {
+                  type: "bulletList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [
+                        { type: "paragraph", content: [{ type: "text", text: "Inner" }] },
+                        {
+                          type: "codeBlock",
+                          attrs: { language: "ts" },
+                          content: [{ type: "text", text: "one\n\n  two\n```" }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(toMarkdown(doc)).toBe(
+      [
+        "10. Outer",
+        "    - Inner",
+        "      ````ts",
+        "      one",
+        "",
+        "        two",
+        "      ```",
+        "      ````",
+      ].join("\n"),
+    );
+  });
+
   test("toMarkdown strips unsafe link protocols and handles combined marks cleanly", () => {
     const doc: NonNullable<JSONContent> = {
       type: "doc",
@@ -456,13 +535,34 @@ describe("RichTextEditor & RichTextField (TC-01)", () => {
     expect(readOnlyEditor?.getAttribute("aria-invalid")).toBe("true");
     expect(readOnlyEditor?.getAttribute("tabindex")).toBe("0");
 
+    expect(updates).toEqual([]);
+    expect(readOnlyEditor?.textContent).toContain("Release Notes");
+
+    await rerender(<RichTextEditor value={SAMPLE_DOC} onChange={(next) => updates.push(next)} />);
+    await rerender(
+      <RichTextEditor
+        value={EMPTY_RICH_TEXT_DOC}
+        disabled
+        onChange={(next) => updates.push(next)}
+      />,
+    );
+    expect(getEditor(host).getText()).toBe("");
+    expect(updates).toEqual([]);
     await cleanup();
   });
 
   test("RichTextLinkPopover validates and normalizes URLs without native type=url blocking", async () => {
-    const { host, cleanup } = await renderInDom(
-      <RichTextEditor aria-label="Link test" value={SAMPLE_DOC} />,
-    );
+    const parentSubmit = mock(() => {});
+    function LinkForm() {
+      const form = useAppForm({ defaultValues: {}, onSubmit: parentSubmit });
+      return (
+        <Form form={form}>
+          <RichTextEditor aria-label="Link test" value={SAMPLE_DOC} />
+          <form.SubmitButton>Save</form.SubmitButton>
+        </Form>
+      );
+    }
+    const { host, cleanup } = await renderInDom(<LinkForm />);
 
     const linkButton = host.querySelector('button[aria-label="Link"]') as HTMLButtonElement | null;
     expect(linkButton).not.toBeNull();
@@ -493,6 +593,7 @@ describe("RichTextEditor & RichTextField (TC-01)", () => {
       form?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
     });
     expect(document.body.textContent).toContain("Enter a valid http(s), mailto, or relative URL.");
+    expect(parentSubmit).not.toHaveBeenCalled();
 
     // Relative path passes validation and closes popover
     await act(async () => {
@@ -502,7 +603,91 @@ describe("RichTextEditor & RichTextField (TC-01)", () => {
       form?.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
     });
     expect(document.body.querySelector('input[inputmode="url"]')).toBeNull();
+    expect(parentSubmit).not.toHaveBeenCalled();
+    await act(async () => host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click());
+    expect(parentSubmit).toHaveBeenCalledTimes(1);
 
+    await cleanup();
+  });
+
+  test.each(["disabled", "readOnly"] as const)(
+    "closes an open Link popup on %s without applying or removing its link (TC-R1-SEAM-03)",
+    async (mode) => {
+      const value = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "Original link",
+                marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+              },
+            ],
+          },
+        ],
+      };
+      const onChange = mock(() => {});
+      const { host, rerender, cleanup } = await renderInDom(
+        <RichTextEditor value={value} onChange={onChange} bubbleMenu={false} />,
+      );
+      const editor = getEditor(host);
+      await act(async () => {
+        editor.commands.setTextSelection(3);
+      });
+      const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Link"]')!;
+      await act(async () => trigger.click());
+      const input = document.body.querySelector<HTMLInputElement>('input[inputmode="url"]')!;
+      expect(input.value).toBe("https://example.com");
+      const linkForm = input.form!;
+      const remove = linkForm.querySelector<HTMLButtonElement>('button[type="button"]')!;
+      expect(remove.textContent).toContain("Remove");
+      await rerender(
+        <RichTextEditor
+          value={value}
+          onChange={onChange}
+          bubbleMenu={false}
+          {...{ [mode]: true }}
+        />,
+      );
+      expect(trigger.getAttribute("aria-disabled")).toBe("true");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.body.querySelector('input[inputmode="url"]')).toBeNull();
+      await act(async () => {
+        linkForm.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }));
+        remove.click();
+      });
+      expect(editor.getAttributes("link").href).toBe("https://example.com");
+      expect(onChange).not.toHaveBeenCalled();
+      await rerender(<RichTextEditor value={value} onChange={onChange} bubbleMenu={false} />);
+      expect(document.body.querySelector('input[inputmode="url"]')).toBeNull();
+      await cleanup();
+    },
+  );
+
+  test("resetting an optional RichTextField to undefined clears the editor too (TC-R1-SEAM-04)", async () => {
+    function OptionalField() {
+      const form = useAppForm({ defaultValues: { summary: undefined as JSONContent } });
+      return (
+        <Form form={form}>
+          <form.AppField name="summary">{() => <RichTextField label="Summary" />}</form.AppField>
+          <form.Subscribe selector={(state) => state.values.summary}>
+            {(value) => <output>{value === undefined ? "Absent" : toPlainText(value)}</output>}
+          </form.Subscribe>
+          <form.ResetButton data-test-reset>Reset</form.ResetButton>
+        </Form>
+      );
+    }
+    const { host, cleanup } = await renderInDom(<OptionalField />);
+    const editor = getEditor(host);
+    await act(async () => {
+      editor.commands.insertContent("Draft text");
+    });
+    expect(host.querySelector("output")?.textContent).toBe("Draft text");
+    await act(async () => host.querySelector<HTMLButtonElement>("[data-test-reset]")?.click());
+    expect(host.querySelector("output")?.textContent).toBe("Absent");
+    expect(editor.getText()).toBe("");
     await cleanup();
   });
 
@@ -660,7 +845,7 @@ describe("RichTextEditor & RichTextField (TC-01)", () => {
       });
 
       return (
-        <UnsavedChangesGuard form={form} title="Discard edits?">
+        <UnsavedChangesGuard form={form} title="Discard edits?" onDiscard={() => form.reset()}>
           {({ isDirty, requestClose }) => (
             <Form form={form}>
               <span data-testid="dirty-flag">{String(isDirty)}</span>
@@ -706,7 +891,71 @@ describe("RichTextEditor & RichTextField (TC-01)", () => {
     });
 
     expect(document.body.textContent).toContain("Discard edits?");
+    const editor = getEditor(host);
+    const dialogButton = (text: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find(
+        (button) => button.textContent === text,
+      )!;
+    await act(async () => dialogButton("Keep editing").click());
+    expect(editor.getJSON().content?.[0]?.type).toBe("heading");
+    expect(editor.can().undo()).toBe(true);
+    expect(host.querySelector('[data-testid="dirty-flag"]')?.textContent).toBe("true");
 
+    // Leave both undo and redo entries before confirming discard.
+    await act(async () => {
+      editor.view.dispatch(closeHistory(editor.state.tr));
+      editor.commands.insertContent("Discarded draft");
+    });
+    await act(async () => {
+      editor.commands.undo();
+    });
+    expect(editor.can().undo()).toBe(true);
+    expect(editor.can().redo()).toBe(true);
+    await act(async () => leaveBtn?.click());
+    const emissionsBeforeDiscard = emitted.length;
+    await act(async () => dialogButton("Discard changes").click());
+    expect(host.querySelector('[data-testid="dirty-flag"]')?.textContent).toBe("false");
+    expect(editor.getJSON().content?.[0]?.type).toBe("paragraph");
+    expect(editor.getText()).toBe("Initial copy");
+    await act(async () => {
+      expect(editor.commands.undo()).toBe(false);
+      expect(editor.commands.redo()).toBe(false);
+    });
+    expect(editor.getText()).toBe("Initial copy");
+    expect(emitted).toHaveLength(emissionsBeforeDiscard);
+    await act(async () => {
+      editor.commands.insertContent("New edit");
+    });
+    await act(async () => {
+      expect(editor.commands.undo()).toBe(true);
+    });
+    expect(editor.getText()).toBe("Initial copy");
+    await cleanup();
+  });
+
+  test("activates a focused slash option on click, not mousedown (TC-R1-CODE-03)", async () => {
+    const { host, cleanup } = await renderInDom(<RichTextEditor bubbleMenu={false} />);
+    const editor = getEditor(host);
+    await act(async () => {
+      editor.commands.insertContent("/h2");
+    });
+    const option = document.querySelector<HTMLButtonElement>(
+      '[data-slot="rich-text-slash-menu"] [role="option"]',
+    )!;
+    expect(option.textContent).toContain("Heading 2");
+    const mouseDown = new win.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    await act(async () => {
+      option.dispatchEvent(mouseDown);
+    });
+    expect(mouseDown.defaultPrevented).toBe(true);
+    expect(editor.getText()).toBe("/h2");
+    await act(async () => {
+      option.focus();
+    });
+    expect(document.activeElement).toBe(option);
+    await act(async () => option.click());
+    expect(editor.getJSON().content?.[0]).toMatchObject({ type: "heading", attrs: { level: 2 } });
+    expect(editor.getText().trim()).toBe("");
     await cleanup();
   });
 

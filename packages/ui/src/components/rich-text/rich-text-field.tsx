@@ -48,7 +48,7 @@ export function RichTextField({
     >
       <RichTextEditor
         id={ids.fieldId}
-        value={field.state.value}
+        value={field.state.value ?? null}
         onChange={(next) => field.handleChange(next)}
         onBlur={field.handleBlur}
         placeholder={placeholder}

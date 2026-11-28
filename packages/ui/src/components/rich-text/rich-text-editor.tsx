@@ -3,6 +3,7 @@
 import * as React from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Placeholder } from "@tiptap/extensions";
+import { history } from "@tiptap/pm/history";
 import StarterKit from "@tiptap/starter-kit";
 import { cn } from "cn";
 
@@ -19,6 +20,9 @@ const PLACEHOLDER_CLASSES = [
   "[&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground",
   "[&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
 ].join(" ");
+
+// ProseMirror's history factory shares one PluginKey across its instances.
+const historyKey = history().spec.key;
 
 /**
  * Controlled ProseMirror/Tiptap rich-text editor styled with `base-sera` tokens.
@@ -48,7 +52,7 @@ export function RichTextEditor({
   const isEditable = !disabled && !readOnly;
   const isControlled = value !== undefined;
   const initialContent = React.useMemo(
-    () => normalizeRichTextContent(value ?? defaultValue),
+    () => normalizeRichTextContent(value === undefined ? defaultValue : value),
     // Initial snapshot only; controlled updates sync via `useEffect` below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -121,7 +125,7 @@ export function RichTextEditor({
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     if (editor.isEditable !== isEditable) {
-      editor.setEditable(isEditable);
+      editor.setEditable(isEditable, false);
     }
   }, [editor, isEditable]);
 
@@ -147,7 +151,20 @@ export function RichTextEditor({
     }
 
     lastSerializedRef.current = nextSerialized;
-    editor.commands.setContent(normalized, { emitUpdate: false });
+
+    // External replacements (including form resets) start a new undo/redo history.
+    // Excluding the replacement alone would leave the previous document's history mapped in.
+    const historyPlugin = historyKey?.get(editor.state);
+    if (historyKey && historyPlugin) {
+      const { plugins } = editor.state;
+      editor.unregisterPlugin(historyKey);
+      editor.registerPlugin(historyPlugin, () => [...plugins]);
+    }
+    editor
+      .chain()
+      .setMeta("addToHistory", false)
+      .setContent(normalized, { emitUpdate: false })
+      .run();
   }, [editor, isControlled, value]);
 
   return (

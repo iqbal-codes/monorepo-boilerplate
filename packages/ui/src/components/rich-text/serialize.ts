@@ -44,7 +44,7 @@ export function normalizeRichTextContent(value: JSONContent | null | undefined):
  * Shared inline-prose typography classes used by both `RichTextEditor` and `RichTextViewer`.
  */
 export const RICH_TEXT_PROSE_CLASSES = [
-  "text-sm leading-relaxed text-foreground",
+  "text-sm leading-relaxed wrap-anywhere text-foreground",
   "[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:font-heading [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:tracking-tight [&_h1:first-child]:mt-0",
   "[&_h2]:mt-3.5 [&_h2]:mb-1.5 [&_h2]:font-heading [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2:first-child]:mt-0",
   "[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:font-heading [&_h3]:text-base [&_h3]:font-semibold [&_h3:first-child]:mt-0",
@@ -173,21 +173,20 @@ function wrapInlineCode(text: string): string {
   return needsPadding ? `${fence} ${text} ${fence}` : `${fence}${text}${fence}`;
 }
 
+function escapeMarkdownText(text: string): string {
+  return text
+    .replace(/[\\`*_~[\]#!+|=-]/g, "\\$&")
+    .replace(/(\d)([.)])(?=\s)/g, "$1\\$2")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 function applyMarkdownMarks(text: string, marks: ReadonlyArray<JSONMark> | undefined): string {
-  if (!marks || marks.length === 0 || text.length === 0) {
-    return text;
-  }
+  if (!text) return text;
+  const markMap = new Map(marks?.map((mark) => [mark.type, mark]));
+  let output = markMap.has("code") ? wrapInlineCode(text) : escapeMarkdownText(text);
 
-  const markMap = new Map<string, JSONMark>();
-  for (const mark of marks) {
-    markMap.set(mark.type, mark);
-  }
-
-  let output = text;
-
-  if (markMap.has("code")) {
-    output = wrapInlineCode(output);
-  }
   if (markMap.has("bold")) {
     output = `**${output}**`;
   }
@@ -202,7 +201,11 @@ function applyMarkdownMarks(text: string, marks: ReadonlyArray<JSONMark> | undef
   if (linkMark) {
     const safeHref = sanitizeLinkHref(linkMark.attrs?.href);
     if (safeHref) {
-      output = `[${output}](${safeHref})`;
+      const destination = safeHref
+        .replace(/[\s\\<>]/g, (char) => encodeURIComponent(char))
+        .replace(/[()]/g, "\\$&")
+        .replaceAll("&", "&amp;");
+      output = `[${output}](${destination})`;
     }
   }
 
@@ -224,32 +227,26 @@ function serializeMarkdownInline(nodes: ReadonlyArray<JSONContent> | undefined):
     .join("");
 }
 
-function serializeMarkdownListItem(item: JSONContent, prefix: string, indentLevel: number): string {
-  const indent = "  ".repeat(indentLevel);
-  const children = item.content ?? [];
+function serializeMarkdownListItem(item: JSONContent, prefix: string): string {
+  const indent = " ".repeat(prefix.length);
   const lines: string[] = [];
 
-  for (const child of children) {
-    if (child.type === "bulletList" || child.type === "orderedList") {
-      const nested = serializeMarkdownList(child, indentLevel + 1);
-      if (nested) lines.push(nested);
-    } else {
-      const block = serializeMarkdownBlock(child, indentLevel).trimEnd();
-      if (lines.length === 0) {
-        lines.push(`${indent}${prefix}${block}`);
-      } else if (block) {
-        lines.push(`${indent}  ${block}`);
-      }
+  for (const child of item.content ?? []) {
+    const block = serializeMarkdownBlock(child);
+    const [first = "", ...rest] = block.split("\n");
+    if (lines.length === 0) {
+      lines.push(first ? `${prefix}${first}` : prefix.trimEnd());
+    } else if (block) {
+      if (child.type === "paragraph") lines.push("");
+      lines.push(first ? `${indent}${first}` : "");
     }
+    lines.push(...rest.map((line) => (line ? `${indent}${line}` : "")));
   }
 
-  if (lines.length === 0) {
-    return `${indent}${prefix}`.trimEnd();
-  }
-  return lines.join("\n");
+  return lines.length ? lines.join("\n") : prefix.trimEnd();
 }
 
-function serializeMarkdownList(node: JSONContent, indentLevel: number): string {
+function serializeMarkdownList(node: JSONContent): string {
   const items = node.content ?? [];
   const isOrdered = node.type === "orderedList";
   const start = typeof node.attrs?.start === "number" ? node.attrs.start : 1;
@@ -258,13 +255,13 @@ function serializeMarkdownList(node: JSONContent, indentLevel: number): string {
     .filter((item) => item.type === "listItem")
     .map((item, idx) => {
       const prefix = isOrdered ? `${start + idx}. ` : "- ";
-      return serializeMarkdownListItem(item, prefix, indentLevel);
+      return serializeMarkdownListItem(item, prefix);
     })
     .filter(Boolean)
     .join("\n");
 }
 
-function serializeMarkdownBlock(node: JSONContent, indentLevel = 0): string {
+function serializeMarkdownBlock(node: JSONContent): string {
   switch (node.type) {
     case "heading": {
       const rawLevel = typeof node.attrs?.level === "number" ? node.attrs.level : 1;
@@ -275,7 +272,7 @@ function serializeMarkdownBlock(node: JSONContent, indentLevel = 0): string {
       return serializeMarkdownInline(node.content);
     case "blockquote": {
       const inner = (node.content ?? [])
-        .map((child) => serializeMarkdownBlock(child, indentLevel))
+        .map(serializeMarkdownBlock)
         .filter((part) => part.length > 0)
         .join("\n\n");
       if (!inner) return ">";
@@ -290,16 +287,17 @@ function serializeMarkdownBlock(node: JSONContent, indentLevel = 0): string {
       const fenceRuns = code.match(/`{3,}/g);
       const maxFence = fenceRuns ? Math.max(...fenceRuns.map((f) => f.length)) : 2;
       const fence = "`".repeat(Math.max(3, maxFence + 1));
-      return `${fence}${language}\n${code}\n${fence}`;
+      const info = /^[\w+-]+$/.test(language) ? language : "";
+      return `${fence}${info}\n${code}\n${fence}`;
     }
     case "bulletList":
     case "orderedList":
-      return serializeMarkdownList(node, indentLevel);
+      return serializeMarkdownList(node);
     case "horizontalRule":
       return "---";
     default:
       return Array.isArray(node.content)
-        ? node.content.map((child) => serializeMarkdownBlock(child, indentLevel)).join("\n\n")
+        ? node.content.map(serializeMarkdownBlock).join("\n\n")
         : serializeMarkdownInline([node]);
   }
 }
