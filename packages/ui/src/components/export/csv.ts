@@ -30,6 +30,8 @@ export type CsvExportPayload = {
 
 export type CsvExportHttpRequest = {
   url: string;
+  method?: "GET" | "POST";
+  body?: string;
   credentials?: RequestCredentials;
   headers?: Record<string, string>;
   /** Optional JSON key path to unwrap an opaque payload string from an API envelope. */

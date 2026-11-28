@@ -5,8 +5,13 @@ import { join, resolve } from "node:path";
 import { SQL } from "bun";
 import { chromium, type Browser, type Page } from "playwright";
 
+import {
+  MAX_CUSTOMER_FILTER_TAG_LENGTH,
+  MAX_CUSTOMER_FILTER_TAGS,
+} from "../packages/api/src/customer-filter-limits";
+
 const root = resolve(import.meta.dir, "..");
-const caseIds = ["focus", "export-cancel", "import-response-loss"] as const;
+const caseIds = ["focus", "export-cancel", "import-response-loss", "unicode-tag-reload"] as const;
 type CaseId = (typeof caseIds)[number];
 
 const args = Bun.argv.slice(2);
@@ -118,7 +123,7 @@ async function checkFocus(page: Page) {
 
 async function checkExportCancel(page: Page) {
   const context = page.context();
-  const path = "**/trpc/customers.export?*";
+  const path = "**/trpc/customers.export";
   const requested = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const downloads: string[] = [];
@@ -209,9 +214,90 @@ async function checkImportResponseLoss(page: Page) {
   assert.equal(await page.getByRole("link", { name, exact: true }).count(), 1);
 }
 
+// Distinct 64-unit CJK tags exercise the largest UTF-8 expansion per UTF-16 unit.
+const unicodeTags = Array.from({ length: MAX_CUSTOMER_FILTER_TAGS }, (_, index) =>
+  String.fromCharCode(0x4e00 + index).repeat(MAX_CUSTOMER_FILTER_TAG_LENGTH),
+);
+const unicodeSearch = "界".repeat(200); // Maximum accepted Customers search length.
+
+async function seedUnicodeTags(databaseUrl: string) {
+  const sql = new SQL(databaseUrl);
+  try {
+    await sql`
+      INSERT INTO customer (id, name, email, tags)
+      VALUES ('unicode-tags', ${unicodeSearch}, 'unicode-tags@example.test', ${sql.array(unicodeTags, "text")})
+    `;
+  } finally {
+    await sql.close();
+  }
+}
+
+async function checkUnicodeTagReload(page: Page): Promise<string> {
+  async function select(tags: string[]) {
+    await page.locator('[data-slot="faceted-filter-trigger"]').filter({ hasText: "Tags" }).click();
+    for (const tag of tags) {
+      await page
+        .getByRole("option")
+        .filter({ has: page.getByText(tag, { exact: true }) })
+        .click();
+    }
+    await page.keyboard.press("Escape");
+    await page.waitForURL((url) => url.searchParams.get("tags")?.includes(tags.at(-1)!) ?? false);
+  }
+
+  async function assertReload(tagCount: number, minimumBytes: number) {
+    const url = new URL(page.url());
+    const requestTarget = url.pathname + url.search;
+    const bytes = new TextEncoder().encode(`GET ${requestTarget} HTTP/1.1\r\n`).length;
+    assert.ok(
+      bytes > minimumBytes,
+      `Requests with ${tagCount} tags must exceed ${minimumBytes} bytes`,
+    );
+
+    const response = await page.reload();
+    assert.equal(
+      response?.status(),
+      200,
+      `Nginx must serve /customers for a ${bytes}-byte request line`,
+    );
+    console.log(
+      `Nginx served /customers with ${tagCount} Unicode tags (${bytes}-byte request line)`,
+    );
+
+    // The authenticated app must restore the exact tags and the matching customer.
+    const chips = page.getByRole("region", { name: "Active filters" });
+    for (const tag of unicodeTags.slice(0, tagCount)) {
+      await chips.getByRole("button", { name: `Remove Tag: ${tag}`, exact: true }).waitFor();
+    }
+    assert.equal(await chips.getByRole("button", { name: /^Remove Tag:/ }).count(), tagCount);
+    await page.getByRole("link", { name: unicodeSearch, exact: true }).waitFor();
+  }
+
+  await select(unicodeTags.slice(0, 14));
+  await assertReload(14, 8 * 1024);
+  await select(unicodeTags.slice(14));
+  const search = page.getByRole("searchbox", { name: "Search customers" });
+  await search.fill(unicodeSearch);
+  await page.waitForURL((url) => url.searchParams.get("q") === unicodeSearch);
+  await assertReload(MAX_CUSTOMER_FILTER_TAGS, 30_000);
+  assert.equal(await search.inputValue(), unicodeSearch);
+
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "More customer actions" }).click();
+  await page.getByRole("menuitem", { name: "Export CSV (.csv)" }).click();
+  const download = await downloaded;
+  assert.match(download.suggestedFilename(), /\.csv$/);
+  assert.match(await Bun.file((await download.path())!).text(), /unicode-tags@example\.test/);
+
+  const screenshot = "impl-unicode-tag-reload.png";
+  await page.screenshot({ path: join(directory, screenshot) });
+  return screenshot;
+}
+
 type CaseResult = { id: CaseId; status: "PASS" | "FAIL"; evidence: string[]; error?: string };
 const results: CaseResult[] = [];
 let container: string | undefined;
+let nginxContainer: string | undefined;
 let previewPid: number | undefined;
 let browser: Browser | undefined;
 let setupError: string | undefined;
@@ -290,10 +376,40 @@ try {
     "Preview printed the PID, URL and test credentials",
   );
 
+  let nginxUrl: string | undefined;
+  if (selected.includes("unicode-tag-reload")) {
+    await run(["bun", "run", "--filter", "web", "build"], {
+      ...process.env,
+      VITE_SERVER_URL: preview.get("API_URL")!,
+    });
+    nginxContainer = await run([
+      "docker",
+      "run",
+      "--rm",
+      "-d",
+      "-p",
+      "127.0.0.1::80",
+      "-v",
+      `${join(root, "apps/web/nginx.conf")}:/etc/nginx/conf.d/default.conf:ro`,
+      "-v",
+      `${join(root, "apps/web/dist")}:/usr/share/nginx/html:ro`,
+      "nginx:alpine",
+    ]);
+    const address = await run(["docker", "port", nginxContainer, "80/tcp"]);
+    nginxUrl = `http://${address}`;
+  }
+
+  const checks = {
+    focus: checkFocus,
+    "export-cancel": checkExportCancel,
+    "import-response-loss": checkImportResponseLoss,
+    "unicode-tag-reload": checkUnicodeTagReload,
+  };
   browser = await chromium.launch();
   for (const id of selected) {
     const evidence: string[] = [];
     try {
+      if (id === "unicode-tag-reload") await seedUnicodeTags(databaseUrl);
       const profiles =
         id === "focus"
           ? [
@@ -303,12 +419,6 @@ try {
               { colorScheme: "dark" as const, width: 320 },
             ]
           : [{ colorScheme: "light" as const, width: 1280 }];
-      const check =
-        id === "focus"
-          ? checkFocus
-          : id === "export-cancel"
-            ? checkExportCancel
-            : checkImportResponseLoss;
       for (const { colorScheme, width } of profiles) {
         const context = await browser.newContext({
           colorScheme,
@@ -321,6 +431,22 @@ try {
         context.setDefaultTimeout(12_000);
         await context.tracing.start({ screenshots: true, snapshots: true });
         try {
+          if (id === "unicode-tag-reload") {
+            const webOrigin = new URL(preview.get("URL")!).origin;
+            await context.grantPermissions(["local-network-access"], { origin: webOrigin });
+            // Serve the real production assets and document reloads through Nginx,
+            // retaining the browser origin trusted by the live preview API.
+            await context.route(
+              (url) => url.origin === webOrigin,
+              async (route) => {
+                const { pathname, search } = new URL(route.request().url());
+                const response = await route.fetch({
+                  url: new URL(pathname + search, nginxUrl).href,
+                });
+                await route.fulfill({ response });
+              },
+            );
+          }
           await signIn(page, preview);
           await page.waitForFunction(() => document.documentElement.matches(".light, .dark"));
           if (
@@ -335,7 +461,8 @@ try {
             (theme) => document.documentElement.classList.contains(theme),
             colorScheme,
           );
-          await check(page);
+          const screenshot = await checks[id](page);
+          if (screenshot) evidence.push(screenshot);
           await context.tracing.stop();
         } catch (error) {
           const trace = `${label}.zip`;
@@ -361,9 +488,11 @@ try {
 } finally {
   try {
     await browser?.close();
-    if (previewPid && previewPid > 0) process.kill(previewPid);
   } finally {
-    if (container) await run(["docker", "stop", "--time", "2", container]);
+    if (previewPid && previewPid > 0) process.kill(previewPid);
+    await Promise.all(
+      [container, nginxContainer].map((id) => id && run(["docker", "stop", "--time", "2", id])),
+    );
     const path = join(directory, "customers-browser.json");
     await writeFile(path, JSON.stringify({ results, setupError }, null, 2) + "\n");
     console.log(`Browser evidence written to ${path}`);

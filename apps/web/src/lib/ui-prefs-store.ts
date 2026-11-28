@@ -1,3 +1,4 @@
+import type { DataTableDensity } from "@monorepo-boilerplate/ui/components/data-table";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -9,7 +10,7 @@ import { persist } from "zustand/middleware";
  * Rule: never put server data here. A persisted copy of API data is the usual
  * source of "why is my app stale after deploy" bugs.
  */
-export type TableDensity = "comfortable" | "compact";
+export type TableDensity = DataTableDensity;
 
 const DEFAULT_TABLE_DENSITY: TableDensity = "comfortable";
 const DEFAULT_PAGE_SIZE = 20;

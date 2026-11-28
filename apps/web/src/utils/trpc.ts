@@ -1,6 +1,6 @@
 import type { AppRouter } from "@monorepo-boilerplate/api/routers/index";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
-import { createTRPCClient, httpBatchLink } from "@trpc/client";
+import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { toast } from "sonner";
 
@@ -21,16 +21,19 @@ export const queryClient = new QueryClient({
   }),
 });
 
+const httpOptions = {
+  url: `${serverUrl}/trpc`,
+  fetch: (url: RequestInfo | URL, options?: RequestInit) =>
+    fetch(url, { ...options, credentials: "include" }),
+};
+
 export const trpcClient = createTRPCClient<AppRouter>({
   links: [
-    httpBatchLink({
-      url: `${serverUrl}/trpc`,
-      fetch(url, options) {
-        return fetch(url, {
-          ...options,
-          credentials: "include",
-        });
-      },
+    splitLink({
+      // A valid set of percent-encoded Unicode tags can exceed Bun's request-line limit.
+      condition: (operation) => operation.path === "customers.list",
+      true: httpLink({ ...httpOptions, methodOverride: "POST" }),
+      false: httpBatchLink(httpOptions),
     }),
   ],
 });

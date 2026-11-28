@@ -13,7 +13,7 @@ Install Chromium with `bunx playwright install chromium`. Run `vp run test:brows
 
 On a host with PostgreSQL already provisioned, set `CUSTOMERS_BROWSER_DATABASE_URL` to an empty disposable database. The runner checks that the public schema is empty. The caller owns that database's lifecycle.
 
-Use `--case focus`, `--case export-cancel`, or `--case import-response-loss` to replay a single case. The command prints the path to its JSON results and failure traces. In an Archon run it writes them under `$ARTIFACTS_DIR/evidence/`.
+Use `--case focus`, `--case export-cancel`, `--case import-response-loss`, or `--case unicode-tag-reload` to replay a single case. The Unicode case also requires Docker: it serves a production build through `nginx:alpine` with `apps/web/nginx.conf` and verifies long filter URLs reload, list the matching customer, and export successfully. The command prints the path to its JSON results and failure traces. In an Archon run it writes them under `$ARTIFACTS_DIR/evidence/`.
 
 ## Preview & Disposable Database
 

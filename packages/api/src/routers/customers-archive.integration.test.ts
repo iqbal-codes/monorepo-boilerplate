@@ -54,7 +54,7 @@ describe.skipIf(!customersTestDatabaseUrl)("Customers archive with disposable Po
     const search = customer.email;
     await staff.archiveMany({ ids: [customer.id] });
 
-    expect(await staff.list({ search })).toEqual({ rows: [], rowCount: 0 });
+    expect(await staff.list({ search })).toMatchObject({ rows: [], rowCount: 0 });
     expect(await staff.list({ search, status: "archived" })).toMatchObject({
       rows: [{ id: customer.id }],
       rowCount: 1,

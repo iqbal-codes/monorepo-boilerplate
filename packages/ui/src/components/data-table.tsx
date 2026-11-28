@@ -49,18 +49,21 @@ import {
   LoaderIcon,
 } from "lucide-react";
 import {
+  columnFilteringFeature,
+  columnPinningFeature,
   columnVisibilityFeature,
   createColumnHelper,
   createFilteredRowModel,
   createPaginatedRowModel,
   createSortedRowModel,
-  columnFilteringFeature,
   filterFn_includesString,
   rowPaginationFeature,
   rowSortingFeature,
   tableFeatures,
   useTable,
   type ColumnDef,
+  type ColumnPinningState,
+  type ColumnVisibilityState,
   type PaginationState,
   type RowData,
   type SortingState,
@@ -102,6 +105,7 @@ export const dataTableFeatures = tableFeatures({
   rowPaginationFeature,
   columnFilteringFeature,
   columnVisibilityFeature,
+  columnPinningFeature,
   sortedRowModel: createSortedRowModel(),
   filteredRowModel: createFilteredRowModel(),
   paginatedRowModel: createPaginatedRowModel(),
@@ -130,6 +134,16 @@ type DataTableSelection<TData> = {
   onChange: (ids: ReadonlySet<string>) => void;
 };
 
+export type {
+  ColumnPinningState,
+  ColumnVisibilityState,
+  ColumnVisibilityState as VisibilityState,
+  PaginationState,
+  SortingState,
+};
+
+export type DataTableDensity = "comfortable" | "compact";
+
 export type DataTableProps<TData extends RowData> = {
   data: readonly TData[];
   columns: readonly ColumnDef<DataTableFeatures, TData>[];
@@ -137,10 +151,14 @@ export type DataTableProps<TData extends RowData> = {
   rowCount?: number;
   pagination?: PaginationState;
   sorting?: SortingState;
+  columnVisibility?: ColumnVisibilityState;
+  columnPinning?: ColumnPinningState;
   onPaginationChange?: (pagination: PaginationState) => void;
   /** Changes are limited to selectable rows in the rendered page. */
   selection?: DataTableSelection<TData>;
   onSortingChange?: (sorting: SortingState) => void;
+  onColumnVisibilityChange?: (visibility: ColumnVisibilityState) => void;
+  onColumnPinningChange?: (pinning: ColumnPinningState) => void;
   /** Sorting, filtering, and paging are performed by the API. */
   manualPagination?: boolean;
   manualSorting?: boolean;
@@ -151,6 +169,8 @@ export type DataTableProps<TData extends RowData> = {
    * mounted (and inert) instead of replacing them with skeletons.
    */
   isFetching?: boolean;
+  /** Disable row interactions without displaying the fetching rail. */
+  disableRows?: boolean;
   /** Renders instead of rows when there is no data and nothing is loading. */
   emptyState?: React.ReactNode;
   onRowClick?: (row: TData) => void;
@@ -158,7 +178,7 @@ export type DataTableProps<TData extends RowData> = {
   className?: string;
   pageSizeOptions?: readonly number[];
   /** Row height. The app supplies this from its UI-preferences store. */
-  density?: "comfortable" | "compact";
+  density?: DataTableDensity;
   /** Accessible name for the scrollable table region. */
   regionLabel?: string;
 };
@@ -171,13 +191,18 @@ export function DataTable<TData extends RowData>({
   rowCount,
   pagination,
   sorting,
+  columnVisibility,
+  columnPinning,
   onPaginationChange,
   onSortingChange,
+  onColumnVisibilityChange,
+  onColumnPinningChange,
   selection,
   manualPagination = false,
   manualSorting = false,
   isLoading = false,
   isFetching = false,
+  disableRows = false,
   emptyState,
   onRowClick,
   rowClassName,
@@ -196,6 +221,8 @@ export function DataTable<TData extends RowData>({
     state: {
       ...(pagination ? { pagination } : {}),
       ...(sorting ? { sorting } : {}),
+      ...(columnVisibility ? { columnVisibility } : {}),
+      ...(columnPinning ? { columnPinning } : {}),
     },
     onPaginationChange: (updater) => {
       if (!onPaginationChange) return;
@@ -207,7 +234,73 @@ export function DataTable<TData extends RowData>({
       const next = typeof updater === "function" ? updater(sorting ?? []) : updater;
       onSortingChange(next);
     },
+    onColumnVisibilityChange: (updater) => {
+      if (!onColumnVisibilityChange) return;
+      const next = typeof updater === "function" ? updater(columnVisibility ?? {}) : updater;
+      onColumnVisibilityChange(next);
+    },
+    onColumnPinningChange: (updater) => {
+      if (!onColumnPinningChange) return;
+      const next =
+        typeof updater === "function" ? updater(columnPinning ?? { start: [], end: [] }) : updater;
+      onColumnPinningChange(next);
+    },
   });
+
+  const tableHostRef = React.useRef<HTMLDivElement>(null);
+  const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({});
+  const startPinnedIds = table.getStartVisibleLeafColumns().map((c) => c.id);
+  const endPinnedIds = table.getEndVisibleLeafColumns().map((c) => c.id);
+  const hasPinnedColumns = startPinnedIds.length > 0 || endPinnedIds.length > 0;
+  const headerGroups = table.getHeaderGroups();
+  // Reattach when React changes the header nodes (visibility/grouping/pinning).
+  const headerSignature = JSON.stringify([
+    Boolean(selection),
+    headerGroups.map(({ headers }) => headers.map(({ id }) => id)),
+  ]);
+
+  React.useEffect(() => {
+    if (!hasPinnedColumns) return;
+    const host = tableHostRef.current;
+    if (!host) return;
+    const headers = Array.from(host.querySelectorAll<HTMLElement>("thead th[data-pin-measure-id]"));
+    const measure = () => {
+      const next: Record<string, number> = Object.create(null);
+      for (const th of headers) {
+        const id = th.dataset.pinMeasureId;
+        if (id) next[id] = th.getBoundingClientRect().width;
+      }
+      setColumnWidths((previous) =>
+        Object.keys(previous).length === Object.keys(next).length &&
+        Object.keys(next).every((id) => next[id] === previous[id])
+          ? previous
+          : next,
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    // Auto-layout can redistribute widths without changing the scroll host.
+    for (const th of headers) observer.observe(th, { box: "border-box" });
+    return () => observer.disconnect();
+  }, [hasPinnedColumns, headerSignature]);
+
+  const pinOffsets = React.useMemo(() => {
+    const start: Record<string, number> = {};
+    const end: Record<string, number> = {};
+    let leftCursor = selection && startPinnedIds.length > 0 ? (columnWidths.__selection ?? 40) : 0;
+    for (const id of startPinnedIds) {
+      start[id] = leftCursor;
+      leftCursor += columnWidths[id] ?? 0;
+    }
+    let rightCursor = 0;
+    for (let index = endPinnedIds.length - 1; index >= 0; index -= 1) {
+      const id = endPinnedIds[index]!;
+      end[id] = rightCursor;
+      rightCursor += columnWidths[id] ?? 0;
+    }
+    return { start, end };
+  }, [columnWidths, endPinnedIds, selection, startPinnedIds]);
 
   const pageCount = table.getPageCount();
   const currentIndex = pagination?.pageIndex ?? 0;
@@ -224,7 +317,8 @@ export function DataTable<TData extends RowData>({
   const isBusy = showSkeleton || isFetching;
   // Reserve the height of the page the skeleton stands in for, not a fixed cap.
   const skeletonRowCount = Math.max(1, currentSize);
-  const canActivateRow = Boolean(onRowClick) && !isBusy;
+  const rowsInert = isBusy || disableRows;
+  const canActivateRow = Boolean(onRowClick) && !rowsInert;
   const columnCount = table.getVisibleLeafColumns().length + Number(Boolean(selection));
   const pageIds = selection
     ? rows
@@ -235,7 +329,7 @@ export function DataTable<TData extends RowData>({
   const allSelected = pageIds.length > 0 && selectedCount === pageIds.length;
 
   function changeSelection(ids: readonly string[], checked: boolean) {
-    if (!selection || selection.disabled || isBusy) return;
+    if (!selection || selection.disabled || rowsInert) return;
     const next = new Set(pageIds.filter((id) => selection.ids.has(id)));
     for (const id of ids) {
       if (checked) next.add(id);
@@ -249,9 +343,29 @@ export function DataTable<TData extends RowData>({
     .filter((header) => !header.isPlaceholder && header.column.getCanSort());
   const activeSort = sorting?.[0];
 
+  function pinnedCellProps(columnId: string, pinned: false | "start" | "end") {
+    if (!pinned) return {};
+    const style: React.CSSProperties =
+      pinned === "start"
+        ? { insetInlineStart: pinOffsets.start[columnId] ?? 0 }
+        : { insetInlineEnd: pinOffsets.end[columnId] ?? 0 };
+    const isLastStart = pinned === "start" && startPinnedIds.at(-1) === columnId;
+    const isFirstEnd = pinned === "end" && endPinnedIds[0] === columnId;
+    return {
+      "data-pinned": pinned,
+      style,
+      className: cn(
+        "sticky z-10 bg-background group-hover/row:bg-muted/50",
+        isLastStart && "border-e border-border",
+        isFirstEnd && "border-s border-border",
+      ),
+    };
+  }
+
   return (
     <div
       data-slot="data-table"
+      data-density={density}
       aria-busy={isBusy || undefined}
       className={cn("@container relative flex flex-col gap-3", className)}
     >
@@ -266,7 +380,7 @@ export function DataTable<TData extends RowData>({
                   aria-label={selection.pageLabel}
                   checked={allSelected}
                   indeterminate={selectedCount > 0 && !allSelected}
-                  disabled={selection.disabled || isBusy || pageIds.length === 0}
+                  disabled={selection.disabled || rowsInert || pageIds.length === 0}
                   className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
                   onCheckedChange={(checked) => changeSelection(pageIds, checked)}
                 />
@@ -363,7 +477,9 @@ export function DataTable<TData extends RowData>({
           <div className="flex flex-col divide-y rounded-lg border">
             {rows.map((row) => {
               const cells = row.getVisibleCells();
-              const [primaryCell, ...secondaryCells] = cells;
+              const actionCell = cells.find((cell) => cell.column.id === "actions");
+              const dataCells = cells.filter((cell) => cell.column.id !== "actions");
+              const [primaryCell, ...secondaryCells] = dataCells;
               const rowId = selection?.getId(row.original);
               const isSelectable = selection
                 ? selection.canSelect?.(row.original) !== false
@@ -372,9 +488,11 @@ export function DataTable<TData extends RowData>({
               return (
                 <div
                   key={`mobile-${row.id}`}
+                  inert={rowsInert || undefined}
                   onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
                   className={cn(
-                    "flex items-start gap-3 p-3 transition-colors",
+                    "flex items-start gap-3 transition-colors",
+                    density === "compact" ? "p-2.5" : "p-3",
                     canActivateRow && "cursor-pointer hover:bg-muted/50",
                     rowClassName?.(row.original),
                   )}
@@ -385,16 +503,27 @@ export function DataTable<TData extends RowData>({
                         <Checkbox
                           aria-label={selection.getLabel(row.original)}
                           checked={selection.ids.has(rowId)}
-                          disabled={selection.disabled}
+                          disabled={selection.disabled || rowsInert}
                           onCheckedChange={(checked) => changeSelection([rowId], checked)}
                         />
                       ) : null}
                     </div>
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    {primaryCell ? (
-                      <div className="min-w-0">
-                        <table.FlexRender cell={primaryCell} />
+                    {primaryCell || actionCell ? (
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        {primaryCell ? (
+                          <div className="min-w-0 flex-1">
+                            <table.FlexRender cell={primaryCell} />
+                          </div>
+                        ) : (
+                          <span />
+                        )}
+                        {actionCell ? (
+                          <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                            <table.FlexRender cell={actionCell} />
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                     {secondaryCells.length > 0 ? (
@@ -420,18 +549,28 @@ export function DataTable<TData extends RowData>({
       </div>
 
       {/* Wide-container table */}
-      <div className="hidden overflow-hidden rounded-lg border @lg:block">
+      <div ref={tableHostRef} className="hidden overflow-hidden rounded-lg border @lg:block">
         <Table regionLabel={regionLabel}>
           <TableHeader>
-            {table.getHeaderGroups().map((headerGroup, index, groups) => (
+            {headerGroups.map((headerGroup, index, groups) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
                 {selection && index === 0 && (
-                  <TableHead scope="col" rowSpan={groups.length} className="w-10 ps-3">
+                  <TableHead
+                    scope="col"
+                    rowSpan={groups.length}
+                    data-pin-measure-id="__selection"
+                    style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
+                    className={cn(
+                      "w-10 ps-3",
+                      density === "compact" && "h-9 py-1.5",
+                      startPinnedIds.length > 0 && "sticky z-20 bg-background",
+                    )}
+                  >
                     <Checkbox
                       aria-label={selection.pageLabel}
                       checked={allSelected}
                       indeterminate={selectedCount > 0 && !allSelected}
-                      disabled={selection.disabled || isBusy || pageIds.length === 0}
+                      disabled={selection.disabled || rowsInert || pageIds.length === 0}
                       className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
                       onCheckedChange={(checked) => changeSelection(pageIds, checked)}
                     />
@@ -440,8 +579,25 @@ export function DataTable<TData extends RowData>({
                 {headerGroup.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const sorted = header.column.getIsSorted();
+                  const pinned = header.column.getIsPinned();
+                  const pinProps = pinnedCellProps(header.column.id, pinned);
                   return (
-                    <TableHead key={header.id} colSpan={header.colSpan}>
+                    <TableHead
+                      key={header.id}
+                      colSpan={header.colSpan}
+                      data-pin-measure-id={
+                        header.column.columns.length === 0 && !header.isPlaceholder
+                          ? header.column.id
+                          : undefined
+                      }
+                      data-pinned={pinProps["data-pinned"]}
+                      style={pinProps.style}
+                      className={cn(
+                        density === "compact" && "h-9 py-1.5",
+                        pinProps.className,
+                        pinned && "z-20",
+                      )}
+                    >
                       {header.isPlaceholder ? null : canSort ? (
                         <button
                           type="button"
@@ -500,16 +656,30 @@ export function DataTable<TData extends RowData>({
               rows.map((row) => (
                 <TableRow
                   key={row.id}
+                  inert={rowsInert || undefined}
                   onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
-                  className={cn(canActivateRow && "cursor-pointer", rowClassName?.(row.original))}
+                  className={cn(
+                    "group/row",
+                    canActivateRow && "cursor-pointer",
+                    rowClassName?.(row.original),
+                  )}
                 >
                   {selection && (
-                    <TableCell className="w-10 ps-3" onClick={(event) => event.stopPropagation()}>
+                    <TableCell
+                      style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
+                      className={cn(
+                        "w-10 ps-3",
+                        density === "compact" && "py-1.5",
+                        startPinnedIds.length > 0 &&
+                          "sticky z-10 bg-background group-hover/row:bg-muted/50",
+                      )}
+                      onClick={(event) => event.stopPropagation()}
+                    >
                       {selection.canSelect?.(row.original) !== false && (
                         <Checkbox
                           aria-label={selection.getLabel(row.original)}
                           checked={selection.ids.has(selection.getId(row.original))}
-                          disabled={selection.disabled}
+                          disabled={selection.disabled || rowsInert}
                           onCheckedChange={(checked) =>
                             changeSelection([selection.getId(row.original)], checked)
                           }
@@ -517,14 +687,20 @@ export function DataTable<TData extends RowData>({
                       )}
                     </TableCell>
                   )}
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={density === "compact" ? "py-1.5" : undefined}
-                    >
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const pinned = cell.column.getIsPinned();
+                    const pinProps = pinnedCellProps(cell.column.id, pinned);
+                    return (
+                      <TableCell
+                        key={cell.id}
+                        data-pinned={pinProps["data-pinned"]}
+                        style={pinProps.style}
+                        className={cn(density === "compact" && "py-1.5", pinProps.className)}
+                      >
+                        <table.FlexRender cell={cell} />
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))
             )}

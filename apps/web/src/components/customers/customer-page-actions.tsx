@@ -87,6 +87,8 @@ function CustomerExportFeedback({
 export const CustomerPageActions = memo(function CustomerPageActions({
   search,
   status,
+  statuses,
+  tags,
   sortBy,
   sortDir,
   onImported,
@@ -114,10 +116,12 @@ export const CustomerPageActions = memo(function CustomerPageActions({
       customerExportRequest({
         search,
         status,
+        statuses,
+        tags,
         sortBy,
         sortDir,
       }),
-    [search, status, sortBy, sortDir],
+    [search, status, statuses, tags, sortBy, sortDir],
   );
 
   const exportAction = useExportAction({

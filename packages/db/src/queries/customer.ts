@@ -1,4 +1,17 @@
-import { and, asc, count, desc, eq, ilike, inArray, ne, or, sum, sql } from "drizzle-orm";
+import {
+  and,
+  arrayOverlaps,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  ne,
+  or,
+  sum,
+  sql,
+} from "drizzle-orm";
 
 import type { Database } from "../index";
 import {
@@ -33,6 +46,8 @@ export type CustomerEventActor = {
 export type CustomerScopeQuery = {
   search?: string | undefined;
   status?: "all" | "active" | "inactive" | "archived" | undefined;
+  statuses?: readonly Customer["status"][] | undefined;
+  tags?: readonly string[] | undefined;
   sortBy?: SortableColumn | undefined;
   sortDir?: "asc" | "desc" | undefined;
 };
@@ -40,6 +55,11 @@ export type CustomerScopeQuery = {
 export type CustomerListQuery = CustomerScopeQuery & {
   pageIndex: number;
   pageSize: number;
+};
+
+export type CustomerListFacets = {
+  status: Record<Customer["status"], number>;
+  tags: Array<{ value: string; count: number }>;
 };
 
 /**
@@ -59,7 +79,11 @@ export interface ImportManyResult {
 }
 
 export interface CustomerQueries {
-  list(query: CustomerListQuery): Promise<{ rows: Customer[]; rowCount: number }>;
+  list(query: CustomerListQuery): Promise<{
+    rows: Customer[];
+    rowCount: number;
+    facets: CustomerListFacets;
+  }>;
   /**
    * One query over the shared scope, projected to the export columns and
    * ordered like the list. Returns at most `CUSTOMER_EXPORT_LIMIT + 1` rows so
@@ -192,13 +216,10 @@ export type CustomerExportRow = {
   notes: string | null;
 };
 
-/**
- * Shared `where` for the list and the export, so the two criteria cannot drift.
- */
-export function customerScopeWhere({
+function customerSearchAndTagConditions({
   search,
-  status = "all",
-}: Pick<CustomerScopeQuery, "search" | "status">) {
+  tags,
+}: Pick<CustomerScopeQuery, "search" | "tags">) {
   const conditions = [];
   if (search) {
     const pattern = `%${search}%`;
@@ -210,7 +231,35 @@ export function customerScopeWhere({
       ),
     );
   }
-  conditions.push(status === "all" ? ne(customer.status, "archived") : eq(customer.status, status));
+  if (tags && tags.length > 0) {
+    conditions.push(arrayOverlaps(customer.tags, [...tags]));
+  }
+  return conditions;
+}
+
+function customerStatusCondition({
+  status = "all",
+  statuses,
+}: Pick<CustomerScopeQuery, "status" | "statuses">) {
+  if (statuses && statuses.length > 0) {
+    return inArray(customer.status, [...statuses]);
+  }
+  return status === "all" ? ne(customer.status, "archived") : eq(customer.status, status);
+}
+
+/**
+ * Shared `where` for the list and the export, so the two criteria cannot drift.
+ */
+export function customerScopeWhere({
+  search,
+  status = "all",
+  statuses,
+  tags,
+}: Pick<CustomerScopeQuery, "search" | "status" | "statuses" | "tags">) {
+  const conditions = [
+    ...customerSearchAndTagConditions({ search, tags }),
+    customerStatusCondition({ status, statuses }),
+  ];
   return and(...conditions);
 }
 
@@ -233,13 +282,19 @@ export function customerQueries(db: Database): CustomerQueries {
       pageSize,
       search,
       status = "all",
+      statuses,
+      tags,
       sortBy,
       sortDir,
     }: CustomerListQuery) {
-      const where = customerScopeWhere({ search, status });
+      const where = customerScopeWhere({ search, status, statuses, tags });
+      const statusFacetConditions = customerSearchAndTagConditions({ search, tags });
+      const statusFacetWhere =
+        statusFacetConditions.length > 0 ? and(...statusFacetConditions) : undefined;
+      const tagFacetWhere = customerScopeWhere({ search, status, statuses });
       const orderBy = customerScopeOrderBy({ sortBy, sortDir });
 
-      const [rows, totals] = await Promise.all([
+      const [rows, totals, statusRows, allTagsResult, tagCountRows] = await Promise.all([
         db
           .select()
           .from(customer)
@@ -248,12 +303,51 @@ export function customerQueries(db: Database): CustomerQueries {
           .limit(pageSize)
           .offset(pageIndex * pageSize),
         db.select({ value: count() }).from(customer).where(where),
+        db
+          .select({ status: customer.status, value: count() })
+          .from(customer)
+          .where(statusFacetWhere)
+          .groupBy(customer.status),
+        db.execute<{ tag: string }>(
+          sql`select distinct tag from ${customer}, unnest(${customer.tags}) as tag order by tag asc`,
+        ),
+        db
+          .select({
+            tag: sql<string>`t.tag`,
+            value: sql<number>`count(distinct ${customer.id})::int`,
+          })
+          .from(customer)
+          .innerJoin(sql`unnest(${customer.tags}) as t(tag)`, sql`true`)
+          .where(tagFacetWhere)
+          .groupBy(sql`t.tag`),
       ]);
 
-      return { rows, rowCount: totals[0]?.value ?? 0 };
+      const statusFacets: Record<Customer["status"], number> = {
+        active: 0,
+        inactive: 0,
+        archived: 0,
+      };
+      for (const row of statusRows) {
+        statusFacets[row.status] = Number(row.value);
+      }
+
+      const tagCounts = new Map(tagCountRows.map((row) => [row.tag, Number(row.value)]));
+      const tagFacets = allTagsResult.rows.map((row) => ({
+        value: row.tag,
+        count: tagCounts.get(row.tag) ?? 0,
+      }));
+
+      return {
+        rows,
+        rowCount: totals[0]?.value ?? 0,
+        facets: {
+          status: statusFacets,
+          tags: tagFacets,
+        },
+      };
     },
 
-    async exportRows({ search, status = "all", sortBy, sortDir }) {
+    async exportRows({ search, status = "all", statuses, tags, sortBy, sortDir }) {
       return db
         .select({
           name: customer.name,
@@ -266,7 +360,7 @@ export function customerQueries(db: Database): CustomerQueries {
           notes: customer.notes,
         })
         .from(customer)
-        .where(customerScopeWhere({ search, status }))
+        .where(customerScopeWhere({ search, status, statuses, tags }))
         .orderBy(...customerScopeOrderBy({ sortBy, sortDir }))
         .limit(CUSTOMER_EXPORT_LIMIT + 1);
     },

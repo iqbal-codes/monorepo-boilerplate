@@ -7,6 +7,7 @@ const TEST_FILES = [
   "./packages/api/src/routers/customers-import.integration.test.ts",
   "./packages/api/src/routers/customers-export.integration.test.ts",
   "./packages/api/src/routers/customers-events.integration.test.ts",
+  "./packages/api/src/routers/customers-filters.integration.test.ts",
 ];
 
 async function run(

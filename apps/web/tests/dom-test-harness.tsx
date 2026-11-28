@@ -225,33 +225,57 @@ mock.module("@/utils/trpc", () => ({
   },
 }));
 
+const realRouterExports = { ...(await import("@tanstack/react-router")) };
+const {
+  Link: RealLink,
+  useNavigate: realUseNavigate,
+  useRouter: realUseRouter,
+  useRouterState: realUseRouterState,
+  useBlocker: realUseBlocker,
+} = realRouterExports;
+let activeSuites = 0;
+
 mock.module("@tanstack/react-router", () => ({
-  Link: ({
-    to,
-    children,
-    ...props
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to?: string }) => (
-    <a href={to ?? "#"} {...props}>
-      {children}
-    </a>
-  ),
-  useNavigate: () => () => Promise.resolve(),
-  useRouter: () => ({
-    invalidate: async () => {
-      chromeMocks.routerInvalidateCalls += 1;
-    },
-  }),
-  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
-    select({
+  ...realRouterExports,
+  Link: (props: React.ComponentProps<typeof RealLink>) => {
+    if (activeSuites === 0) {
+      return React.createElement(RealLink, props);
+    }
+    const { to, children, ...rest } = props as React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+      to?: string;
+    };
+    return (
+      <a href={to ?? "#"} {...rest}>
+        {children}
+      </a>
+    );
+  },
+  useNavigate: (...args: Parameters<typeof realUseNavigate>) =>
+    activeSuites === 0 ? realUseNavigate(...args) : () => Promise.resolve(),
+  useRouter: (...args: Parameters<typeof realUseRouter>) =>
+    activeSuites === 0
+      ? realUseRouter(...args)
+      : {
+          invalidate: async () => {
+            chromeMocks.routerInvalidateCalls += 1;
+          },
+        },
+  useRouterState: (opts?: Parameters<typeof realUseRouterState>[0]) => {
+    if (activeSuites === 0) {
+      return realUseRouterState(opts);
+    }
+    const state = {
       location: { pathname: "/customers" },
       matches: [{ staticData: { pageTitle: "Customers" } }],
-    }),
-  useBlocker: () => chromeMocks.blockerImpl(),
+    };
+    const select = (opts as { select?: (s: unknown) => unknown } | undefined)?.select;
+    return select ? select(state) : state;
+  },
+  useBlocker: (...args: Parameters<typeof realUseBlocker>) =>
+    activeSuites === 0 ? realUseBlocker(...args) : chromeMocks.blockerImpl(),
 }));
 
 const { createRoot } = await import("react-dom/client");
-
-let activeSuites = 0;
 
 export function useChromeDomHarness() {
   beforeAll(() => {

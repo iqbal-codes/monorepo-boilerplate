@@ -3,6 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { storedAssetPathSchema } from "../asset-path";
+import {
+  MAX_CUSTOMER_FILTER_TAG_LENGTH,
+  MAX_CUSTOMER_FILTER_TAGS,
+} from "../customer-filter-limits";
 
 export { storedAssetPathSchema };
 
@@ -19,6 +23,11 @@ export const MAX_BALANCE_MINOR = 9_007_199_254_740_991;
 export const customerScopeInput = z.object({
   search: z.string().trim().max(200).optional(),
   status: z.enum(["all", "active", "inactive", "archived"]).default("all"),
+  statuses: z.array(z.enum(customerStatus.enumValues)).max(10).optional(),
+  tags: z
+    .array(z.string().trim().min(1).max(MAX_CUSTOMER_FILTER_TAG_LENGTH))
+    .max(MAX_CUSTOMER_FILTER_TAGS)
+    .optional(),
   sortBy: z.enum(["name", "company", "status", "balanceMinor", "createdAt"]).default("createdAt"),
   sortDir: z.enum(["asc", "desc"]).default("desc"),
 });

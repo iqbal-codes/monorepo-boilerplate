@@ -309,10 +309,17 @@ export function useExportAction({
       if (typeof source === "string") {
         worker.postMessage({ payload: source, filename, ...formatField });
       } else {
-        const { url, credentials, headers, payloadPath } = source;
+        const { url, method, body, credentials, headers, payloadPath } = source;
         worker.postMessage({
           type: "http",
-          request: { url, credentials, headers, payloadPath },
+          request: {
+            url,
+            ...(method && { method }),
+            ...(body !== undefined && { body }),
+            credentials,
+            headers,
+            payloadPath,
+          },
           filename,
           ...formatField,
         });
