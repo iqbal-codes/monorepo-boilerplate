@@ -39,20 +39,17 @@ export function ActiveFilterChips({
       data-slot="active-filter-chips"
       role="region"
       aria-label="Active filters"
-      className={cn(
-        "flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/60 pt-2",
-        className,
-      )}
+      className={cn("flex min-w-0 items-center gap-2 border-t border-border/60 pt-2", className)}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <div className="no-scrollbar flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto sm:flex-wrap">
         {chips.map((chip) => (
           <span
             key={chip.id}
             data-slot="active-filter-chip"
-            className="inline-flex min-h-6 max-w-full items-center gap-1 border border-border bg-secondary ps-2 pe-0.5 text-xs text-secondary-foreground"
+            className="inline-flex min-h-6 shrink-0 items-center gap-1 border border-border bg-secondary ps-2 pe-0.5 text-xs whitespace-nowrap text-secondary-foreground"
           >
             <span className="text-muted-foreground">{chip.label}:</span>
-            <span className="truncate font-medium">{chip.value}</span>
+            <span className="max-w-44 truncate font-medium sm:max-w-none">{chip.value}</span>
             <button
               type="button"
               aria-label={`Remove ${chip.label}: ${chip.value}`}
@@ -70,7 +67,7 @@ export function ActiveFilterChips({
             size="xs"
             data-slot="active-filter-chips-clear"
             onClick={onClearAll}
-            className="text-muted-foreground hover:text-foreground"
+            className="hidden shrink-0 whitespace-nowrap text-muted-foreground hover:text-foreground sm:inline-flex"
           >
             <XIcon data-icon="inline-start" aria-hidden="true" />
             {clearAllLabel}
@@ -79,7 +76,7 @@ export function ActiveFilterChips({
       </div>
 
       {resultLabel ? (
-        <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+        <span className="ms-auto hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground tabular-nums sm:flex">
           {isFetching ? <Spinner aria-hidden="true" /> : null}
           {resultLabel}
         </span>

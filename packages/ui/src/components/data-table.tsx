@@ -123,6 +123,14 @@ export type {
 
 export type DataTableDensity = "comfortable" | "compact";
 
+export type DataTableMobileInfinite = {
+  hasMore: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore: () => void;
+  totalCount?: number;
+  loadMoreLabel?: string;
+};
+
 export type DataTableVirtualizationOptions = {
   /** Enable virtualized row rendering via `@tanstack/react-virtual`. */
   enabled?: boolean;
@@ -185,6 +193,10 @@ export type DataTableProps<TData extends RowData> = {
   density?: DataTableDensity;
   /** Accessible name for the scrollable table region. */
   regionLabel?: string;
+  /** Mobile infinite scroll configuration; hides the paged footer below `@lg` when set. */
+  mobileInfinite?: DataTableMobileInfinite;
+  /** Hides the built-in mobile sort bar when sorting is rendered in an external toolbar. */
+  hideMobileSort?: boolean;
 };
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
@@ -222,6 +234,8 @@ export function DataTable<TData extends RowData>({
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   density = "comfortable",
   regionLabel = "Data table",
+  mobileInfinite,
+  hideMobileSort = false,
 }: DataTableProps<TData>) {
   const tableId = React.useId();
   const isExpandedControlled = expanded !== undefined;
@@ -338,7 +352,12 @@ export function DataTable<TData extends RowData>({
       className={cn("@container relative flex flex-col gap-3", className)}
     >
       {isFetching ? <LoadingRail /> : null}
-      <CardViewport {...viewport} />
+      <CardViewport
+        {...viewport}
+        mobileInfinite={mobileInfinite}
+        hideMobileSort={hideMobileSort}
+        isBusy={isBusy}
+      />
       <DesktopViewport {...viewport} />
       <TableFooter
         {...{
@@ -350,6 +369,7 @@ export function DataTable<TData extends RowData>({
           onPaginationChange,
           bypassPagination,
         }}
+        desktopOnly={Boolean(mobileInfinite)}
         canPreviousPage={table.getCanPreviousPage()}
         canNextPage={table.getCanNextPage()}
       />

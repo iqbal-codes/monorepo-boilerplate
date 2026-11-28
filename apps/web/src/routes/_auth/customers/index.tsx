@@ -1,7 +1,13 @@
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
@@ -13,7 +19,7 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { useUiPrefs } from "@/lib/ui-prefs-store";
 import { useListSearchParams } from "@/lib/use-data-table-search-params";
-import { trpc } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 
 export const Route = createFileRoute("/_auth/customers/")({
   component: CustomersScreen,
@@ -22,8 +28,30 @@ export const Route = createFileRoute("/_auth/customers/")({
 
 const SORT_KEYS = ["name", "company", "status", "balanceMinor", "createdAt"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
+const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
+
+function subscribeMobileViewport(onStoreChange: () => void) {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+  const mql = window.matchMedia(MOBILE_MEDIA_QUERY);
+  mql.addEventListener("change", onStoreChange);
+  return () => mql.removeEventListener("change", onStoreChange);
+}
+
+function getMobileViewportSnapshot() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+}
 
 function CustomersScreen() {
+  const isMobile = useSyncExternalStore(
+    subscribeMobileViewport,
+    getMobileViewportSnapshot,
+    () => false,
+  );
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: session } = authClient.useSession();
@@ -71,9 +99,7 @@ function CustomersScreen() {
     setDrawerOpen(true);
   }, []);
 
-  const input = {
-    pageIndex: list.pagination.pageIndex,
-    pageSize: list.pagination.pageSize,
+  const scopeInput = {
     search: list.search || undefined,
     status: list.status,
     statuses: list.statuses.length > 0 ? list.statuses : undefined,
@@ -82,26 +108,79 @@ function CustomersScreen() {
     sortDir: list.sortDir,
   };
 
+  const pageIndex = list.pagination.pageIndex;
+  const pageSize = list.pagination.pageSize;
+
+  const input = {
+    ...scopeInput,
+    pageIndex,
+    pageSize,
+  };
+
   const query = useQuery({
     ...trpc.customers.list.queryOptions(input),
+    enabled: !isMobile,
     placeholderData: keepPreviousData,
   });
 
-  const rows = query.data?.rows ?? [];
-  const rowCount = query.data?.rowCount ?? 0;
-  const pageIndex = list.pagination.pageIndex;
-  const pageSize = list.pagination.pageSize;
+  const infiniteBaseOptions = trpc.customers.list.queryOptions({
+    ...scopeInput,
+    pageIndex: 0,
+    pageSize,
+  });
+
+  const infiniteQuery = useInfiniteQuery({
+    queryKey: [...infiniteBaseOptions.queryKey, "infinite"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      trpcClient.customers.list.query(
+        {
+          ...scopeInput,
+          pageIndex: pageParam,
+          pageSize,
+        },
+        { signal },
+      ),
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((sum, page) => sum + page.rows.length, 0);
+      return loaded < lastPage.rowCount ? allPages.length : undefined;
+    },
+    enabled: isMobile,
+    placeholderData: keepPreviousData,
+  });
+
+  const rows = isMobile
+    ? (infiniteQuery.data?.pages.flatMap((page) => page.rows) ?? [])
+    : (query.data?.rows ?? []);
+  const rowCount = isMobile
+    ? (infiniteQuery.data?.pages[0]?.rowCount ?? 0)
+    : (query.data?.rowCount ?? 0);
+  const facets = isMobile ? infiniteQuery.data?.pages[0]?.facets : query.data?.facets;
   const lastPage = Math.max(0, Math.ceil(rowCount / pageSize) - 1);
   const { setPagination } = list;
 
   useEffect(() => {
-    if (query.isSuccess && !query.isPlaceholderData && pageIndex > lastPage) {
+    if (!isMobile && query.isSuccess && !query.isPlaceholderData && pageIndex > lastPage) {
       setPagination({ pageIndex: lastPage, pageSize });
     }
-  }, [query.isSuccess, query.isPlaceholderData, pageIndex, lastPage, pageSize, setPagination]);
+  }, [
+    isMobile,
+    query.isSuccess,
+    query.isPlaceholderData,
+    pageIndex,
+    lastPage,
+    pageSize,
+    setPagination,
+  ]);
 
-  const changingResults = query.isPlaceholderData || list.searchInput !== list.search;
-  const hasCurrentResults = !changingResults && query.isSuccess && pageIndex <= lastPage;
+  const activeQuery = isMobile ? infiniteQuery : query;
+  const changingResults = activeQuery.isPlaceholderData || list.searchInput !== list.search;
+  const hasCurrentResults = isMobile
+    ? !changingResults && infiniteQuery.isSuccess
+    : !changingResults && query.isSuccess && pageIndex <= lastPage;
+  const isFetchingList = isMobile
+    ? infiniteQuery.isFetching && !infiniteQuery.isPending && !infiniteQuery.isFetchingNextPage
+    : query.isFetching && !query.isPending;
 
   const invalidateCustomers = useCallback(async () => {
     await queryClient.invalidateQueries(trpc.customers.pathFilter());
@@ -171,7 +250,7 @@ function CustomersScreen() {
       <CustomersTableView
         rows={rows}
         rowCount={rowCount}
-        facets={query.data?.facets}
+        facets={facets}
         search={list.search}
         searchInput={list.searchInput}
         onSearchInputChange={list.onSearchInputChange}
@@ -188,11 +267,23 @@ function CustomersScreen() {
         onSortingChange={list.setSorting}
         density={tableDensity}
         onDensityChange={setTableDensity}
-        isLoading={query.isPending}
-        isFetching={query.isFetching && !query.isPending}
-        isError={query.isError}
-        errorMessage={query.error?.message}
-        onRetry={() => void query.refetch()}
+        isLoading={activeQuery.isPending}
+        isFetching={isFetchingList}
+        mobileInfinite={
+          isMobile
+            ? {
+                hasMore: Boolean(infiniteQuery.hasNextPage),
+                isLoadingMore: infiniteQuery.isFetchingNextPage,
+                onLoadMore: () => {
+                  void infiniteQuery.fetchNextPage();
+                },
+                totalCount: rowCount,
+              }
+            : undefined
+        }
+        isError={activeQuery.isError}
+        errorMessage={activeQuery.error?.message}
+        onRetry={() => void activeQuery.refetch()}
         hasCurrentResults={hasCurrentResults}
         canDelete={canDelete}
         notice={notice}

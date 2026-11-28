@@ -1,5 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { PaginationState } from "@tanstack/react-table";
+import { cn } from "cn";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import {
   Select,
@@ -20,6 +21,7 @@ export function TableFooter({
   canNextPage,
   onPaginationChange,
   bypassPagination,
+  desktopOnly,
 }: {
   pageCount: number;
   currentIndex: number;
@@ -30,11 +32,17 @@ export function TableFooter({
   canNextPage: boolean;
   onPaginationChange?: (pagination: PaginationState) => void;
   bypassPagination: boolean;
+  desktopOnly: boolean;
 }) {
   const firstRow = total === 0 ? 0 : currentIndex * currentSize + 1;
   const lastRow = Math.min((currentIndex + 1) * currentSize, total);
   return !bypassPagination ? (
-    <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm">
+    <div
+      className={cn(
+        "flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm",
+        desktopOnly ? "hidden @lg:flex" : "flex",
+      )}
+    >
       <p aria-live="polite" className="tabular-nums">
         {total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}
       </p>
@@ -101,7 +109,12 @@ export function TableFooter({
       </div>
     </div>
   ) : (
-    <div className="flex items-center justify-between px-1 text-xs text-muted-foreground sm:text-sm">
+    <div
+      className={cn(
+        "items-center justify-between px-1 text-xs text-muted-foreground sm:text-sm",
+        desktopOnly ? "hidden @lg:flex" : "flex",
+      )}
+    >
       <p aria-live="polite" className="tabular-nums">
         {total === 0 ? "No rows" : `${total} virtualized rows`}
       </p>
