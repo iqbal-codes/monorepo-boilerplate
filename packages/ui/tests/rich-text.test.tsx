@@ -417,7 +417,7 @@ describe("Serialization: toPlainText & toMarkdown (TC-04)", () => {
   ])(
     "preserves $name after a list item paragraph (TC-04, TC-R1-CODE-01)",
     ({ child, parsedChild }) => {
-      for (const parentText of ["Parent", ""]) {
+      for (const parentText of ["Parent", " Parent", "\tParent", "    Parent", ""]) {
         const doc: JSONContent = {
           type: "doc",
           content: [

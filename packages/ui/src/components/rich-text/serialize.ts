@@ -227,6 +227,12 @@ function serializeMarkdownInline(nodes: ReadonlyArray<JSONContent> | undefined):
     .join("");
 }
 
+function encodeLeadingListWhitespace(line: string): string {
+  return line.replace(/^[ \t]+/, (whitespace) =>
+    whitespace.replaceAll(" ", "&#32;").replaceAll("\t", "&#9;"),
+  );
+}
+
 function serializeMarkdownListItem(item: JSONContent, prefix: string): string {
   const indent = " ".repeat(prefix.length);
   const lines: string[] = [];
@@ -234,7 +240,8 @@ function serializeMarkdownListItem(item: JSONContent, prefix: string): string {
 
   for (const child of item.content ?? []) {
     const block = serializeMarkdownBlock(child);
-    const [first = "", ...rest] = block.split("\n");
+    const [rawFirst = "", ...rest] = block.split("\n");
+    const first = child.type === "paragraph" ? encodeLeadingListWhitespace(rawFirst) : rawFirst;
     if (lines.length === 0) {
       lines.push(first ? `${prefix}${first}` : prefix.trimEnd());
     } else if (block) {
@@ -252,7 +259,7 @@ function serializeMarkdownListItem(item: JSONContent, prefix: string): string {
       lines.push(first ? `${indent}${first}` : "");
     }
     lines.push(...rest.map((line) => (line ? `${indent}${line}` : "")));
-    hasContent ||= block.trim().length > 0;
+    hasContent ||= first.trim().length > 0 || rest.some((line) => line.trim().length > 0);
   }
 
   return lines.length ? lines.join("\n") : prefix.trimEnd();
