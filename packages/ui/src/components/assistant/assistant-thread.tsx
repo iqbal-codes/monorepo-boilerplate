@@ -515,7 +515,7 @@ function AssistantMessage({ ToolFallback }: { ToolFallback: ToolCallMessagePartC
                     {part.title ?? part.url}
                   </a>
                 ) : (
-                  <Badge variant="outline" className="me-1.5 rounded-none text-xs">
+                  <Badge variant="outline" className="me-1.5">
                     {part.title}
                   </Badge>
                 );

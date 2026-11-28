@@ -33,6 +33,8 @@ import { Skeleton } from "@monorepo-boilerplate/ui/components/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@monorepo-boilerplate/ui/components/tabs";
 import { useIsMobile } from "@monorepo-boilerplate/ui/hooks/use-mobile";
 
+import { badgeBaseClass } from "./badge-styles";
+
 export type NotificationItem = {
   id: string;
   title: string;
@@ -146,7 +148,10 @@ export function NotificationCenter({
         <span
           data-slot="notification-center-badge"
           aria-hidden="true"
-          className="pointer-events-none absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center bg-destructive px-1 text-[0.625rem] leading-none font-semibold text-destructive-foreground tabular-nums"
+          className={cn(
+            badgeBaseClass,
+            "pointer-events-none absolute top-0 right-0 min-w-5 -translate-y-1/2 translate-x-1/2 border-destructive/25 bg-destructive-subtle text-destructive-subtle-foreground tabular-nums",
+          )}
         >
           {badgeText}
         </span>

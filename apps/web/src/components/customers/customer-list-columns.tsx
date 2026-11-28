@@ -98,11 +98,7 @@ export function customerListColumns({
       cell: (info) => {
         const status = info.getValue();
         const meta = CUSTOMER_STATUS_META[status];
-        return (
-          <StatusBadge tone={meta.tone} dot>
-            {meta.label}
-          </StatusBadge>
-        );
+        return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
       },
     }),
     helper.accessor("balanceMinor", {

@@ -23,6 +23,8 @@ import {
 } from "@monorepo-boilerplate/ui/components/tooltip";
 import { PanelLeftIcon } from "lucide-react";
 
+import { badgeBaseClass } from "./badge-styles";
+
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = "16rem";
@@ -568,7 +570,8 @@ function SidebarMenuBadge({ className, ...props }: React.ComponentProps<"div">) 
       data-slot="sidebar-menu-badge"
       data-sidebar="menu-badge"
       className={cn(
-        "pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-none px-1 text-xs font-medium text-sidebar-foreground tabular-nums select-none group-data-[collapsible=icon]:hidden peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 peer-data-active/menu-button:text-sidebar-accent-foreground",
+        badgeBaseClass,
+        "pointer-events-none absolute top-4.5 right-1 min-w-5 -translate-y-1/2 border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground tabular-nums select-none group-data-[collapsible=icon]:hidden peer-data-[size=lg]/menu-button:top-7 peer-data-[size=sm]/menu-button:top-4",
         className,
       )}
       {...props}

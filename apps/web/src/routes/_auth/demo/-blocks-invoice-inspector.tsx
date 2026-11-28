@@ -21,7 +21,7 @@ export function InvoiceInspector({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <StatusBadge tone={selectedInvoice.status === "paid" ? "success" : "warning"} dot>
+        <StatusBadge tone={selectedInvoice.status === "paid" ? "success" : "warning"}>
           {selectedInvoice.status}
         </StatusBadge>
         <CopyButton

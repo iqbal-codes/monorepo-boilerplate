@@ -433,9 +433,7 @@ export function DateTimeField({
                   <ClockIcon aria-hidden="true" className="size-3.5" />
                   Time
                 </span>
-                <Badge variant="secondary" className="font-normal">
-                  {timeZone}
-                </Badge>
+                <Badge variant="secondary">{timeZone}</Badge>
               </div>
               <div className="flex items-end gap-2">
                 <div className="flex flex-col gap-1">

@@ -99,7 +99,7 @@ export function InvoiceWorkspace({ children }: { children: React.ReactNode }) {
       helper.accessor("status", {
         header: "Status",
         cell: (info) => (
-          <StatusBadge tone={info.getValue() === "paid" ? "success" : "warning"} dot>
+          <StatusBadge tone={info.getValue() === "paid" ? "success" : "warning"}>
             {info.getValue()}
           </StatusBadge>
         ),

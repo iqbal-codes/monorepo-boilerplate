@@ -61,11 +61,7 @@ const ledgerColumns = ledgerHelper.columns([
 
 function LedgerStatus({ status }: { status: LedgerRow["status"] }) {
   const tone = status === "settled" ? "success" : status === "flagged" ? "danger" : "warning";
-  return (
-    <StatusBadge tone={tone} dot>
-      {status}
-    </StatusBadge>
-  );
+  return <StatusBadge tone={tone}>{status}</StatusBadge>;
 }
 
 export function VirtualizedTablePreview() {

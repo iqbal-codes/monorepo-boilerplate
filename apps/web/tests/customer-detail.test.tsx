@@ -183,6 +183,7 @@ describe("CustomerDetailView", () => {
       const statusBadges = view.host.querySelectorAll('[data-slot="status-badge"]');
       expect(statusBadges.length).toBeGreaterThanOrEqual(1);
       expect(statusBadges[0]?.textContent).toContain("Active");
+      expect(view.host.querySelector('[data-slot="status-badge-dot"]')).toBeNull();
 
       expect(view.host.querySelector('button[aria-label="Copy email"]')).not.toBeNull();
       const tags = view.host.querySelector('[data-slot="customer-tags"]');

@@ -25,26 +25,16 @@ export function InspectionPreview() {
       <CardHeader>
         <CardTitle>StatusBadge, CopyButton &amp; DescriptionList</CardTitle>
         <CardDescription>
-          Semantic OKLCH status pills, clipboard copy feedback, and structured metadata grid.
+          Status badges, clipboard copy feedback, and structured metadata grid.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge tone="neutral" dot>
-            Neutral
-          </StatusBadge>
-          <StatusBadge tone="info" dot>
-            Info
-          </StatusBadge>
-          <StatusBadge tone="success" dot>
-            Success
-          </StatusBadge>
-          <StatusBadge tone="warning" dot>
-            Warning
-          </StatusBadge>
-          <StatusBadge tone="danger" dot>
-            Danger
-          </StatusBadge>
+          <StatusBadge>Neutral</StatusBadge>
+          <StatusBadge tone="info">Info</StatusBadge>
+          <StatusBadge tone="success">Success</StatusBadge>
+          <StatusBadge tone="warning">Warning</StatusBadge>
+          <StatusBadge tone="danger">Danger</StatusBadge>
           <CopyButton value="cus_01JDEMO9X2" label="Copy customer token" variant="outline">
             cus_01JDEMO9X2
           </CopyButton>

@@ -1,12 +1,9 @@
 import { useId, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  AlertCircleIcon,
-  ArrowUpIcon,
   BriefcaseIcon,
   CalendarIcon,
   CircleDollarSignIcon,
-  CircleIcon,
   LayersIcon,
   PlusIcon,
   RotateCcwIcon,
@@ -15,7 +12,6 @@ import {
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@monorepo-boilerplate/ui/components/avatar";
-import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import {
   DropdownMenu,
@@ -74,6 +70,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@monorepo-boilerplate/ui/components/sheet";
+import { StatusBadge } from "@monorepo-boilerplate/ui/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@monorepo-boilerplate/ui/components/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@monorepo-boilerplate/ui/components/toggle-group";
 import { formatDate, formatMoney, formatNumber } from "@monorepo-boilerplate/ui/lib/format";
@@ -296,28 +293,14 @@ const STAGE_SELECT_ITEMS = DEAL_COLUMNS.map((col) => ({ label: col.title, value:
 const TASK_STATUS_SELECT_ITEMS = TASK_COLUMNS.map((col) => ({ label: col.title, value: col.id }));
 
 function PriorityBadge({ priority }: { priority: TaskPriority }) {
-  if (priority === "urgent") {
-    return (
-      <Badge variant="destructive" className="gap-1">
-        <AlertCircleIcon aria-hidden="true" />
-        Urgent
-      </Badge>
-    );
+  switch (priority) {
+    case "urgent":
+      return <StatusBadge tone="danger">Urgent</StatusBadge>;
+    case "high":
+      return <StatusBadge tone="warning">High</StatusBadge>;
+    default:
+      return <StatusBadge>Normal</StatusBadge>;
   }
-  if (priority === "high") {
-    return (
-      <Badge variant="default" className="gap-1">
-        <ArrowUpIcon aria-hidden="true" />
-        High
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="secondary" className="gap-1">
-      <CircleIcon aria-hidden="true" />
-      Normal
-    </Badge>
-  );
 }
 
 function QuickAddTaskForm({
