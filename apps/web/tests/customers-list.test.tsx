@@ -301,8 +301,12 @@ describe("useListSearchParams with nuqs (TC-05)", () => {
       sortBy: "createdAt",
       sortDir: "desc",
     })();
-    const input = new URL(request.url).searchParams.get("input")!;
-    expect(JSON.parse(input)).toMatchObject(filters);
+    const url = new URL(request.url);
+    expect(url.pathname).toBe("/trpc/customers.export");
+    expect(url.search).toBe("");
+    expect(request.method).toBe("POST");
+    expect(request.headers).toEqual({ "Content-Type": "application/json" });
+    expect(JSON.parse(request.body!)).toMatchObject(filters);
   });
 
   test("customerListSearch keeps Command Center link serialization working", () => {

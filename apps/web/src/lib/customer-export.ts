@@ -89,14 +89,15 @@ export function customerExportFilename(activatedAt: Date, format: ExportFormat =
 }
 
 /**
- * Builds the unbatched tRPC HTTP query URL for `customers.export`.
+ * Builds the unbatched tRPC HTTP request for `customers.export`.
+ * POST carries the filter snapshot without percent-encoding it into the URL.
  *
  * Deliberately bypasses the shared `httpBatchLink` in `@/utils/trpc` and does
  * not read/decode the response body on the Window thread: `httpBatchLink` merges
  * same-tick calls into one fetch with a shared abort signal, and decoding a
  * 10,000-row payload on the Window thread would stall typing in the list.
  */
-export function customerExportUrl(scope: CustomerExportScope): string {
+export function customerExportRequest(scope: CustomerExportScope) {
   const snapshot: CustomerExportProcedureInput = {
     search: scope.search || undefined,
     status: scope.status,
@@ -105,21 +106,13 @@ export function customerExportUrl(scope: CustomerExportScope): string {
     sortBy: scope.sortBy,
     sortDir: scope.sortDir,
   };
-  const input = encodeURIComponent(JSON.stringify(snapshot));
-  return `${serverUrl}/trpc/customers.export?input=${input}`;
-}
-
-/**
- * Binds one scope to the block's `fetchExport` prop. Returns an HTTP descriptor
- * so `ExportButton`'s on-demand worker receives and decodes the response off
- * the Window main thread.
- */
-export function customerExportRequest(scope: CustomerExportScope) {
-  const url = customerExportUrl(scope);
-
+  const body = JSON.stringify(snapshot);
   return async (): Promise<ExportHttpSource> => ({
     kind: "http",
-    url,
+    url: `${serverUrl}/trpc/customers.export`,
+    method: "POST",
+    body,
+    headers: { "Content-Type": "application/json" },
     credentials: "include",
     payloadPath: ["result", "data"],
     mapError: customerExportErrorMessage,

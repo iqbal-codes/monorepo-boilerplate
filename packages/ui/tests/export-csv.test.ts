@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import {
   CSV_MIME_TYPE,
@@ -338,6 +338,30 @@ describe("export worker message seam", () => {
     const done = scope.posted[2] as { type: string; rowCount: number; file: File };
     expect(done.rowCount).toBe(1);
     expect(await done.file.text()).toContain("Ada,ada@example.test,,,active,42,USD,");
+  });
+
+  test("sends a POST body to the export endpoint without putting filters in the URL", async () => {
+    const scope = fakeScope();
+    const url = "http://localhost:3000/trpc/customers.export";
+    const request = {
+      url,
+      method: "POST",
+      body: JSON.stringify({ tags: ["漢字"] }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    } as const;
+    const fakeFetch = mock<typeof fetch>(async () => new Response(payloadOf([])));
+    registerCsvExportWorker(scope, fakeFetch);
+    scope.emit({ type: "http", request, filename: "customers.csv" });
+    await scope.waitForCount(3);
+    expect(fakeFetch).toHaveBeenCalledWith(url, {
+      method: request.method,
+      body: request.body,
+      credentials: request.credentials,
+      headers: request.headers,
+      signal: expect.any(AbortSignal),
+    });
+    expect(scope.posted[2]).toMatchObject({ type: "done" });
   });
 
   test("posts http-error without generating a file on non-2xx HTTP responses", async () => {

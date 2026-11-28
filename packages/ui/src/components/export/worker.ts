@@ -64,6 +64,8 @@ async function handleHttpCsvExport(
   let rawText: string;
   try {
     const response = await fetchFn(request.url, {
+      method: request.method,
+      body: request.body,
       credentials: request.credentials,
       headers: request.headers,
       signal,
