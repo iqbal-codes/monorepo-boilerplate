@@ -30,20 +30,18 @@ import {
 import { FACTORY_LABELS } from '../../.shared/labels.ts';
 import { assertReservation, deliveryPaths, parseDeliveryClaim } from '../../.shared/ownership.ts';
 import {
+  type EvidenceImage,
+  type EvidenceManifestEntry,
   extractVerificationEvidenceLine,
-  pairEvidenceImages,
+  parseEvidenceManifest,
   parsePrSummarySections,
+  renderEvidenceMarkdown,
 } from '../../.shared/pr-format.ts';
 
-interface UploadedImage {
-  name: string;
-  url: string;
-}
-
 interface UploadedEvidence {
-  before: UploadedImage[];
-  impl: UploadedImage[];
-  after: UploadedImage[];
+  before: EvidenceImage[];
+  impl: EvidenceImage[];
+  after: EvidenceImage[];
 }
 
 const artifactsDir = process.env.ARTIFACTS_DIR || '/tmp/archon-factory-artifacts';
@@ -175,19 +173,50 @@ function uploadEvidenceImages(shortSha: string): UploadedEvidence {
 
   if (!pushed) return empty;
 
+  const manifest = loadEvidenceManifest();
   const result: UploadedEvidence = { before: [], impl: [], after: [] };
   for (const file of pngs) {
     const url = `https://github.com/${repo}/blob/pr-evidence/${folder}/${file}?raw=true`;
     const lower = file.toLowerCase();
+    const meta = manifest.get(lower);
+    const entry: EvidenceImage = {
+      name: file,
+      url,
+      ...(meta?.label ? { label: meta.label } : {}),
+      ...(meta?.pairKey ? { pairKey: meta.pairKey } : {}),
+    };
     if (lower.startsWith('before')) {
-      result.before.push({ name: file, url });
+      result.before.push(entry);
     } else if (lower.startsWith('impl')) {
-      result.impl.push({ name: file, url });
+      result.impl.push(entry);
     } else {
-      result.after.push({ name: file, url });
+      result.after.push(entry);
     }
   }
   return result;
+}
+
+function loadEvidenceManifest(): Map<string, EvidenceManifestEntry> {
+  const merged = new Map<string, EvidenceManifestEntry>();
+  const candidates = [
+    'manifest.json',
+    'before-manifest.json',
+    'impl-manifest.json',
+    'after-manifest.json',
+  ];
+  for (const name of candidates) {
+    const fullPath = join(evidenceDir, name);
+    if (!existsSync(fullPath)) continue;
+    const parsed = parseEvidenceManifest(readFileSync(fullPath, 'utf8'));
+    for (const [k, v] of parsed.entries()) {
+      const prev = merged.get(k);
+      merged.set(k, {
+        label: v.label || prev?.label,
+        pairKey: v.pairKey || prev?.pairKey,
+      });
+    }
+  }
+  return merged;
 }
 
 function renderEvidenceSection(
@@ -195,31 +224,16 @@ function renderEvidenceSection(
   resolvedBeforeSummary: string,
   fallbackAfterLine: string
 ): string[] {
-  const lines: string[] = ['## Evidence'];
   const primaryAfter = evidence.after.length > 0 ? evidence.after : evidence.impl;
-  const afterColumnTitle = evidence.after.length > 0 ? 'After (QA)' : 'After (Implementer)';
+  const afterLabel = evidence.after.length > 0 ? 'After (QA)' : 'After (Implementer)';
 
-  if (evidence.before.length > 0 || primaryAfter.length > 0) {
-    if (evidence.before.length === 0 && resolvedBeforeSummary) {
-      lines.push(`- **Before:** _${resolvedBeforeSummary}_`, '');
-    }
-    const rows = pairEvidenceImages(evidence.before, primaryAfter);
-    lines.push(`| View | Before | ${afterColumnTitle} |`, '| :--- | :---: | :---: |');
-    for (const row of rows) {
-      const b = row.before
-        ? `![${row.before.name}](${row.before.url})<br/><sub>${row.before.name}</sub>`
-        : '—';
-      const a = row.after
-        ? `![${row.after.name}](${row.after.url})<br/><sub>${row.after.name}</sub>`
-        : '—';
-      lines.push(`| **${row.view}** | ${b} | ${a} |`);
-    }
-    lines.push('');
-    return lines;
-  }
-
-  lines.push(`- **Before:** ${resolvedBeforeSummary}`, `- **After:** ${fallbackAfterLine}`, '');
-  return lines;
+  return renderEvidenceMarkdown({
+    before: evidence.before,
+    after: primaryAfter,
+    afterLabel,
+    beforeSummary: resolvedBeforeSummary,
+    fallbackAfterLine,
+  });
 }
 
 function ensurePrCreated(

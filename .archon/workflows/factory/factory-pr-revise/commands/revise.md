@@ -18,7 +18,7 @@ You are revising an existing Factory pull request (`$INPUTS.pr_url`) inside its 
    - Address every review point and inline comment at root cause without weakening existing tests or bypassing standards.
    - **Verify third-party library runtime behavior before writing state logic or mocks:** when touching auth/session hooks, router blockers, query/mutation lifecycles, or other external runtime APIs, check the relevant repo ADR (`docs/adr/`) or the installed package's source/types in `node_modules/<pkg>` and mirror those exact transitions in your tests instead of guessing.
    - Run `$INPUTS.verification_command` and confirm exit code `0`.
-   - When `$INPUTS.has_ui` is `true` and `$INPUTS.preview_cmd` is non-empty, boot `$INPUTS.preview_cmd` (parse `URL=...` and `PID=...`, always `kill "$PID"` before exiting), verify the changed UI/viewports, and capture 2–4 refreshed screenshots to `$ARTIFACTS_DIR/evidence/impl-<state>.png` and visually inspect them.
+   - When `$INPUTS.has_ui` is `true` and `$INPUTS.preview_cmd` is non-empty, boot `$INPUTS.preview_cmd` (parse `URL=...` and `PID=...`, always `kill "$PID"` before exiting), verify the revised UI surfaces/states, and capture change-driven refreshed screenshots to `$ARTIFACTS_DIR/evidence/impl-<state>.png` (proportional to what changed — no fixed `desktop`/`mobile` quota; match any `before-<slug>.png` framing when modifying existing UI, and focus on the revised states/deliverables). Optionally update `$ARTIFACTS_DIR/evidence/impl-manifest.json` and visually inspect every captured PNG.
 
 4. **Write reviewer & PR notes:**
    - Write full technical notes to `$ARTIFACTS_DIR/implementation.md` mapping each maintainer request to the change and test/verification proof.

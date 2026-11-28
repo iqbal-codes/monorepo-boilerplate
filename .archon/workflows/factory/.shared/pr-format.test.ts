@@ -5,7 +5,10 @@ import {
   extractUxBlockingFindings,
   extractVerificationEvidenceLine,
   pairEvidenceImages,
+  parseEvidenceManifest,
   parsePrSummarySections,
+  partitionEvidenceImages,
+  renderEvidenceMarkdown,
 } from './pr-format.ts';
 
 describe('PR formatting & review comment extraction', () => {
@@ -95,7 +98,7 @@ describe('PR formatting & review comment extraction', () => {
     expect(extractVerificationEvidenceLine(mech)).toBe('`bun run ci` -> PASS');
   });
 
-  test('pairEvidenceImages pairs matching viewports instead of alphabetical index', () => {
+  test('pairEvidenceImages pairs matching viewports and route slugs instead of alphabetical index', () => {
     const before = [
       { name: 'before-customers-desktop.png', url: 'https://example.com/b-desk.png' },
       { name: 'before-customers-mobile-320.png', url: 'https://example.com/b-mob.png' },
@@ -110,12 +113,12 @@ describe('PR formatting & review comment extraction', () => {
     const rows = pairEvidenceImages(before, impl);
     expect(rows).toHaveLength(4);
     expect(rows[0]).toMatchObject({
-      view: 'Desktop · Customers',
+      view: 'Customers · Desktop',
       before: { name: 'before-customers-desktop.png' },
       after: { name: 'impl-desktop.png' },
     });
     expect(rows[1]).toMatchObject({
-      view: 'Mobile (320px) · Customers',
+      view: 'Customers · Mobile (320px)',
       before: { name: 'before-customers-mobile-320.png' },
       after: { name: 'impl-mobile.png' },
     });
@@ -129,22 +132,97 @@ describe('PR formatting & review comment extraction', () => {
     });
   });
 
-  test('pairEvidenceImages never pairs mobile Before with desktop or untagged After', () => {
+  test('pairEvidenceImages never pairs mobile Before with desktop or untagged After, nor distinct states', () => {
     const before = [
       { name: 'before-customers-mobile-320.png', url: 'https://example.com/b-mob.png' },
+      { name: 'before-fields-wizard-desktop.png', url: 'https://example.com/b-wiz.png' },
     ];
     const after = [
       { name: 'after-desktop-menu.png', url: 'https://example.com/a-desk.png' },
       { name: 'after-dialog.png', url: 'https://example.com/a-dlg.png' },
+      { name: 'after-desktop.png', url: 'https://example.com/a-generic.png' },
     ];
 
-    const rows = pairEvidenceImages(before, after);
-    expect(rows).toHaveLength(3);
-    expect(rows[0]).toEqual({
-      view: 'Mobile (320px) · Customers',
-      before: { name: 'before-customers-mobile-320.png', url: 'https://example.com/b-mob.png' },
+    const { comparisons, beforeOnly, afterOnly } = partitionEvidenceImages(before, after);
+    expect(comparisons).toHaveLength(0);
+    expect(beforeOnly.map((b) => b.image.name)).toEqual([
+      'before-customers-mobile-320.png',
+      'before-fields-wizard-desktop.png',
+    ]);
+    expect(afterOnly.map((a) => a.image.name)).toEqual([
+      'after-desktop-menu.png',
+      'after-dialog.png',
+      'after-desktop.png',
+    ]);
+  });
+
+  test('partitionEvidenceImages pairs non-viewport slugs and manifest pairKeys cleanly', () => {
+    const manifest = parseEvidenceManifest(
+      JSON.stringify([
+        { file: 'before-status-badges.png', label: 'Status Badges (Neutral/Warning/Danger)' },
+        { file: 'after-status-badges.png', label: 'Status Badges (OKLCH Semantic Tokens)' },
+        { file: 'before-old-header.png', pairKey: 'detail-header' },
+        { file: 'after-new-header.png', pairKey: 'detail-header', label: 'Detail Identity Header' },
+      ])
+    );
+
+    const applyMeta = (name: string) => ({
+      name,
+      url: `https://example.com/${name}`,
+      ...manifest.get(name.toLowerCase()),
     });
-    expect(rows[1]?.before).toBeUndefined();
-    expect(rows[2]?.before).toBeUndefined();
+
+    const { comparisons, afterOnly, beforeOnly } = partitionEvidenceImages(
+      [applyMeta('before-status-badges.png'), applyMeta('before-old-header.png')],
+      [
+        applyMeta('after-status-badges.png'),
+        applyMeta('after-new-header.png'),
+        applyMeta('after-slash-command-menu.png'),
+      ]
+    );
+
+    expect(comparisons).toHaveLength(2);
+    expect(comparisons[0]?.view).toBe('Status Badges (OKLCH Semantic Tokens)');
+    expect(comparisons[1]?.view).toBe('Detail Identity Header');
+    expect(afterOnly).toHaveLength(1);
+    expect(afterOnly[0]?.view).toBe('Slash Command Menu');
+    expect(beforeOnly).toHaveLength(0);
+  });
+
+  test('renderEvidenceMarkdown separates After-only states from Before/After comparisons without empty cells', () => {
+    const additiveMd = renderEvidenceMarkdown({
+      before: [],
+      after: [
+        { name: 'impl-rich-text-populated.png', url: 'https://example.com/1.png' },
+        { name: 'impl-slash-menu.png', url: 'https://example.com/2.png' },
+        { name: 'impl-toolbar-320.png', url: 'https://example.com/3.png' },
+      ],
+      afterLabel: 'After (Implementer)',
+      beforeSummary: 'Additive UI change — no existing UI surface modified.',
+    }).join('\n');
+
+    expect(additiveMd).toContain('| State | After (Implementer) |');
+    expect(additiveMd).not.toContain('| Surface | Before |');
+    expect(additiveMd).not.toContain('| — |');
+    expect(additiveMd).toContain('**Toolbar · Mobile (320px)**');
+
+    const mixedMd = renderEvidenceMarkdown({
+      before: [
+        { name: 'before-customer-detail-desktop.png', url: 'https://example.com/bd.png' },
+        { name: 'before-untouched-wizard-desktop.png', url: 'https://example.com/bw.png' },
+      ],
+      after: [
+        { name: 'after-customer-detail-desktop.png', url: 'https://example.com/ad.png' },
+        { name: 'after-delete-dialog.png', url: 'https://example.com/add.png' },
+      ],
+      afterLabel: 'After (QA)',
+    }).join('\n');
+
+    expect(mixedMd).toContain('### Before / After');
+    expect(mixedMd).toContain('| **Customer Detail · Desktop** |');
+    expect(mixedMd).toContain('### Additional States — After (QA)');
+    expect(mixedMd).toContain('| **Delete Dialog** |');
+    expect(mixedMd).toContain('<details><summary>Unmatched Before Captures (1)</summary>');
+    expect(mixedMd).not.toContain('| — |');
   });
 });
