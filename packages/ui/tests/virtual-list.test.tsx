@@ -123,6 +123,7 @@ describe("VirtualList subpath isolation (TC-03, TC-05)", () => {
       resolve(uiSrcDir, "components/virtual-list.tsx"),
       resolve(uiSrcDir, "components/data-table.tsx"),
       resolve(uiSrcDir, "components/data-table/use-row-window.ts"),
+      resolve(uiSrcDir, "components/tree-view/tree-virtual-body.tsx"),
     ]);
 
     function walk(dir: string): string[] {

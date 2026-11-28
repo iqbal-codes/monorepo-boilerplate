@@ -1,5 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  CalendarIcon,
+  FolderTreeIcon,
   LayoutDashboardIcon,
   SettingsIcon,
   UsersIcon,
@@ -24,7 +26,9 @@ export type NavRoute =
   | "/settings"
   | "/demo/fields"
   | "/demo/blocks"
-  | "/demo/kanban";
+  | "/demo/kanban"
+  | "/demo/calendar"
+  | "/demo/tree";
 
 export type NavSubItem = {
   title: string;
@@ -67,6 +71,8 @@ export const navShortcuts: NavShortcut[] = [
   { name: "Fields", to: "/demo/fields", icon: WrenchIcon },
   { name: "Blocks", to: "/demo/blocks", icon: BoxesIcon },
   { name: "Kanban", to: "/demo/kanban", icon: KanbanIcon },
+  { name: "Calendar", to: "/demo/calendar", icon: CalendarIcon },
+  { name: "Tree", to: "/demo/tree", icon: FolderTreeIcon },
 ];
 
 export const REFERENCE_SECTION = { title: "Reference", to: "/demo/blocks" as NavRoute };
