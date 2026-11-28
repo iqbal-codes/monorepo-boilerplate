@@ -146,7 +146,7 @@ Set `FACTORY_PUBLISH_QA_STATUS=true` in the trusted Archon runner environment to
 
 ## PR Evidence Branch (`pr-evidence`)
 
-When Before/After PNG screenshots exist in `$ARTIFACTS_DIR/evidence/`, `publish-pr.ts` commits them to an orphan branch named `pr-evidence` (never polluting `main` or the PR diff) and embeds them as a side-by-side Markdown table in the PR body using GitHub blob `?raw=true` links.
+When UI evidence PNGs exist in `$ARTIFACTS_DIR/evidence/`, `publish-pr.ts` commits them to an orphan branch named `pr-evidence` (never polluting `main` or the PR diff) and renders change-driven PR evidence using GitHub blob `?raw=true` links: genuine Before/After pairs render side-by-side (when existing UI surfaces changed), while new surfaces and interactive states render in a focused After states table without empty `—` placeholder cells. Optional `evidence/*manifest.json` files can supply human-readable labels and explicit `pairKey` mappings.
 
 ## Merge Modes (`factory-slice`)
 
