@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "cn";
+import { defaultFilter } from "cmdk";
 import { CheckIcon, PlusCircleIcon } from "lucide-react";
 
 import { Badge } from "@monorepo-boilerplate/ui/components/badge";
@@ -38,6 +39,8 @@ export type FacetedFilterProps = {
   clearLabel?: string;
   /** Maximum inline badges shown on the trigger before collapsing to a count. */
   maxInlineBadges?: number;
+  /** Maximum selectable values; selected options can still be removed. */
+  maxSelections?: number;
   searchable?: boolean;
   disabled?: boolean;
   className?: string;
@@ -56,12 +59,14 @@ export function FacetedFilter({
   emptyText = "No results found.",
   clearLabel = "Clear filters",
   maxInlineBadges = 2,
+  maxSelections = Infinity,
   searchable = true,
   disabled = false,
   className,
 }: FacetedFilterProps) {
   const [open, setOpen] = React.useState(false);
   const selectedValues = React.useMemo(() => new Set(value), [value]);
+  const atLimit = selectedValues.size >= maxSelections;
 
   const selectedOptions = React.useMemo(
     () =>
@@ -77,6 +82,7 @@ export function FacetedFilter({
     if (next.has(optionValue)) {
       next.delete(optionValue);
     } else {
+      if (atLimit) return;
       next.add(optionValue);
     }
     onValueChange([...next]);
@@ -131,7 +137,12 @@ export function FacetedFilter({
         ) : null}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-60 p-0">
-        <Command>
+        <Command
+          label={`Filter ${title.toLowerCase()}`}
+          filter={(_, search, [label = "", ...keywords] = []) =>
+            defaultFilter(label, search, keywords)
+          }
+        >
           {searchable ? <CommandInput placeholder={searchPlaceholder ?? title} /> : null}
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
@@ -141,9 +152,10 @@ export function FacetedFilter({
                 return (
                   <CommandItem
                     key={option.value}
-                    value={option.label}
-                    keywords={[option.value]}
-                    disabled={option.disabled}
+                    // cmdk trims values and uses them as keyboard selection IDs.
+                    value={`option:${JSON.stringify(option.value)}`}
+                    keywords={[option.label, option.value]}
+                    disabled={option.disabled || (atLimit && !isSelected)}
                     data-selected-option={isSelected ? "true" : undefined}
                     onSelect={() => toggleOption(option.value)}
                   >
@@ -184,7 +196,8 @@ export function FacetedFilter({
                 <CommandSeparator />
                 <CommandGroup>
                   <CommandItem
-                    value="__clear_filters__"
+                    value="clear-filters"
+                    keywords={[clearLabel]}
                     onSelect={() => onValueChange([])}
                     className="justify-center text-center"
                   >
@@ -195,6 +208,11 @@ export function FacetedFilter({
               </>
             ) : null}
           </CommandList>
+          {atLimit ? (
+            <p role="status" className="border-t px-3 py-2 text-xs text-muted-foreground">
+              Up to {maxSelections} selections. Remove one to add another.
+            </p>
+          ) : null}
         </Command>
       </PopoverContent>
     </Popover>

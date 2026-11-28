@@ -6,7 +6,10 @@ import { toast } from "sonner";
 
 import { CustomerFormDrawer } from "@/components/customers/customer-form-drawer";
 import { CustomerPageActions } from "@/components/customers/customer-page-actions";
-import { CustomersTableView } from "@/components/customers/customers-table-view";
+import {
+  CustomersTableView,
+  type CustomersTableViewProps,
+} from "@/components/customers/customers-table-view";
 import { authClient } from "@/lib/auth-client";
 import { useUiPrefs } from "@/lib/ui-prefs-store";
 import { useListSearchParams } from "@/lib/use-data-table-search-params";
@@ -98,7 +101,7 @@ function CustomersScreen() {
   }, [query.isSuccess, query.isPlaceholderData, pageIndex, lastPage, pageSize, setPagination]);
 
   const changingResults = query.isPlaceholderData || list.searchInput !== list.search;
-  const canSelect = !changingResults && query.isSuccess && pageIndex <= lastPage;
+  const hasCurrentResults = !changingResults && query.isSuccess && pageIndex <= lastPage;
 
   const invalidateCustomers = useCallback(async () => {
     await queryClient.invalidateQueries(trpc.customers.pathFilter());
@@ -190,7 +193,7 @@ function CustomersScreen() {
         isError={query.isError}
         errorMessage={query.error?.message}
         onRetry={() => void query.refetch()}
-        canSelect={canSelect}
+        hasCurrentResults={hasCurrentResults}
         canDelete={canDelete}
         notice={notice}
         onClearNotice={() => setNotice(null)}
@@ -209,16 +212,7 @@ function CustomersScreen() {
           await remove.mutateAsync({ id });
         }}
         deleting={remove.isPending}
-        renderCustomerLink={({ customerId, className, children }) => (
-          <Link
-            to="/customers/$customerId"
-            params={{ customerId }}
-            onClick={(event) => event.stopPropagation()}
-            className={className}
-          >
-            {children}
-          </Link>
-        )}
+        renderCustomerLink={renderCustomerLink}
       />
 
       <CustomerFormDrawer
@@ -232,3 +226,18 @@ function CustomersScreen() {
     </div>
   );
 }
+
+const renderCustomerLink: CustomersTableViewProps["renderCustomerLink"] = ({
+  customerId,
+  className,
+  children,
+}) => (
+  <Link
+    to="/customers/$customerId"
+    params={{ customerId }}
+    onClick={(event) => event.stopPropagation()}
+    className={className}
+  >
+    {children}
+  </Link>
+);

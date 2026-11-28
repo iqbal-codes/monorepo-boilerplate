@@ -54,10 +54,20 @@ export function RowActions({
   className,
 }: RowActionsProps) {
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [pendingConfirmItem, setPendingConfirmItem] = React.useState<RowActionItem | null>(null);
+  const [confirmation, setConfirmation] = React.useState<{
+    item: RowActionItem;
+    error?: string;
+  } | null>(null);
   const [confirmPending, setConfirmPending] = React.useState(false);
-  const [confirmError, setConfirmError] = React.useState<string>();
+  const inFlight = React.useRef(false);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+
+  if (disabled && (menuOpen || confirmation)) {
+    setMenuOpen(false);
+    setConfirmation(null);
+  }
+
+  const pendingConfirmItem = confirmation?.item;
 
   const visibleItems = items.filter((item) => !item.hidden);
   if (visibleItems.length === 0) return null;
@@ -68,7 +78,12 @@ export function RowActions({
       className={cn("inline-flex items-center justify-end", className)}
       onClick={(event) => event.stopPropagation()}
     >
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <DropdownMenu
+        open={menuOpen && !disabled}
+        onOpenChange={(next) => {
+          if ((!disabled && !confirmPending) || !next) setMenuOpen(next);
+        }}
+      >
         <DropdownMenuTrigger
           render={
             <Button
@@ -76,7 +91,7 @@ export function RowActions({
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={disabled}
+              disabled={disabled || confirmPending}
               aria-label={label}
               data-slot="row-actions-trigger"
               onClick={(event) => event.stopPropagation()}
@@ -92,12 +107,12 @@ export function RowActions({
                 {item.separatorBefore && index > 0 ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuItem
                   variant={item.variant}
-                  disabled={item.disabled}
+                  disabled={disabled || item.disabled}
                   onClick={() => {
+                    if (disabled || item.disabled || inFlight.current) return;
                     setMenuOpen(false);
                     if (item.confirm) {
-                      setConfirmError(undefined);
-                      setPendingConfirmItem(item);
+                      setConfirmation({ item });
                     } else {
                       void item.onSelect();
                     }
@@ -112,13 +127,12 @@ export function RowActions({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {pendingConfirmItem?.confirm ? (
+      {!disabled && pendingConfirmItem?.confirm ? (
         <ConfirmationDialog
           open
           onOpenChange={(next) => {
             if (!next && !confirmPending) {
-              setPendingConfirmItem(null);
-              setConfirmError(undefined);
+              setConfirmation(null);
             }
           }}
           title={pendingConfirmItem.confirm.title}
@@ -128,22 +142,32 @@ export function RowActions({
           confirmVariant={pendingConfirmItem.variant === "destructive" ? "destructive" : "default"}
           pendingLabel={pendingConfirmItem.confirm.pendingLabel ?? "Working…"}
           pending={confirmPending}
-          error={confirmError}
+          error={confirmation?.error}
           finalFocus={() => triggerRef.current}
           onConfirm={() => {
-            if (confirmPending) return;
-            setConfirmError(undefined);
+            if (inFlight.current) return;
+            inFlight.current = true;
             setConfirmPending(true);
-            void Promise.resolve(pendingConfirmItem.onSelect())
-              .then(() => {
-                setConfirmPending(false);
-                setPendingConfirmItem(null);
-              })
+            if (confirmation?.error) setConfirmation({ item: pendingConfirmItem });
+            void Promise.resolve()
+              .then(pendingConfirmItem.onSelect)
+              .then(() => setConfirmation(null))
               .catch((error: unknown) => {
-                setConfirmPending(false);
-                setConfirmError(
-                  error instanceof Error ? error.message : "Action failed. Please try again.",
+                setConfirmation((previous) =>
+                  previous
+                    ? {
+                        ...previous,
+                        error:
+                          error instanceof Error
+                            ? error.message
+                            : "Action failed. Please try again.",
+                      }
+                    : null,
                 );
+              })
+              .finally(() => {
+                inFlight.current = false;
+                setConfirmPending(false);
               });
           }}
         />

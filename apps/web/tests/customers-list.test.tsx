@@ -42,6 +42,7 @@ const DOM_KEYS = [
   "history",
   "navigator",
   "getComputedStyle",
+  "scrollTo",
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
@@ -71,6 +72,7 @@ Object.assign(globalThis, {
   history: win.history,
   navigator: win.navigator,
   getComputedStyle: win.getComputedStyle.bind(win),
+  scrollTo: win.scrollTo.bind(win),
   requestAnimationFrame: win.requestAnimationFrame.bind(win),
   cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -81,6 +83,14 @@ mock.module("@/lib/server-url", () => ({
   getServerUrl: (url: string) => url,
 }));
 
+const { QueryClient, QueryClientProvider, keepPreviousData, notifyManager, useQuery } =
+  await import("@tanstack/react-query");
+const { createRootRoute, createRouter, createMemoryHistory, RouterProvider } =
+  await import("@tanstack/react-router");
+const { NuqsAdapter } = await import("nuqs/adapters/tanstack-router");
+const { MAX_CUSTOMER_FILTER_TAGS } =
+  await import("@monorepo-boilerplate/api/customer-filter-limits");
+const { customerExportRequest } = await import("../src/lib/customer-export");
 const { createRoot } = await import("react-dom/client");
 const { useListSearchParams, customerListSearch } =
   await import("../src/lib/use-data-table-search-params");
@@ -216,6 +226,85 @@ describe("useListSearchParams with nuqs (TC-05)", () => {
     }
   });
 
+  test("retains numeric-looking, literal %2C and comma tags after routing and reloading", async () => {
+    async function assertReloadedTags(expected: string[]) {
+      const search = customerListSearch({ tags: expected });
+      function Probe() {
+        const { tags } = useListSearchParams({
+          sortKeys: ["createdAt"],
+          defaultSortKey: "createdAt",
+        });
+        return <output>{JSON.stringify(tags)}</output>;
+      }
+      const router = createRouter({
+        routeTree: createRootRoute({
+          component: () => (
+            <NuqsAdapter>
+              <Probe />
+            </NuqsAdapter>
+          ),
+        }),
+        history: createMemoryHistory({ initialEntries: [`/${search}`] }),
+      });
+      await router.load();
+      const view = await renderInDom(<RouterProvider router={router} />);
+      try {
+        expect(view.host.querySelector("output")?.textContent).toBe(JSON.stringify(expected));
+      } finally {
+        await view.cleanup();
+      }
+    }
+    await assertReloadedTags(["1e2"]);
+    await assertReloadedTags(["%2C"]);
+    await assertReloadedTags([",", "%2C", "1e2", "true", "null", "x & + # café", "~1", "a,b"]);
+  });
+
+  test("bounds both incoming URL tags and writes to the shared API limit", async () => {
+    const tags = Array.from({ length: MAX_CUSTOMER_FILTER_TAGS + 1 }, (_, i) => `tag-${i}`);
+    let latest!: ReturnType<typeof useListSearchParams>;
+    function Probe() {
+      latest = useListSearchParams({ sortKeys: ["createdAt"], defaultSortKey: "createdAt" });
+      return null;
+    }
+    const { promise, resolve } = Promise.withResolvers<string>();
+    const Wrapper = withNuqsTestingAdapter({
+      searchParams: `?tags=${[tags[0], ...tags].join(",")}&page=2`,
+      hasMemory: true,
+      onUrlUpdate: (event) => resolve(event.queryString),
+    });
+    const view = await renderInDom(
+      <Wrapper>
+        <Probe />
+      </Wrapper>,
+    );
+    try {
+      expect(latest.tags).toEqual(tags.slice(0, MAX_CUSTOMER_FILTER_TAGS));
+      const reversed = tags.toReversed();
+      await act(async () => {
+        latest.setTags(reversed);
+        const url = new URLSearchParams(await promise);
+        expect(url.get("tags")?.split(",")).toEqual(reversed.slice(0, MAX_CUSTOMER_FILTER_TAGS));
+      });
+      expect(latest.tags).toEqual(reversed.slice(0, MAX_CUSTOMER_FILTER_TAGS));
+      expect(latest.pagination.pageIndex).toBe(0);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("decodes both filter arrays from the download request", async () => {
+    const filters = { statuses: ["active", "inactive"] as const, tags: ["a,b", "%2C"] };
+    const request = await customerExportRequest({
+      ...filters,
+      statuses: [...filters.statuses],
+      status: "all",
+      sortBy: "createdAt",
+      sortDir: "desc",
+    })();
+    const input = new URL(request.url).searchParams.get("input")!;
+    expect(JSON.parse(input)).toMatchObject(filters);
+  });
+
   test("customerListSearch keeps Command Center link serialization working", () => {
     expect(customerListSearch({ q: "ada", page: 0, status: "all" })).toBe("?q=ada");
   });
@@ -268,7 +357,7 @@ describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
       isError: false,
       errorMessage: undefined,
       onRetry: () => {},
-      canSelect: true,
+      hasCurrentResults: true,
       canDelete: false,
       onNewCustomer: () => {},
       onViewCustomer: (id: string) => {
@@ -494,6 +583,167 @@ describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
         click(deleteConfirmBtn);
       });
       expect(lastDeleteId).toBe("cust-2");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("blocks Delete on retained rows during a deferred filter and discards staged confirmations", async () => {
+    const response = Promise.withResolvers<typeof SAMPLE_ROWS>();
+    const started = Promise.withResolvers<void>();
+    const nextQueryNotification = Promise.withResolvers<() => void>();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["customers-test", "all"], SAMPLE_ROWS);
+    let setStatus!: (status: "all" | "archived") => void;
+    function Harness() {
+      const [status, selectStatus] = React.useState<"all" | "archived">("all");
+      setStatus = selectStatus;
+      const list = useQuery({
+        queryKey: ["customers-test", status],
+        queryFn: () => {
+          if (status === "all") return Promise.resolve(SAMPLE_ROWS);
+          started.resolve();
+          return response.promise;
+        },
+        placeholderData: keepPreviousData,
+        staleTime: Infinity,
+      });
+      return (
+        <CustomersTableView
+          {...makeProps({
+            canDelete: true,
+            rows: list.data ?? [],
+            statuses: status === "all" ? [] : [status],
+            hasCurrentResults: list.isSuccess && !list.isPlaceholderData,
+            isFetching: list.isFetching,
+          })}
+        />
+      );
+    }
+    const view = await renderInDom(
+      <QueryClientProvider client={client}>
+        <Harness />
+      </QueryClientProvider>,
+    );
+    const ada = () =>
+      view.host.querySelector<HTMLButtonElement>('button[aria-label="Actions for Ada Lovelace"]')!;
+    const deleteItem = () =>
+      [...document.querySelectorAll('[role="menuitem"]')].find(
+        (item) => item.textContent?.trim() === "Delete",
+      )!;
+    try {
+      await act(async () => click(ada()));
+      await act(async () => click(deleteItem()));
+      expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+        "Delete customer permanently?",
+      );
+      // Keep the new request pending, so the previous rows really are still on screen.
+      await act(async () => setStatus("archived"));
+      await started.promise;
+      expect(view.host.textContent).toContain("Ada Lovelace");
+      expect(view.host.querySelector('[data-slot="data-table"]')?.getAttribute("aria-busy")).toBe(
+        "true",
+      );
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+      expect(ada().disabled).toBe(true);
+      expect(ada().closest("[inert]")).not.toBeNull();
+      await act(async () => click(ada()));
+      expect(deleteItem()).toBeUndefined();
+      expect(lastDeleteId).toBe("");
+
+      notifyManager.setNotifyFunction(nextQueryNotification.resolve);
+      try {
+        await act(async () => {
+          response.resolve([SAMPLE_ROWS[1]!]);
+          const notify = await nextQueryNotification.promise;
+          notify();
+        });
+      } finally {
+        notifyManager.setNotifyFunction((notify) => notify());
+      }
+      expect(ada()).toBeNull();
+      expect(
+        view.host.querySelector<HTMLButtonElement>('button[aria-label="Actions for Grace Hopper"]')
+          ?.disabled,
+      ).toBe(false);
+      // Returning to a cached scope must not resurrect its staged confirmation.
+      await act(async () => setStatus("all"));
+      expect(ada().disabled).toBe(false);
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+      await act(async () => click(ada()));
+      expect(deleteItem()?.textContent).toBe("Delete");
+      expect(lastDeleteId).toBe("");
+    } finally {
+      response.resolve([]);
+      await view.cleanup();
+      client.clear();
+    }
+  });
+
+  test("prevents a 51st tag in both pickers and permits replacing a selection", async () => {
+    const available = Array.from(
+      { length: MAX_CUSTOMER_FILTER_TAGS + 1 },
+      (_, i) => `tag-${String(i).padStart(2, "0")}`,
+    );
+    const initial = available.slice(0, -1);
+    const extra = available.at(-1)!;
+    const changes = mock<(tags: readonly string[]) => void>();
+    function Harness() {
+      const [tags, setTags] = React.useState<readonly string[]>(initial);
+      return (
+        <CustomersTableView
+          {...makeProps({
+            facets: {
+              status: { active: 1, inactive: 0, archived: 1 },
+              tags: available.map((value) => ({ value, count: 1 })),
+            },
+            tags,
+            onTagsChange: (next: readonly string[]) => {
+              changes(next);
+              setTags(next);
+            },
+          })}
+        />
+      );
+    }
+    const view = await renderInDom(<Harness />);
+    try {
+      const tagTrigger = [
+        ...view.host.querySelectorAll('[data-slot="faceted-filter-trigger"]'),
+      ].find((button) => button.textContent?.includes("Tags"))!;
+      await act(async () => click(tagTrigger));
+      const option = (tag: string) =>
+        [...document.querySelectorAll('[data-slot="command-item"]')].find((el) =>
+          el.textContent?.startsWith(tag),
+        )!;
+      expect(option(extra).getAttribute("aria-disabled")).toBe("true");
+      await act(async () => click(option(extra)));
+      expect(changes).not.toHaveBeenCalled();
+      await act(async () => click(option(initial[0]!)));
+      expect(option(extra).getAttribute("aria-disabled")).toBe("false");
+      await act(async () => click(option(extra)));
+      expect(changes).toHaveBeenLastCalledWith([...initial.slice(1), extra]);
+      await act(async () => click(tagTrigger));
+
+      const filterButton = [...view.host.querySelectorAll('button[aria-haspopup="dialog"]')].find(
+        (button) => button.textContent?.startsWith("Filters"),
+      )!;
+      await act(async () => click(filterButton));
+      const checkbox = (tag: string) =>
+        [...document.querySelectorAll('[data-slot="drawer-content"] label')]
+          .find((label) => label.textContent?.startsWith(tag))!
+          .querySelector('[role="checkbox"]')!;
+      expect(checkbox(initial[0]!).getAttribute("aria-disabled")).toBe("true");
+      const toggle = (tag: string) =>
+        checkbox(tag)
+          .parentElement!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+          .click();
+      await act(async () => toggle(initial[0]!));
+      expect(changes).toHaveBeenCalledTimes(2);
+      await act(async () => toggle(extra));
+      expect(checkbox(initial[0]!).getAttribute("aria-disabled")).not.toBe("true");
+      await act(async () => toggle(initial[0]!));
+      expect(changes).toHaveBeenLastCalledWith([...initial.slice(1), initial[0]]);
     } finally {
       await view.cleanup();
     }

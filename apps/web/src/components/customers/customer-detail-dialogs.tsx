@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { ConfirmationDialog } from "@monorepo-boilerplate/ui/components/confirmation-dialog";
 import {
@@ -20,13 +21,20 @@ import {
 import { RadioGroup, RadioGroupItem } from "@monorepo-boilerplate/ui/components/radio-group";
 import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
 
+type DialogInteractionProps = {
+  confirmDisabled?: boolean;
+  finalFocus?: ComponentProps<typeof ConfirmationDialog>["finalFocus"];
+};
+
 export function CustomerArchiveDialog({
   open,
   onOpenChange,
   pending,
   error,
   onConfirm,
-}: {
+  confirmDisabled,
+  finalFocus,
+}: DialogInteractionProps & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
@@ -45,6 +53,8 @@ export function CustomerArchiveDialog({
       pendingLabel="Archiving…"
       pending={pending}
       error={error}
+      confirmDisabled={confirmDisabled}
+      finalFocus={finalFocus}
       onConfirm={onConfirm}
     />
   );
@@ -58,7 +68,9 @@ export function CustomerRestoreDialog({
   pending,
   error,
   onConfirm,
-}: {
+  confirmDisabled,
+  finalFocus,
+}: DialogInteractionProps & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   choice: "active" | "inactive" | null;
@@ -74,7 +86,10 @@ export function CustomerRestoreDialog({
         if (!pending) onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
+      <DialogContent
+        finalFocus={finalFocus}
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain"
+      >
         <DialogHeader>
           <DialogTitle>Restore customer</DialogTitle>
           <DialogDescription>
@@ -134,7 +149,11 @@ export function CustomerRestoreDialog({
           >
             Cancel
           </Button>
-          <Button type="button" disabled={!choice || pending} onClick={onConfirm}>
+          <Button
+            type="button"
+            disabled={!choice || pending || confirmDisabled}
+            onClick={onConfirm}
+          >
             {pending ? <Spinner aria-hidden="true" data-icon="inline-start" /> : null}
             {pending ? "Restoring…" : "Restore customer"}
           </Button>
@@ -150,7 +169,9 @@ export function CustomerDeleteDialog({
   pending,
   error,
   onConfirm,
-}: {
+  confirmDisabled,
+  finalFocus,
+}: DialogInteractionProps & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
@@ -170,6 +191,8 @@ export function CustomerDeleteDialog({
       pendingLabel="Deleting…"
       pending={pending}
       error={error}
+      confirmDisabled={confirmDisabled}
+      finalFocus={finalFocus}
       onConfirm={onConfirm}
     />
   );

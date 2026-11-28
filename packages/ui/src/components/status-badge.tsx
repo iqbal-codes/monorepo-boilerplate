@@ -10,7 +10,7 @@ const statusBadgeVariants = cva(
   {
     variants: {
       tone: {
-        neutral: "border-border bg-muted text-muted-foreground",
+        neutral: "border-border bg-muted text-foreground/80",
         info: "border-info/25 bg-info-subtle text-info-subtle-foreground",
         success: "border-success/25 bg-success-subtle text-success-subtle-foreground",
         warning: "border-warning/25 bg-warning-subtle text-warning-subtle-foreground",

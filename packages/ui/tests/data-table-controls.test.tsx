@@ -13,9 +13,28 @@ mock.module(Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", baseUiRoot), ()
 const win = new Window({ url: "http://localhost/" });
 win.HTMLElement.prototype.scrollIntoView ??= () => {};
 class MockResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  static instances = new Set<MockResizeObserver>();
+  targets = new Set<Element>();
+
+  constructor(private callback: () => void) {
+    MockResizeObserver.instances.add(this);
+  }
+
+  observe(target: Element) {
+    this.targets.add(target);
+  }
+  unobserve(target: Element) {
+    this.targets.delete(target);
+  }
+  disconnect() {
+    MockResizeObserver.instances.delete(this);
+  }
+
+  static resize(target: Element) {
+    for (const observer of this.instances) {
+      if (observer.targets.has(target)) observer.callback();
+    }
+  }
 }
 
 const DOM_KEYS = [
@@ -244,6 +263,41 @@ describe("FacetedFilter (TC-02)", () => {
       await view.cleanup();
     }
   });
+
+  test("labels the combobox and selects the second of two matching labels with the keyboard", async () => {
+    const changes = mock<(value: string[]) => void>();
+    const view = await renderInDom(
+      <FacetedFilter
+        title="Tags"
+        options={[
+          { value: "first", label: "Shared" },
+          { value: "second", label: "Shared" },
+        ]}
+        value={[]}
+        onValueChange={changes}
+      />,
+    );
+    try {
+      await act(async () => click(view.host.querySelector("button")!));
+      const input = document.body.querySelector<HTMLInputElement>("[role='combobox']")!;
+      const label = document.getElementById(input.getAttribute("aria-labelledby")!);
+      expect(label?.textContent).toBe("Filter tags");
+      await act(async () => setInputValue(input, "option"));
+      expect(document.querySelectorAll("[role='option']")).toHaveLength(0);
+      await act(async () => setInputValue(input, "shared"));
+      expect(document.querySelectorAll("[role='option']")).toHaveLength(2);
+      await act(async () =>
+        input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
+      );
+      await act(async () =>
+        input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      );
+      expect(changes).toHaveBeenCalledTimes(1);
+      expect(changes).toHaveBeenCalledWith(["second"]);
+    } finally {
+      await view.cleanup();
+    }
+  });
 });
 
 describe("ActiveFilterChips & ListToolbar Row 2 (TC-02)", () => {
@@ -445,6 +499,45 @@ describe("DataTableViewOptions & DataTable controls (TC-02)", () => {
       await view.cleanup();
     }
   });
+
+  test("updates the second pinned offset when the first header widens and the host does not", async () => {
+    const helper = columnsFor<{ name: string; company: string; status: string }>();
+    const columns = helper.columns([
+      helper.accessor("name", { header: "Customer" }),
+      helper.accessor("company", { header: "Company" }),
+      helper.accessor("status", { header: "Status" }),
+    ]);
+    const render = (name: string, pageIndex: number) => (
+      <DataTable
+        data={[{ name, company: "ACME", status: "Active" }]}
+        columns={columns}
+        pagination={{ pageIndex, pageSize: 1 }}
+        rowCount={2}
+        manualPagination
+        columnPinning={{ start: ["name", "company"], end: [] }}
+      />
+    );
+    const view = await renderInDom(render("Ada", 0));
+    try {
+      const name = view.host.querySelector<HTMLElement>('th[data-pin-measure-id="name"]')!;
+      const company = view.host.querySelector<HTMLElement>('th[data-pin-measure-id="company"]')!;
+      let width = 92.5;
+      name.getBoundingClientRect = () => new win.DOMRect(0, 0, width, 40);
+      await act(async () => MockResizeObserver.resize(name));
+      expect(company.style.insetInlineStart).toBe("92.5px");
+      await view.rerender(render("A considerably longer customer name", 1));
+      width = 171.25;
+      // Only the header emits a resize notification; no host or window event.
+      await act(async () => MockResizeObserver.resize(name));
+      expect(company.style.insetInlineStart).toBe("171.25px");
+      expect(
+        view.host.querySelectorAll<HTMLElement>('td[data-pinned="start"]')[1]?.style
+          .insetInlineStart,
+      ).toBe("171.25px");
+    } finally {
+      await view.cleanup();
+    }
+  });
 });
 
 describe("RowActions (TC-02)", () => {
@@ -552,6 +645,48 @@ describe("RowActions (TC-02)", () => {
         openMenu.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       });
       expect(rowClicks).toBe(0);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("keeps Cancel and Confirm usable after a synchronous throw and retries the same action", async () => {
+    const onSelect = mock(() => {});
+    onSelect.mockImplementationOnce(() => {
+      throw new Error("Could not delete. Try again.");
+    });
+    const view = await renderInDom(
+      <RowActions
+        items={[
+          {
+            id: "delete",
+            label: "Delete",
+            variant: "destructive",
+            onSelect,
+            confirm: {
+              title: "Delete customer?",
+              description: "Cannot be undone.",
+              confirmLabel: "Delete customer",
+            },
+          },
+        ]}
+      />,
+    );
+    try {
+      await act(async () => click(view.host.querySelector("button")!));
+      await act(async () => click(document.querySelector('[role="menuitem"]')!));
+      const dialog = document.querySelector('[role="alertdialog"]')!;
+      const button = (label: string) =>
+        [...dialog.querySelectorAll("button")].find((el) => el.textContent?.trim() === label)!;
+      await act(async () => click(button("Delete customer")));
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
+        "Could not delete. Try again.",
+      );
+      expect(button("Cancel").disabled).toBe(false);
+      expect(button("Delete customer").getAttribute("aria-disabled")).not.toBe("true");
+      await act(async () => click(button("Delete customer")));
+      expect(onSelect).toHaveBeenCalledTimes(2);
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     } finally {
       await view.cleanup();
     }

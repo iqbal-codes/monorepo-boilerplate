@@ -4,6 +4,11 @@ import { PanelLeftIcon, PanelRightIcon, RotateCcwIcon, SlidersHorizontalIcon } f
 
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import { Checkbox } from "@monorepo-boilerplate/ui/components/checkbox";
+import type {
+  ColumnPinningState,
+  ColumnVisibilityState,
+  DataTableDensity,
+} from "@monorepo-boilerplate/ui/components/data-table";
 import {
   Popover,
   PopoverContent,
@@ -19,14 +24,9 @@ export type DataTableViewColumn = {
   canPin?: boolean;
 };
 
-export type DataTableColumnVisibility = Record<string, boolean>;
-
-export type DataTableColumnPinning = {
-  start: string[];
-  end: string[];
-};
-
-export type DataTableDensity = "comfortable" | "compact";
+export type { DataTableDensity };
+export type DataTableColumnVisibility = ColumnVisibilityState;
+export type DataTableColumnPinning = ColumnPinningState;
 
 export type DataTableViewOptionsProps = {
   columns: readonly DataTableViewColumn[];

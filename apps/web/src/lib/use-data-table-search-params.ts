@@ -1,4 +1,9 @@
 import {
+  MAX_CUSTOMER_FILTER_TAG_LENGTH,
+  MAX_CUSTOMER_FILTER_TAGS,
+} from "@monorepo-boilerplate/api/customer-filter-limits";
+import {
+  createParser,
   createSerializer,
   parseAsArrayOf,
   parseAsInteger,
@@ -14,12 +19,49 @@ export type CustomerStatusFilter = "all" | CustomerStatusValue;
 const customerStatusLiteralValues = ["active", "inactive", "archived"] as const;
 const customerStatusValues = ["all", ...customerStatusLiteralValues] as const;
 
+// Keep ordinary links readable and accept legacy comma lists. Anything that
+// could be coerced by the router or confused with a delimiter gets a versioned
+// JSON envelope. The prefix cannot appear in a nonempty legacy comma list.
+const TAGS_ENVELOPE = "~1,,";
+const legacyTags = parseAsArrayOf(parseAsString);
+
+function normalizeFilterTags(values: readonly unknown[]): string[] {
+  const tags = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const tag = value.trim();
+    if (!tag || tag.length > MAX_CUSTOMER_FILTER_TAG_LENGTH) continue;
+    tags.add(tag);
+    if (tags.size === MAX_CUSTOMER_FILTER_TAGS) break;
+  }
+  return [...tags];
+}
+
+const parseCustomerTags = createParser<string[]>({
+  parse(raw) {
+    if (!raw.startsWith(TAGS_ENVELOPE)) return normalizeFilterTags(legacyTags.parse(raw) ?? []);
+    try {
+      const values: unknown = JSON.parse(raw.slice(TAGS_ENVELOPE.length));
+      return Array.isArray(values) ? normalizeFilterTags(values) : null;
+    } catch {
+      return null;
+    }
+  },
+  serialize(values) {
+    const tags = normalizeFilterTags(values);
+    return tags.every((tag) => /^[a-z][a-z0-9_-]*$/i.test(tag) && !/^(true|false|null)$/.test(tag))
+      ? tags.join(",")
+      : `${TAGS_ENVELOPE}${JSON.stringify(tags)}`;
+  },
+  eq: legacyTags.eq,
+}).withDefault([]);
+
 const customerListNavigationParsers = {
   q: parseAsString.withDefault(""),
   page: parseAsInteger.withDefault(0),
   status: parseAsStringLiteral<CustomerStatusFilter>(customerStatusValues).withDefault("all"),
   statuses: parseAsArrayOf(parseAsStringLiteral(customerStatusLiteralValues)).withDefault([]),
-  tags: parseAsArrayOf(parseAsString).withDefault([]),
+  tags: parseCustomerTags,
 };
 
 /**
@@ -97,10 +139,7 @@ export function useListSearchParams<TSortKey extends string>({
     return [];
   }, [state.statuses, state.status]);
 
-  const tags: string[] = useMemo(
-    () => state.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
-    [state.tags],
-  );
+  const tags = state.tags;
 
   const pagination = useMemo(
     () => ({ pageIndex: state.page, pageSize: state.size }),
@@ -156,9 +195,8 @@ export function useListSearchParams<TSortKey extends string>({
 
   const setTags = useCallback(
     (next: readonly string[]) => {
-      const unique = [...new Set(next.map((t) => t.trim()).filter(Boolean))];
       void setState({
-        tags: unique,
+        tags: normalizeFilterTags(next),
         page: 0,
       });
     },
