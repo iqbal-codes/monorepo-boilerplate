@@ -199,7 +199,7 @@ export function CustomersTableView({
 
   return (
     <>
-      <div className="sticky -top-3 z-20 -mx-3 flex min-w-0 flex-col gap-2 border-b border-border/60 bg-background/95 px-3 pt-3 pb-2 backdrop-blur-sm sm:static sm:mx-0 sm:border-b-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+      <div className="sticky -top-3 z-20 -mx-3 flex min-w-0 flex-col gap-2 border-b border-border/60 bg-background px-3 pt-3 pb-2 sm:static sm:mx-0 sm:border-b-0 sm:bg-transparent sm:p-0">
         <ListToolbar
           search={{
             inputRef: searchRef,
