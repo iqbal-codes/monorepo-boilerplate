@@ -19,8 +19,8 @@
  * ## Contract
  *
  * The block never fetches and never reads the URL. It reports what the user
- * asked for through `onPaginationChange` / `onSortingChange` and renders
- * `data` as given. `apps/web/src/lib/use-data-table-search-params.ts` bridges
+ * asked for through `onPaginationChange` / `onSortingChange`. By default
+ * it can apply controlled sorting locally; `manualSorting` leaves that to the caller. `apps/web/src/lib/use-data-table-search-params.ts` bridges
  * nuqs to these callbacks; see docs/adr/0002.
  *
  * ## Loading
@@ -40,61 +40,35 @@
 import * as React from "react";
 import { cn } from "cn";
 import {
-  ArrowDownIcon,
-  ArrowUpDownIcon,
-  ArrowUpIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronsUpDownIcon,
-  LoaderIcon,
-} from "lucide-react";
-import {
   columnFilteringFeature,
   columnPinningFeature,
   columnVisibilityFeature,
   createColumnHelper,
+  createExpandedRowModel,
   createFilteredRowModel,
   createPaginatedRowModel,
   createSortedRowModel,
   filterFn_includesString,
+  rowExpandingFeature,
   rowPaginationFeature,
   rowSortingFeature,
+  sortFns,
   tableFeatures,
   useTable,
   type ColumnDef,
   type ColumnPinningState,
   type ColumnVisibilityState,
+  type ExpandedState,
   type PaginationState,
+  type Row,
   type RowData,
   type SortingState,
 } from "@tanstack/react-table";
 
-import { Button } from "@monorepo-boilerplate/ui/components/button";
-import { Checkbox } from "@monorepo-boilerplate/ui/components/checkbox";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@monorepo-boilerplate/ui/components/empty";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@monorepo-boilerplate/ui/components/select";
-import { Skeleton } from "@monorepo-boilerplate/ui/components/skeleton";
-import { Spinner } from "@monorepo-boilerplate/ui/components/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@monorepo-boilerplate/ui/components/table";
+import { CardViewport } from "./data-table/card-viewport";
+import { DesktopViewport } from "./data-table/desktop-viewport";
+import { createPageSelection } from "./data-table/shared";
+import { TableFooter } from "./data-table/table-footer";
 
 /**
  * Feature registry shared by the block and its consumers. Export it so a
@@ -104,13 +78,16 @@ import {
 export const dataTableFeatures = tableFeatures({
   rowSortingFeature,
   rowPaginationFeature,
+  rowExpandingFeature,
   columnFilteringFeature,
   columnVisibilityFeature,
   columnPinningFeature,
   sortedRowModel: createSortedRowModel(),
   filteredRowModel: createFilteredRowModel(),
   paginatedRowModel: createPaginatedRowModel(),
+  expandedRowModel: createExpandedRowModel(),
   filterFns: { includesString: filterFn_includesString },
+  sortFns,
 });
 
 export type DataTableFeatures = typeof dataTableFeatures;
@@ -139,6 +116,7 @@ export type {
   ColumnPinningState,
   ColumnVisibilityState,
   ColumnVisibilityState as VisibilityState,
+  ExpandedState,
   PaginationState,
   SortingState,
 };
@@ -153,6 +131,17 @@ export type DataTableMobileInfinite = {
   loadMoreLabel?: string;
 };
 
+export type DataTableVirtualizationOptions = {
+  /** Enable virtualized row rendering via `@tanstack/react-virtual`. */
+  enabled?: boolean;
+  /** Estimated row height in pixels. Defaults to `44` (comfortable) or `36` (compact). */
+  estimateRowHeight?: number;
+  /** Maximum height of the virtualized scroll viewport. Defaults to `480`. */
+  height?: number | string;
+  /** Number of overscan rows rendered outside the visible viewport. Defaults to `8`. */
+  overscan?: number;
+};
+
 export type DataTableProps<TData extends RowData> = {
   data: readonly TData[];
   columns: readonly ColumnDef<DataTableFeatures, TData>[];
@@ -162,12 +151,26 @@ export type DataTableProps<TData extends RowData> = {
   sorting?: SortingState;
   columnVisibility?: ColumnVisibilityState;
   columnPinning?: ColumnPinningState;
+  expanded?: ExpandedState;
   onPaginationChange?: (pagination: PaginationState) => void;
   /** Changes are limited to selectable rows in the rendered page. */
   selection?: DataTableSelection<TData>;
   onSortingChange?: (sorting: SortingState) => void;
   onColumnVisibilityChange?: (visibility: ColumnVisibilityState) => void;
   onColumnPinningChange?: (pinning: ColumnPinningState) => void;
+  onExpandedChange?: (expanded: ExpandedState) => void;
+  /** Renders an inline detail panel beneath an expanded row. */
+  renderSubRow?: (row: TData) => React.ReactNode;
+  /** Override whether a row can be expanded. Defaults to `true` when `renderSubRow` is set. */
+  getRowCanExpand?: (row: TData) => boolean;
+  /** Hierarchical sub-rows accessor for tree-style expansion. */
+  getSubRows?: (originalRow: TData, index: number) => TData[] | undefined;
+  /** Stable row ID extractor used for selection/expansion keys. */
+  getRowId?: (originalRow: TData, index: number, parent?: Row<DataTableFeatures, TData>) => string;
+  /** Accessible label for the row expand/collapse toggle button. */
+  getExpandLabel?: (row: TData, isExpanded: boolean) => string;
+  /** Enables opt-in `@tanstack/react-virtual` rendering for large datasets. */
+  virtualized?: boolean | DataTableVirtualizationOptions;
   /** Sorting, filtering, and paging are performed by the API. */
   manualPagination?: boolean;
   manualSorting?: boolean;
@@ -206,10 +209,18 @@ export function DataTable<TData extends RowData>({
   sorting,
   columnVisibility,
   columnPinning,
+  expanded,
   onPaginationChange,
   onSortingChange,
   onColumnVisibilityChange,
   onColumnPinningChange,
+  onExpandedChange,
+  renderSubRow,
+  getRowCanExpand,
+  getSubRows,
+  getRowId,
+  getExpandLabel,
+  virtualized = false,
   selection,
   manualPagination = false,
   manualSorting = false,
@@ -226,18 +237,40 @@ export function DataTable<TData extends RowData>({
   mobileInfinite,
   hideMobileSort = false,
 }: DataTableProps<TData>) {
+  const tableId = React.useId();
+  const isExpandedControlled = expanded !== undefined;
+  const [uncontrolledExpanded, setUncontrolledExpanded] = React.useState<ExpandedState>({});
+  const activeExpanded = isExpandedControlled ? expanded : uncontrolledExpanded;
+  const hasExpanderColumn = Boolean(renderSubRow || getSubRows);
+  const hasExpanding = Boolean(hasExpanderColumn || isExpandedControlled || onExpandedChange);
+
+  const isVirtualized =
+    typeof virtualized === "boolean"
+      ? virtualized
+      : Boolean(virtualized && virtualized.enabled !== false);
+  const bypassPagination = isVirtualized && pagination === undefined;
+
   const table = useTable({
     features: dataTableFeatures,
     columns,
     data,
+    getRowId,
+    getSubRows,
+    getRowCanExpand: getRowCanExpand
+      ? (row) => getRowCanExpand(row.original)
+      : renderSubRow
+        ? () => true
+        : undefined,
+    autoResetExpanded: isExpandedControlled ? false : undefined,
     rowCount: manualPagination ? (rowCount ?? data.length) : undefined,
-    manualPagination,
+    manualPagination: manualPagination || bypassPagination,
     manualSorting,
     state: {
       ...(pagination ? { pagination } : {}),
       ...(sorting ? { sorting } : {}),
       ...(columnVisibility ? { columnVisibility } : {}),
       ...(columnPinning ? { columnPinning } : {}),
+      ...(hasExpanding ? { expanded: activeExpanded } : {}),
     },
     onPaginationChange: (updater) => {
       if (!onPaginationChange) return;
@@ -260,62 +293,14 @@ export function DataTable<TData extends RowData>({
         typeof updater === "function" ? updater(columnPinning ?? { start: [], end: [] }) : updater;
       onColumnPinningChange(next);
     },
-  });
-
-  const tableHostRef = React.useRef<HTMLDivElement>(null);
-  const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({});
-  const startPinnedIds = table.getStartVisibleLeafColumns().map((c) => c.id);
-  const endPinnedIds = table.getEndVisibleLeafColumns().map((c) => c.id);
-  const hasPinnedColumns = startPinnedIds.length > 0 || endPinnedIds.length > 0;
-  const headerGroups = table.getHeaderGroups();
-  // Reattach when React changes the header nodes (visibility/grouping/pinning).
-  const headerSignature = JSON.stringify([
-    Boolean(selection),
-    headerGroups.map(({ headers }) => headers.map(({ id }) => id)),
-  ]);
-
-  React.useEffect(() => {
-    if (!hasPinnedColumns) return;
-    const host = tableHostRef.current;
-    if (!host) return;
-    const headers = Array.from(host.querySelectorAll<HTMLElement>("thead th[data-pin-measure-id]"));
-    const measure = () => {
-      const next: Record<string, number> = Object.create(null);
-      for (const th of headers) {
-        const id = th.dataset.pinMeasureId;
-        if (id) next[id] = th.getBoundingClientRect().width;
+    onExpandedChange: (updater) => {
+      const next = typeof updater === "function" ? updater(activeExpanded) : updater;
+      if (!isExpandedControlled) {
+        setUncontrolledExpanded(next);
       }
-      setColumnWidths((previous) =>
-        Object.keys(previous).length === Object.keys(next).length &&
-        Object.keys(next).every((id) => next[id] === previous[id])
-          ? previous
-          : next,
-      );
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    // Auto-layout can redistribute widths without changing the scroll host.
-    for (const th of headers) observer.observe(th, { box: "border-box" });
-    return () => observer.disconnect();
-  }, [hasPinnedColumns, headerSignature]);
-
-  const pinOffsets = React.useMemo(() => {
-    const start: Record<string, number> = {};
-    const end: Record<string, number> = {};
-    let leftCursor = selection && startPinnedIds.length > 0 ? (columnWidths.__selection ?? 40) : 0;
-    for (const id of startPinnedIds) {
-      start[id] = leftCursor;
-      leftCursor += columnWidths[id] ?? 0;
-    }
-    let rightCursor = 0;
-    for (let index = endPinnedIds.length - 1; index >= 0; index -= 1) {
-      const id = endPinnedIds[index]!;
-      end[id] = rightCursor;
-      rightCursor += columnWidths[id] ?? 0;
-    }
-    return { start, end };
-  }, [columnWidths, endPinnedIds, selection, startPinnedIds]);
+      onExpandedChange?.(next);
+    },
+  });
 
   const pageCount = table.getPageCount();
   const currentIndex = pagination?.pageIndex ?? 0;
@@ -323,502 +308,77 @@ export function DataTable<TData extends RowData>({
   const total = manualPagination
     ? (rowCount ?? data.length)
     : table.getFilteredRowModel().rows.length;
-  const firstRow = total === 0 ? 0 : currentIndex * currentSize + 1;
-  const lastRow = Math.min((currentIndex + 1) * currentSize, total);
   const rows = table.getRowModel().rows;
   // Only a request with nothing to show may replace content. Once rows exist,
   // a refetch keeps them mounted; see the Loading section above.
   const showSkeleton = isLoading && rows.length === 0;
   const isBusy = showSkeleton || isFetching;
-  // Reserve the height of the page the skeleton stands in for, not a fixed cap.
-  const skeletonRowCount = Math.max(1, currentSize);
+  // Reserve the height of the page the skeleton stands in for, capped in virtualized mode.
+  const skeletonRowCount = isVirtualized
+    ? Math.min(Math.max(1, currentSize || 8), 10)
+    : Math.max(1, currentSize);
   const rowsInert = isBusy || disableRows;
-  const canActivateRow = Boolean(onRowClick) && !rowsInert;
-  const columnCount = table.getVisibleLeafColumns().length + Number(Boolean(selection));
-  const pageIds = selection
-    ? rows
-        .filter((row) => selection.canSelect?.(row.original) !== false)
-        .map((row) => selection.getId(row.original))
-    : [];
-  const selectedCount = pageIds.filter((id) => selection?.ids.has(id)).length;
-  const allSelected = pageIds.length > 0 && selectedCount === pageIds.length;
 
-  function changeSelection(ids: readonly string[], checked: boolean) {
-    if (!selection || selection.disabled || rowsInert) return;
-    const next = new Set(pageIds.filter((id) => selection.ids.has(id)));
-    for (const id of ids) {
-      if (checked) next.add(id);
-      else next.delete(id);
-    }
-    selection.onChange(next);
-  }
-
-  const sortableHeaders = table
-    .getFlatHeaders()
-    .filter((header) => !header.isPlaceholder && header.column.getCanSort());
-  const activeSort = sorting?.[0];
-
-  const sentinelRef = React.useRef<HTMLDivElement>(null);
-  const canLoadMore = Boolean(mobileInfinite?.hasMore && !mobileInfinite.isLoadingMore && !isBusy);
-  const onLoadMoreRef = React.useRef(mobileInfinite?.onLoadMore);
-  onLoadMoreRef.current = mobileInfinite?.onLoadMore;
-
-  React.useEffect(() => {
-    if (!canLoadMore) return;
-    const node = sentinelRef.current;
-    if (!node || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          onLoadMoreRef.current?.();
-        }
-      },
-      { rootMargin: "200px 0px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [canLoadMore]);
-
-  const mobileSkeletonCount = Math.min(skeletonRowCount, 8);
-
-  function pinnedCellProps(columnId: string, pinned: false | "start" | "end") {
-    if (!pinned) return {};
-    const style: React.CSSProperties =
-      pinned === "start"
-        ? { insetInlineStart: pinOffsets.start[columnId] ?? 0 }
-        : { insetInlineEnd: pinOffsets.end[columnId] ?? 0 };
-    const isLastStart = pinned === "start" && startPinnedIds.at(-1) === columnId;
-    const isFirstEnd = pinned === "end" && endPinnedIds[0] === columnId;
-    return {
-      "data-pinned": pinned,
-      style,
-      className: cn(
-        "sticky z-10 bg-background group-hover/row:bg-muted/50",
-        isLastStart && "border-e border-border",
-        isFirstEnd && "border-s border-border",
-      ),
-    };
-  }
+  const viewport = {
+    table,
+    rows,
+    tableId,
+    density,
+    rowsInert,
+    hasExpanderColumn,
+    skeletonRowCount,
+    showSkeleton,
+    emptyState,
+    onRowClick,
+    rowClassName,
+    renderSubRow,
+    getExpandLabel,
+    regionLabel,
+    onSortingChange,
+    pageSelection: createPageSelection(rows, selection, rowsInert),
+    virtualization: isVirtualized
+      ? typeof virtualized === "object"
+        ? virtualized
+        : {}
+      : undefined,
+  };
 
   return (
     <div
       data-slot="data-table"
       data-density={density}
+      data-virtualized={isVirtualized ? "true" : undefined}
       aria-busy={isBusy || undefined}
       className={cn("@container relative flex flex-col gap-3", className)}
     >
       {isFetching ? <LoadingRail /> : null}
-      {/* Narrow-container stacked card list */}
-      <div className="flex flex-col gap-2 @lg:hidden">
-        {!hideMobileSort && sortableHeaders.length > 0 && (
-          <div className="flex items-center justify-end gap-1.5 px-1">
-            <Select
-              value={activeSort?.id ?? ""}
-              onValueChange={(columnId) => {
-                if (!columnId) return;
-                const nextDesc = activeSort?.id === columnId ? !activeSort.desc : false;
-                onSortingChange?.([{ id: columnId, desc: nextDesc }]);
-              }}
-            >
-              <SelectTrigger
-                size="sm"
-                className="h-8 w-auto min-w-28 border border-input px-2.5 text-xs"
-                aria-label="Sort by"
-              >
-                <ArrowUpDownIcon className="size-3 text-muted-foreground" aria-hidden />
-                <SelectValue placeholder="Sort">
-                  {(value) => {
-                    const header = sortableHeaders.find((h) => h.column.id === value);
-                    return header
-                      ? stringifyHeader(header.column.columnDef.header, header.id)
-                      : "Sort";
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent align="end">
-                {sortableHeaders.map((header) => (
-                  <SelectItem key={header.column.id} value={header.column.id}>
-                    {stringifyHeader(header.column.columnDef.header, header.id)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {activeSort ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                aria-label={
-                  activeSort.desc
-                    ? "Sort descending, switch to ascending"
-                    : "Sort ascending, switch to descending"
-                }
-                onClick={() => onSortingChange?.([{ id: activeSort.id, desc: !activeSort.desc }])}
-              >
-                {activeSort.desc ? <ArrowDownIcon aria-hidden /> : <ArrowUpIcon aria-hidden />}
-              </Button>
-            ) : null}
-          </div>
-        )}
-
-        {showSkeleton ? (
-          <div className="flex flex-col divide-y rounded-lg border">
-            {Array.from({ length: mobileSkeletonCount }, (_, index) => (
-              <div key={`mobile-skeleton-${index}`} className="flex flex-col gap-2 p-3">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-3 w-28" />
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="rounded-lg border">
-            {emptyState ?? (
-              <Empty className="border-0 py-10">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <LoaderIcon />
-                  </EmptyMedia>
-                  <EmptyTitle>No results</EmptyTitle>
-                  <EmptyDescription>
-                    Nothing matches the current filters. Adjust them and try again.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col divide-y rounded-lg border">
-              {rows.map((row) => {
-                const cells = row.getVisibleCells();
-                const actionCell = cells.find((cell) => cell.column.id === "actions");
-                const dataCells = cells.filter((cell) => cell.column.id !== "actions");
-                const [primaryCell, ...secondaryCells] = dataCells;
-
-                return (
-                  <div
-                    key={`mobile-${row.id}`}
-                    inert={rowsInert || undefined}
-                    onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
-                    className={cn(
-                      "flex items-start gap-3 transition-colors",
-                      density === "compact" ? "p-2.5" : "p-3",
-                      canActivateRow && "cursor-pointer hover:bg-muted/50 active:bg-muted/70",
-                      rowClassName?.(row.original),
-                    )}
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col gap-2">
-                      {primaryCell || actionCell ? (
-                        <div className="flex min-w-0 items-start justify-between gap-2">
-                          {primaryCell ? (
-                            <div className="min-w-0 flex-1">
-                              <table.FlexRender cell={primaryCell} />
-                            </div>
-                          ) : (
-                            <span />
-                          )}
-                          {actionCell ? (
-                            <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                              <table.FlexRender cell={actionCell} />
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {secondaryCells.length > 0 ? (
-                        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                          {secondaryCells.map((cell) => (
-                            <div key={cell.id} className="flex min-w-0 flex-col gap-0.5">
-                              <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                                {stringifyHeader(cell.column.columnDef.header, cell.column.id)}
-                              </dt>
-                              <dd className="min-w-0 truncate">
-                                <table.FlexRender cell={cell} />
-                              </dd>
-                            </div>
-                          ))}
-                        </dl>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {mobileInfinite && (mobileInfinite.hasMore || mobileInfinite.isLoadingMore) ? (
-              <div
-                data-slot="data-table-infinite-footer"
-                className="flex flex-col items-center gap-2 pt-1"
-              >
-                <div ref={sentinelRef} aria-hidden className="h-px w-full" />
-                {mobileInfinite.isLoadingMore ? (
-                  <div
-                    role="status"
-                    className="flex items-center gap-2 py-2 text-xs text-muted-foreground"
-                  >
-                    <Spinner aria-hidden />
-                    <span>Loading more…</span>
-                  </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    disabled={isBusy}
-                    onClick={() => mobileInfinite.onLoadMore()}
-                  >
-                    {mobileInfinite.loadMoreLabel ?? "Load more"}
-                  </Button>
-                )}
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      {/* Wide-container table */}
-      <div ref={tableHostRef} className="hidden overflow-hidden rounded-lg border @lg:block">
-        <Table regionLabel={regionLabel}>
-          <TableHeader>
-            {headerGroups.map((headerGroup, index, groups) => (
-              <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                {selection && index === 0 && (
-                  <TableHead
-                    scope="col"
-                    rowSpan={groups.length}
-                    data-pin-measure-id="__selection"
-                    style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
-                    className={cn(
-                      "w-10 ps-3",
-                      density === "compact" && "h-9 py-1.5",
-                      startPinnedIds.length > 0 && "sticky z-20 bg-background",
-                    )}
-                  >
-                    <Checkbox
-                      aria-label={selection.pageLabel}
-                      checked={allSelected}
-                      indeterminate={selectedCount > 0 && !allSelected}
-                      disabled={selection.disabled || rowsInert || pageIds.length === 0}
-                      className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
-                      onCheckedChange={(checked) => changeSelection(pageIds, checked)}
-                    />
-                  </TableHead>
-                )}
-                {headerGroup.headers.map((header) => {
-                  const canSort = header.column.getCanSort();
-                  const sorted = header.column.getIsSorted();
-                  const pinned = header.column.getIsPinned();
-                  const pinProps = pinnedCellProps(header.column.id, pinned);
-                  return (
-                    <TableHead
-                      key={header.id}
-                      colSpan={header.colSpan}
-                      data-pin-measure-id={
-                        header.column.columns.length === 0 && !header.isPlaceholder
-                          ? header.column.id
-                          : undefined
-                      }
-                      data-pinned={pinProps["data-pinned"]}
-                      style={pinProps.style}
-                      className={cn(
-                        density === "compact" && "h-9 py-1.5",
-                        pinProps.className,
-                        pinned && "z-20",
-                      )}
-                    >
-                      {header.isPlaceholder ? null : canSort ? (
-                        <button
-                          type="button"
-                          onClick={header.column.getToggleSortingHandler()}
-                          className="-mx-1 inline-flex min-h-8 items-center gap-1 rounded px-1 py-1 text-xs font-medium tracking-wider uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                          aria-label={`Sort by ${stringifyHeader(header.column.columnDef.header, header.id)}`}
-                        >
-                          <table.FlexRender header={header} />
-                          {sorted === "asc" ? (
-                            <ArrowUpIcon className="size-3" />
-                          ) : sorted === "desc" ? (
-                            <ArrowDownIcon className="size-3" />
-                          ) : (
-                            <ChevronsUpDownIcon className="size-3 opacity-50" />
-                          )}
-                        </button>
-                      ) : (
-                        <table.FlexRender header={header} />
-                      )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {showSkeleton ? (
-              Array.from({ length: skeletonRowCount }, (_, index) => (
-                <TableRow key={`skeleton-${index}`} className="hover:bg-transparent">
-                  {Array.from({ length: columnCount }, (_, cellIndex) => (
-                    <TableCell key={`skeleton-${index}-${cellIndex}`}>
-                      <Skeleton className="h-4 w-full max-w-40" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columnCount} className="p-0">
-                  {emptyState ?? (
-                    <Empty className="border-0 py-12">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <LoaderIcon />
-                        </EmptyMedia>
-                        <EmptyTitle>No results</EmptyTitle>
-                        <EmptyDescription>
-                          Nothing matches the current filters. Adjust them and try again.
-                        </EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  inert={rowsInert || undefined}
-                  onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
-                  className={cn(
-                    "group/row",
-                    canActivateRow && "cursor-pointer",
-                    rowClassName?.(row.original),
-                  )}
-                >
-                  {selection && (
-                    <TableCell
-                      style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
-                      className={cn(
-                        "w-10 ps-3",
-                        density === "compact" && "py-1.5",
-                        startPinnedIds.length > 0 &&
-                          "sticky z-10 bg-background group-hover/row:bg-muted/50",
-                      )}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {selection.canSelect?.(row.original) !== false && (
-                        <Checkbox
-                          aria-label={selection.getLabel(row.original)}
-                          checked={selection.ids.has(selection.getId(row.original))}
-                          disabled={selection.disabled || rowsInert}
-                          onCheckedChange={(checked) =>
-                            changeSelection([selection.getId(row.original)], checked)
-                          }
-                        />
-                      )}
-                    </TableCell>
-                  )}
-                  {row.getVisibleCells().map((cell) => {
-                    const pinned = cell.column.getIsPinned();
-                    const pinProps = pinnedCellProps(cell.column.id, pinned);
-                    return (
-                      <TableCell
-                        key={cell.id}
-                        data-pinned={pinProps["data-pinned"]}
-                        style={pinProps.style}
-                        className={cn(density === "compact" && "py-1.5", pinProps.className)}
-                      >
-                        <table.FlexRender cell={cell} />
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      <div
-        className={cn(
-          "flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm",
-          mobileInfinite && "hidden @lg:flex",
-        )}
-      >
-        <p aria-live="polite" className="tabular-nums">
-          {total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}
-        </p>
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <span className="hidden sm:inline">Rows per page</span>
-          <Select
-            value={String(currentSize)}
-            onValueChange={(value) => {
-              const pageSize = Number(value);
-              onPaginationChange?.({ pageIndex: 0, pageSize });
-            }}
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-16 border border-input px-2.5"
-              aria-label="Rows per page"
-            >
-              <SelectValue>{(value) => String(value)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {pageSizeOptions.map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-2 sm:px-3"
-            aria-label="Previous page"
-            onClick={() =>
-              onPaginationChange?.({ pageIndex: currentIndex - 1, pageSize: currentSize })
-            }
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeftIcon className="sm:hidden" aria-hidden />
-            <span className="hidden sm:inline">Previous</span>
-          </Button>
-          <span className="px-1 tabular-nums">
-            <span className="sm:hidden">
-              {pageCount === 0 ? 0 : currentIndex + 1}/{pageCount}
-            </span>
-            <span className="hidden sm:inline">
-              Page {pageCount === 0 ? 0 : currentIndex + 1} of {pageCount}
-            </span>
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-2 sm:px-3"
-            aria-label="Next page"
-            onClick={() =>
-              onPaginationChange?.({ pageIndex: currentIndex + 1, pageSize: currentSize })
-            }
-            disabled={!table.getCanNextPage()}
-          >
-            <ChevronRightIcon className="sm:hidden" aria-hidden />
-            <span className="hidden sm:inline">Next</span>
-          </Button>
-        </div>
-      </div>
+      <CardViewport
+        {...viewport}
+        mobileInfinite={mobileInfinite}
+        hideMobileSort={hideMobileSort}
+        isBusy={isBusy}
+      />
+      <DesktopViewport {...viewport} />
+      <TableFooter
+        {...{
+          pageCount,
+          currentIndex,
+          currentSize,
+          total,
+          pageSizeOptions,
+          onPaginationChange,
+          bypassPagination,
+        }}
+        desktopOnly={Boolean(mobileInfinite)}
+        canPreviousPage={table.getCanPreviousPage()}
+        canNextPage={table.getCanNextPage()}
+      />
     </div>
   );
 }
 
 function currentPagination(pagination: PaginationState | undefined): PaginationState {
   return pagination ?? { pageIndex: 0, pageSize: 10 };
-}
-
-function stringifyHeader(header: unknown, fallback: string): string {
-  if (typeof header === "string") return header;
-  return fallback;
 }
 
 /**

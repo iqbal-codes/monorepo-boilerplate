@@ -206,11 +206,7 @@ export function CustomerDetailView({
           </Avatar>
         }
         title={customer.name}
-        badge={
-          <StatusBadge tone={statusMeta.tone} dot>
-            {statusMeta.label}
-          </StatusBadge>
-        }
+        badge={<StatusBadge tone={statusMeta.tone}>{statusMeta.label}</StatusBadge>}
         subtitle={
           <>
             <span className="min-w-0 truncate" title={customer.email}>
@@ -223,13 +219,7 @@ export function CustomerDetailView({
           customer.tags.length > 0 ? (
             <div data-slot="customer-tags" className="flex flex-wrap items-center gap-1.5">
               {customer.tags.map((tag) => (
-                <Badge
-                  key={tag}
-                  variant="secondary"
-                  className="border border-border bg-muted px-2 py-0.5 text-xs font-medium tracking-normal text-foreground normal-case"
-                >
-                  {tag}
-                </Badge>
+                <Badge key={tag}>{tag}</Badge>
               ))}
             </div>
           ) : undefined
@@ -357,11 +347,7 @@ export function CustomerDetailView({
                   {
                     id: "status",
                     label: "Status",
-                    value: (
-                      <StatusBadge tone={statusMeta.tone} dot>
-                        {statusMeta.label}
-                      </StatusBadge>
-                    ),
+                    value: <StatusBadge tone={statusMeta.tone}>{statusMeta.label}</StatusBadge>,
                   },
                   {
                     id: "balance",

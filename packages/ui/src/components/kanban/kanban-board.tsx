@@ -306,10 +306,7 @@ function KanbanColumnView<TCard, TColumn extends KanbanColumnDef>({
         >
           <ChevronRightIcon className="rtl:rotate-180" aria-hidden="true" />
         </Button>
-        <Badge
-          variant={isOverWipLimit ? "destructive" : "secondary"}
-          className="px-1.5 tabular-nums"
-        >
+        <Badge variant={isOverWipLimit ? "destructive" : "secondary"} className="tabular-nums">
           {count}
         </Badge>
         <span

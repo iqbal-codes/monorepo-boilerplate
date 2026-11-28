@@ -195,7 +195,7 @@ export function KanbanColumnHeader({
         </h3>
         <Badge
           variant={isOverWipLimit ? "destructive" : "secondary"}
-          className="shrink-0 gap-1 tabular-nums"
+          className="tabular-nums"
           aria-label={
             isOverWipLimit && wipLimit !== undefined
               ? `${count} of ${wipLimit} cards, over work-in-progress limit`

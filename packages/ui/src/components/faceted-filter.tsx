@@ -107,27 +107,15 @@ export function FacetedFilter({
         {selectedValues.size > 0 ? (
           <>
             <Separator orientation="vertical" className="mx-1 h-4" />
-            <Badge
-              variant="secondary"
-              className="border border-border bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium tracking-normal normal-case sm:hidden"
-            >
+            <Badge variant="secondary" className="sm:hidden">
               {selectedValues.size} selected
             </Badge>
             <div className="hidden items-center gap-1 sm:flex">
               {selectedValues.size > maxInlineBadges ? (
-                <Badge
-                  variant="secondary"
-                  className="border border-border bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium tracking-normal normal-case"
-                >
-                  {selectedValues.size} selected
-                </Badge>
+                <Badge variant="secondary">{selectedValues.size} selected</Badge>
               ) : (
                 selectedOptions.map((option) => (
-                  <Badge
-                    key={option.value}
-                    variant="secondary"
-                    className="border border-border bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium tracking-normal normal-case"
-                  >
+                  <Badge key={option.value} variant="secondary">
                     {option.label}
                   </Badge>
                 ))

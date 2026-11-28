@@ -405,6 +405,7 @@ describe("CustomersTableView states & RowActions (TC-01, TC-04, TC-05)", () => {
       ).toBeGreaterThanOrEqual(2);
       expect(view.host.textContent).toContain("Active");
       expect(view.host.textContent).toContain("Archived");
+      expect(view.host.querySelector('[data-slot="status-badge-dot"]')).toBeNull();
     } finally {
       await view.cleanup();
     }

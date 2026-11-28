@@ -213,7 +213,7 @@ export function ListToolbar({
               <SlidersHorizontalIcon aria-hidden />
               <span className="sr-only">Filters</span>
               {activeCount > 0 ? (
-                <Badge className="bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
+                <Badge variant="secondary" className="tabular-nums">
                   {activeCount}
                 </Badge>
               ) : null}
