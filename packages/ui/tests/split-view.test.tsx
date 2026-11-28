@@ -148,6 +148,44 @@ describe("SplitView & DetailSheet (TC-01, TC-03)", () => {
     }
   });
 
+  test("preserves typed master search when desktop detail opens and closes without an empty placeholder", async () => {
+    setViewportWidth(1024);
+    function Harness() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <SplitView
+          master={
+            <>
+              <input aria-label="Search invoices" />
+              <button type="button" onClick={() => setOpen(true)}>
+                Inspect invoice
+              </button>
+            </>
+          }
+          detail={open ? <div data-testid="detail-marker">Invoice details</div> : undefined}
+          detailOpen={open}
+          onDetailOpenChange={setOpen}
+        />
+      );
+    }
+    const view = await renderInDom(<Harness />);
+    try {
+      const search = view.host.querySelector("input")!;
+      search.value = "Invoice 1022";
+      await act(async () => view.host.querySelector("button")!.click());
+      expect(view.host.querySelector("[data-testid='detail-marker']")).toBeTruthy();
+      expect(view.host.querySelector("input")).toBe(search);
+      expect(search.value).toBe("Invoice 1022");
+      const close = view.host.querySelector<HTMLButtonElement>('[aria-label="Close detail pane"]')!;
+      await act(async () => close.click());
+      expect(view.host.querySelector("[data-testid='detail-marker']")).toBeNull();
+      expect(view.host.querySelector("input")).toBe(search);
+      expect(search.value).toBe("Invoice 1022");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
   test("collapses to DetailSheet below md (320px) without duplicating detail content and supports controlled close", async () => {
     setViewportWidth(320);
     const openChanges: boolean[] = [];

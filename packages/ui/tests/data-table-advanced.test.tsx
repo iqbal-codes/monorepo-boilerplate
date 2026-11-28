@@ -88,7 +88,7 @@ Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 
-import type { ExpandedState } from "../src/components/data-table";
+import type { ExpandedState, SortingState } from "../src/components/data-table";
 
 const { createRoot } = await import("react-dom/client");
 const { columnsFor, DataTable } = await import("../src/components/data-table");
@@ -201,6 +201,39 @@ describe("DataTable controlled expandable rows (TC-01, TC-02)", () => {
       await view.cleanup();
     }
   });
+
+  test("keeps expanded controls mounted but inert during refetch and explicit row disabling", async () => {
+    const table = (isFetching = false, disableRows = false) => (
+      <DataTable
+        data={SAMPLE_ROWS}
+        columns={columns}
+        getRowId={(row) => row.id}
+        expanded={{ "inv-1": true }}
+        renderSubRow={() => (
+          <button type="button" data-testid="detail-action">
+            Copy details
+          </button>
+        )}
+        isFetching={isFetching}
+        disableRows={disableRows}
+      />
+    );
+    const view = await renderInDom(table());
+    try {
+      const actions = [...view.host.querySelectorAll('[data-testid="detail-action"]')];
+      expect(actions).toHaveLength(2);
+      for (const action of actions) expect(action.closest("[inert]")).toBeNull();
+      await view.rerender(table(true));
+      expect([...view.host.querySelectorAll('[data-testid="detail-action"]')]).toEqual(actions);
+      for (const action of actions) expect(action.closest("[inert]")).not.toBeNull();
+      await view.rerender(table(false, true));
+      for (const action of actions) expect(action.closest("[inert]")).not.toBeNull();
+      await view.rerender(table());
+      for (const action of actions) expect(action.closest("[inert]")).toBeNull();
+    } finally {
+      await view.cleanup();
+    }
+  });
 });
 
 describe("DataTable virtualized 10,000-row mode (TC-01, TC-02)", () => {
@@ -292,6 +325,79 @@ describe("DataTable virtualized 10,000-row mode (TC-01, TC-02)", () => {
       expect(subRowCell.getAttribute("colspan")).toBe("4");
     } finally {
       await selectionView.cleanup();
+    }
+  });
+
+  test("recovers a hidden card viewport when resizing from wide to narrow", async () => {
+    const view = await renderInDom(
+      <DataTable data={rows10k} columns={columns} virtualized={{ height: 320, overscan: 2 }} />,
+    );
+    try {
+      const cards = view.host.querySelector<HTMLElement>('[data-slot="data-table-card-scroll"]')!;
+      const desktop = view.host.querySelector<HTMLElement>('[data-slot="table-container"]')!;
+      Object.defineProperty(desktop, "clientHeight", { value: 320, configurable: true });
+      Object.defineProperty(cards, "clientHeight", {
+        configurable: true,
+        // Mimic the actual max-height layout: a hidden or empty viewport is 0px.
+        get: () => (desktop.clientHeight === 0 && cards.childElementCount > 0 ? 320 : 0),
+      });
+      await act(async () => MockResizeObserver.resize(desktop));
+      expect(desktop.querySelectorAll("tbody tr[data-index]").length).toBeGreaterThan(0);
+      expect(cards.querySelectorAll('[data-slot="data-table-card-row"]')).toHaveLength(0);
+
+      Object.defineProperty(desktop, "clientHeight", { value: 0, configurable: true });
+      await act(async () => {
+        MockResizeObserver.resize(desktop);
+        MockResizeObserver.resize(cards);
+      });
+      const cardRows = cards.querySelectorAll('[data-slot="data-table-card-row"]');
+      expect(cardRows.length).toBeGreaterThan(0);
+      expect(cardRows.length).toBeLessThan(20);
+      expect(cardRows[0]?.textContent).toContain("INV-1");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("does not offer sorting controls if the caller has no change handler", () => {
+    const html = renderToStaticMarkup(
+      <DataTable data={SAMPLE_ROWS} columns={columns} virtualized />,
+    );
+    expect(html).toContain("Invoice");
+    expect(html).not.toContain('aria-label="Sort by');
+  });
+
+  test("reorders virtual rows and exposes the controlled sort direction", async () => {
+    function Harness() {
+      const [sorting, setSorting] = React.useState<SortingState>([]);
+      return (
+        <DataTable
+          data={rows10k}
+          columns={columns}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          virtualized={{ height: 320, overscan: 2 }}
+        />
+      );
+    }
+    const view = await renderInDom(<Harness />);
+    try {
+      const desktop = view.host.querySelector<HTMLElement>('[data-slot="table-container"]')!;
+      Object.defineProperty(desktop, "clientHeight", { value: 320, configurable: true });
+      await act(async () => MockResizeObserver.resize(desktop));
+      const header = view.host.querySelector<HTMLElement>('[aria-label="Sort by Invoice"]')!;
+      expect(desktop.querySelector("tbody tr[data-index]")?.textContent).toContain(
+        "INV-1Customer 1",
+      );
+      await act(async () => click(header));
+      expect(header.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+      await act(async () => click(header));
+      expect(header.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+      expect(desktop.querySelector("tbody tr[data-index]")?.textContent).toContain(
+        "INV-10000Customer 10000",
+      );
+    } finally {
+      await view.cleanup();
     }
   });
 });

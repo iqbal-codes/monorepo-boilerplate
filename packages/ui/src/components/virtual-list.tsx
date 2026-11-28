@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cn } from "cn";
 import { InboxIcon } from "lucide-react";
 
@@ -100,6 +100,20 @@ export function VirtualList<TItem>({
     onItemActivate !== undefined;
 
   const activeIndex = controlledActiveIndex ?? uncontrolledActiveIndex;
+  const hasActiveOption = isInteractive && activeIndex >= 0 && activeIndex < items.length;
+  const rangeExtractor = React.useCallback(
+    (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      // Keyboard focus stays on the same option when a pointer scrolls the list.
+      // Keep only that extra option mounted, not the intervening items.
+      if (hasActiveOption && !indexes.includes(activeIndex)) {
+        indexes.push(activeIndex);
+        indexes.sort((a, b) => a - b);
+      }
+      return indexes;
+    },
+    [activeIndex, hasActiveOption],
+  );
   const resolvedNumericHeight = resolveNumericHeight(height);
   const resolvedHeightStyle = typeof height === "number" ? `${height}px` : height;
 
@@ -110,9 +124,16 @@ export function VirtualList<TItem>({
       typeof estimateSize === "function" ? estimateSize(index, items[index]!) : estimateSize,
     getItemKey: getItemKey ? (index) => getItemKey(items[index]!, index) : undefined,
     overscan,
+    rangeExtractor,
     gap,
     initialRect: { width: 640, height: resolvedNumericHeight },
   });
+
+  const virtualItems = virtualizer.getVirtualItems();
+  const activeDescendantId =
+    hasActiveOption && virtualItems.some((item) => item.index === activeIndex)
+      ? `${listId}-item-${activeIndex}`
+      : undefined;
 
   function updateActiveIndex(nextIndex: number, scrollIntoView = true) {
     if (items.length === 0) return;
@@ -173,8 +194,9 @@ export function VirtualList<TItem>({
       }
       case "Enter":
       case " ": {
-        if (activeIndex >= 0 && activeIndex < items.length) {
+        if (activeDescendantId) {
           event.preventDefault();
+          virtualizer.scrollToIndex(activeIndex, { align: "auto" });
           onItemActivate?.(items[activeIndex]!, activeIndex);
         }
         break;
@@ -234,12 +256,6 @@ export function VirtualList<TItem>({
     );
   }
 
-  const virtualItems = virtualizer.getVirtualItems();
-  const activeDescendantId =
-    isInteractive && activeIndex >= 0 && activeIndex < items.length
-      ? `${listId}-item-${activeIndex}`
-      : undefined;
-
   return (
     <div
       ref={scrollRef}
@@ -278,6 +294,8 @@ export function VirtualList<TItem>({
               data-active={isActive ? "true" : undefined}
               role={isInteractive ? "option" : "listitem"}
               aria-selected={isInteractive ? isActive : undefined}
+              aria-posinset={virtualItem.index + 1}
+              aria-setsize={items.length}
               onClick={
                 isInteractive
                   ? () => {

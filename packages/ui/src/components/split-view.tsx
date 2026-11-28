@@ -154,96 +154,94 @@ export function SplitView({
 
   const showSecondPane = hasDetailContent || Boolean(emptyDetail);
 
-  if (!showSecondPane) {
-    return (
-      <div data-slot="split-view" data-mode="single" className={cn("min-w-0", className)}>
-        <div data-slot="split-view-master" className={cn("min-w-0", masterClassName)}>
-          {master}
-        </div>
-      </div>
-    );
-  }
-
+  // Keep the master panel in the same React position when a detail pane is
+  // added or removed. Resizable registers the optional sibling independently.
   return (
-    <div data-slot="split-view" data-mode="split" className={cn("min-h-0 min-w-0", className)}>
+    <div
+      data-slot="split-view"
+      data-mode={showSecondPane ? "split" : "single"}
+      className={cn("min-h-0 min-w-0", className)}
+    >
       <ResizablePanelGroup
         orientation="horizontal"
         aria-label={ariaLabel}
-        className="min-h-0 min-w-0 rounded-lg border border-border"
+        className={cn("min-h-0 min-w-0", showSecondPane && "rounded-lg border border-border")}
       >
         <ResizablePanel
           defaultSize={masterDefaultSize}
           minSize={masterMinSize}
-          className={cn("min-w-0 p-4", masterClassName)}
+          className={cn("min-w-0", showSecondPane && "p-4", masterClassName)}
         >
           {master}
         </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel
-          defaultSize={detailDefaultSize}
-          minSize={detailMinSize}
-          className={cn("flex min-w-0 flex-col bg-card", detailClassName)}
-        >
-          {hasDetailContent ? (
-            <>
-              {(detailTitle ||
-                detailDescription ||
-                detailHeaderActions ||
-                (showCloseButtonOnDesktop && onDetailOpenChange)) && (
+        {showSecondPane ? <ResizableHandle withHandle className="focus-visible:ring-2" /> : null}
+        {showSecondPane ? (
+          <ResizablePanel
+            defaultSize={detailDefaultSize}
+            minSize={detailMinSize}
+            className={cn("flex min-w-0 flex-col bg-card", detailClassName)}
+          >
+            {hasDetailContent ? (
+              <>
+                {(detailTitle ||
+                  detailDescription ||
+                  detailHeaderActions ||
+                  (showCloseButtonOnDesktop && onDetailOpenChange)) && (
+                  <div
+                    data-slot="split-view-detail-header"
+                    className="flex items-start justify-between gap-3 border-b border-border px-4 py-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      {detailTitle ? (
+                        <h3 className="font-heading text-sm font-semibold tracking-wider text-foreground uppercase">
+                          {detailTitle}
+                        </h3>
+                      ) : null}
+                      {detailDescription ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">{detailDescription}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {detailHeaderActions}
+                      {showCloseButtonOnDesktop && onDetailOpenChange ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Close detail pane"
+                          onClick={() => onDetailOpenChange(false)}
+                        >
+                          <XIcon aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
                 <div
-                  data-slot="split-view-detail-header"
-                  className="flex items-start justify-between gap-3 border-b border-border px-4 py-3"
+                  data-slot="split-view-detail"
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
                 >
-                  <div className="min-w-0 flex-1">
-                    {detailTitle ? (
-                      <h3 className="font-heading text-sm font-semibold tracking-wider text-foreground uppercase">
-                        {detailTitle}
-                      </h3>
-                    ) : null}
-                    {detailDescription ? (
-                      <p className="mt-0.5 text-xs text-muted-foreground">{detailDescription}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {detailHeaderActions}
-                    {showCloseButtonOnDesktop && onDetailOpenChange ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Close detail pane"
-                        onClick={() => onDetailOpenChange(false)}
-                      >
-                        <XIcon aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
+                  {detail}
                 </div>
-              )}
+                {detailFooter ? (
+                  <div
+                    data-slot="split-view-detail-footer"
+                    className="border-t border-border bg-card px-4 py-3"
+                  >
+                    {detailFooter}
+                  </div>
+                ) : null}
+              </>
+            ) : (
               <div
-                data-slot="split-view-detail"
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+                data-slot="split-view-empty"
+                className="flex min-h-48 flex-1 items-center justify-center p-6"
               >
-                {detail}
+                {emptyDetail}
               </div>
-              {detailFooter ? (
-                <div
-                  data-slot="split-view-detail-footer"
-                  className="border-t border-border bg-card px-4 py-3"
-                >
-                  {detailFooter}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div
-              data-slot="split-view-empty"
-              className="flex min-h-48 flex-1 items-center justify-center p-6"
-            >
-              {emptyDetail}
-            </div>
-          )}
-        </ResizablePanel>
+            )}
+          </ResizablePanel>
+        ) : null}
       </ResizablePanelGroup>
     </div>
   );

@@ -102,6 +102,7 @@ export function SavedViewBar({
   const [deletePending, setDeletePending] = React.useState(false);
 
   const [savePending, setSavePending] = React.useState(false);
+  const [failedSaveViewId, setFailedSaveViewId] = React.useState<string | null>(null);
 
   const activeView = views.find((view) => view.id === activeViewId) ?? null;
   const isBusy = disabled || isSaving || savePending;
@@ -162,10 +163,13 @@ export function SavedViewBar({
   }
 
   async function handleSaveChanges() {
-    if (!onSaveChanges || !activeView) return;
+    if (!onSaveChanges || !activeView || isBusy) return;
+    setFailedSaveViewId(null);
     setSavePending(true);
     try {
       await onSaveChanges(activeView.id);
+    } catch {
+      setFailedSaveViewId(activeView.id);
     } finally {
       setSavePending(false);
     }
@@ -197,7 +201,10 @@ export function SavedViewBar({
                 variant={isActive ? "secondary" : "outline"}
                 aria-pressed={isActive}
                 disabled={isBusy}
-                onClick={() => onSelectView(view.id)}
+                onClick={() => {
+                  setFailedSaveViewId(null);
+                  onSelectView(view.id);
+                }}
                 className={cn("gap-1.5", hasMenu && "border-e-0", isActive && "font-semibold")}
               >
                 {showDirtyDot ? (
@@ -294,7 +301,10 @@ export function SavedViewBar({
               size="xs"
               variant="ghost"
               disabled={isBusy}
-              onClick={() => onDiscardChanges(activeView.id)}
+              onClick={() => {
+                setFailedSaveViewId(null);
+                onDiscardChanges(activeView.id);
+              }}
             >
               <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
               Discard
@@ -316,6 +326,9 @@ export function SavedViewBar({
               Save changes
             </Button>
           ) : null}
+          <p role="status" className="text-xs text-destructive empty:sr-only">
+            {failedSaveViewId === activeView.id ? "Could not save changes. Try again." : ""}
+          </p>
         </div>
       ) : null}
 

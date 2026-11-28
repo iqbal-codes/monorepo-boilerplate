@@ -41,8 +41,14 @@ const previousGlobals = Object.fromEntries(
 );
 
 class MockResizeObserver {
-  observe() {}
-  unobserve() {}
+  static byTarget = new Map<Element, () => void>();
+  constructor(private readonly onResize: () => void) {}
+  observe(target: Element) {
+    MockResizeObserver.byTarget.set(target, this.onResize);
+  }
+  unobserve(target: Element) {
+    MockResizeObserver.byTarget.delete(target);
+  }
   disconnect() {}
 }
 
@@ -66,6 +72,8 @@ Object.assign(globalThis, {
   cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
+
+win.ResizeObserver = MockResizeObserver as unknown as typeof win.ResizeObserver;
 
 const { createRoot } = await import("react-dom/client");
 const { VirtualList } = await import("../src/components/virtual-list");
@@ -114,6 +122,7 @@ describe("VirtualList subpath isolation (TC-03, TC-05)", () => {
     const allowedFiles = new Set([
       resolve(uiSrcDir, "components/virtual-list.tsx"),
       resolve(uiSrcDir, "components/data-table.tsx"),
+      resolve(uiSrcDir, "components/data-table/use-row-window.ts"),
     ]);
 
     function walk(dir: string): string[] {
@@ -242,6 +251,7 @@ describe("VirtualList rendering, states, and keyboard access (TC-01, TC-03)", ()
       Object.defineProperty(container, "clientHeight", { value: 320, configurable: true });
       Object.defineProperty(container, "clientWidth", { value: 600, configurable: true });
       await view.rerender(<Harness />);
+      await act(async () => MockResizeObserver.byTarget.get(container)!());
 
       expect(container.getAttribute("tabindex")).toBe("0");
       expect(container.getAttribute("role")).toBe("listbox");
@@ -274,6 +284,46 @@ describe("VirtualList rendering, states, and keyboard access (TC-01, TC-03)", ()
         );
       });
       expect(activeChanges.at(-1)).toBe(0);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("retains the focused option when scrolling to index 100, then activates that mounted option", async () => {
+    const activated: string[] = [];
+    const view = await renderInDom(
+      <VirtualList
+        items={items10k}
+        estimateSize={40}
+        height={320}
+        overscan={2}
+        activeIndex={0}
+        onItemActivate={(item) => activated.push(item.id)}
+        renderItem={({ item }) => item.label}
+      />,
+    );
+    try {
+      const list = view.host.querySelector<HTMLElement>('[role="listbox"]')!;
+      Object.defineProperties(list, {
+        clientHeight: { value: 320 },
+        clientWidth: { value: 600 },
+        scrollTop: { value: 4000, writable: true },
+      });
+      await act(async () => {
+        MockResizeObserver.byTarget.get(list)!();
+        list.focus();
+        list.dispatchEvent(new win.Event("scroll"));
+      });
+      expect(document.activeElement).toBe(list);
+      expect(list.querySelector('[data-index="100"]')).toBeTruthy();
+      expect(list.querySelectorAll('[role="option"]').length).toBeLessThan(20);
+      const active = document.getElementById(list.getAttribute("aria-activedescendant")!);
+      expect(active?.textContent).toBe("Event #1");
+      expect(active?.getAttribute("aria-selected")).toBe("true");
+      await act(async () =>
+        list.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      );
+      expect(activated).toEqual(["item-0"]);
     } finally {
       await view.cleanup();
     }

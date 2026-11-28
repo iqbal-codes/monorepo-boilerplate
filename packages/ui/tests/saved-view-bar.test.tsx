@@ -183,6 +183,46 @@ describe("SavedViewBar (TC-01, TC-03)", () => {
     }
   });
 
+  test("announces a rejected save, leaves edits dirty, and allows retrying the same view", async () => {
+    const firstSave = Promise.withResolvers<void>();
+    const attempts: string[] = [];
+    function Harness() {
+      const [isDirty, setIsDirty] = React.useState(true);
+      return (
+        <SavedViewBar
+          views={INITIAL_VIEWS}
+          activeViewId="open"
+          isDirty={isDirty}
+          onSelectView={() => {}}
+          onSaveChanges={async (id) => {
+            attempts.push(id);
+            if (attempts.length === 1) await firstSave.promise;
+            setIsDirty(false);
+          }}
+        />
+      );
+    }
+    const view = await renderInDom(<Harness />);
+    try {
+      const save = [...view.host.querySelectorAll("button")].find(
+        (btn) => btn.textContent?.trim() === "Save changes",
+      )!;
+      await act(async () => click(save));
+      expect(save.disabled).toBe(true);
+      await act(async () => firstSave.reject(new Error("Temporary save failure")));
+      expect(view.host.querySelector('[role="status"]')?.textContent).toContain(
+        "Could not save changes. Try again.",
+      );
+      expect(view.host.querySelector('[data-slot="saved-view-dirty-dot"]')).toBeTruthy();
+      expect(save.disabled).toBe(false);
+      await act(async () => click(save));
+      expect(attempts).toEqual(["open", "open"]);
+      expect(view.host.querySelector('[data-slot="saved-view-dirty-actions"]')).toBeNull();
+    } finally {
+      await view.cleanup();
+    }
+  });
+
   test("creates, renames, and confirms deletion via controlled callbacks without internal persistence", async () => {
     const created: string[] = [];
     const renamed: Array<[string, string]> = [];
