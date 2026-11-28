@@ -189,6 +189,10 @@ describe("CustomerDetailView", () => {
       expect(tags?.textContent).toContain("vip");
       expect(tags?.textContent).toContain("enterprise");
 
+      expect(view.host.querySelector('[data-slot="detail-header"]')).not.toBeNull();
+      expect(view.host.querySelector('[data-slot="detail-aside"]')).not.toBeNull();
+      expect(view.host.querySelector('[data-slot="detail-main"]')).not.toBeNull();
+      expect(view.host.querySelector('[data-slot="kpi-grid"]')).not.toBeNull();
       expect(view.host.querySelector('[data-slot="description-list"]')).not.toBeNull();
       expect(view.host.textContent).toContain("$1,234.50");
       expect(view.host.textContent).toContain("Line 1\nLine 2");

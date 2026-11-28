@@ -14,6 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@monorepo-boilerplate/
 import { CopyButton } from "@monorepo-boilerplate/ui/components/copy-button";
 import { DescriptionList } from "@monorepo-boilerplate/ui/components/description-list";
 import {
+  DetailAside,
+  DetailGrid,
+  DetailHeader,
+  DetailMain,
+  DetailScreen,
+} from "@monorepo-boilerplate/ui/components/detail-layout";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -21,6 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@monorepo-boilerplate/ui/components/dropdown-menu";
+import { KpiCard, KpiGrid } from "@monorepo-boilerplate/ui/components/kpi-card";
 import { StatusBadge } from "@monorepo-boilerplate/ui/components/status-badge";
 import { StatusScreen } from "@monorepo-boilerplate/ui/components/status-screen";
 import { formatDate, formatDateTime, formatMoney } from "@monorepo-boilerplate/ui/lib/format";
@@ -80,9 +88,10 @@ export type CustomerDetailViewProps = {
 };
 
 /**
- * Customer detail Screen presentation: Identity Header (48px Avatar with
- * initials fallback, StatusBadge, copyable email, tag pills, Edit + lifecycle
- * overflow actions) over a 2:1 `md:grid-cols-3` layout.
+ * Customer detail Screen presentation built on the shared `DetailScreen` /
+ * `DetailHeader` / `DetailGrid` layout: 2-tier mobile header, properties rail
+ * (`Details` + `Notes`) leading on narrow screens, and KPI strip +
+ * `ActivityTimeline` in the `2:1` primary column on desktop.
  */
 export function CustomerDetailView({
   customer,
@@ -176,6 +185,10 @@ export function CustomerDetailView({
   const statusMeta = CUSTOMER_STATUS_META[customer.status];
   const resolvedAvatar = assetUrl(customer.avatarUrl);
   const isArchived = customer.status === "archived";
+  const formattedBalance = formatMoney({
+    minor: customer.balanceMinor,
+    currency: customer.currency,
+  });
 
   function openRestoreDialog() {
     setRestoreChoice(null);
@@ -184,125 +197,135 @@ export function CustomerDetailView({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <header
-        data-slot="customer-identity-header"
-        className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6"
-      >
-        <div className="flex min-w-0 flex-1 items-start gap-4">
+    <DetailScreen>
+      <DetailHeader
+        media={
           <Avatar size="xl">
             {resolvedAvatar ? <AvatarImage src={resolvedAvatar} alt={customer.name} /> : null}
             <AvatarFallback>{getInitials(customer.name)}</AvatarFallback>
           </Avatar>
-
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="font-heading text-2xl font-semibold tracking-tight wrap-break-word text-foreground">
-                {customer.name}
-              </h1>
-              <StatusBadge tone={statusMeta.tone} dot>
-                {statusMeta.label}
-              </StatusBadge>
+        }
+        title={customer.name}
+        badge={
+          <StatusBadge tone={statusMeta.tone} dot>
+            {statusMeta.label}
+          </StatusBadge>
+        }
+        subtitle={
+          <>
+            <span className="min-w-0 truncate" title={customer.email}>
+              {customer.email}
+            </span>
+            <CopyButton value={customer.email} label="Copy email" className="shrink-0" />
+          </>
+        }
+        meta={
+          customer.tags.length > 0 ? (
+            <div data-slot="customer-tags" className="flex flex-wrap items-center gap-1.5">
+              {customer.tags.map((tag) => (
+                <Badge
+                  key={tag}
+                  variant="secondary"
+                  className="border border-border bg-muted px-2 py-0.5 text-xs font-medium tracking-normal text-foreground normal-case"
+                >
+                  {tag}
+                </Badge>
+              ))}
             </div>
-
-            <div className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
-              <span className="min-w-0 break-all">{customer.email}</span>
-              <CopyButton value={customer.email} label="Copy email" className="shrink-0" />
-            </div>
-
-            {customer.tags.length > 0 ? (
-              <div data-slot="customer-tags" className="flex flex-wrap items-center gap-1.5 pt-1">
-                {customer.tags.map((tag) => (
-                  <Badge
-                    key={tag}
-                    variant="secondary"
-                    className="border border-border bg-muted px-2 py-0.5 text-xs font-medium tracking-normal text-foreground normal-case"
-                  >
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
+          ) : undefined
+        }
+        actions={
+          <>
+            {isArchived ? (
+              <Button
+                type="button"
+                size="sm"
+                className="flex-1 sm:flex-initial"
+                onClick={openRestoreDialog}
+              >
+                <RotateCcwIcon aria-hidden="true" data-icon="inline-start" />
+                Restore
+              </Button>
             ) : null}
-          </div>
-        </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {isArchived ? (
-            <Button type="button" size="sm" onClick={openRestoreDialog}>
-              <RotateCcwIcon aria-hidden="true" data-icon="inline-start" />
-              Restore
-            </Button>
-          ) : null}
-
-          <Button type="button" variant="outline" size="sm" onClick={onEdit}>
-            <PencilIcon aria-hidden="true" data-icon="inline-start" />
-            Edit
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="More customer actions"
-                />
-              }
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-1 sm:flex-initial"
+              onClick={onEdit}
             >
-              <MoreHorizontalIcon aria-hidden="true" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuGroup>
-                {isArchived ? (
-                  <DropdownMenuItem onClick={openRestoreDialog}>
-                    <RotateCcwIcon aria-hidden="true" />
-                    Restore customer
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setArchiveError(undefined);
-                      setArchiveOpen(true);
-                    }}
-                  >
-                    <ArchiveIcon aria-hidden="true" />
-                    Archive
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuGroup>
+              <PencilIcon aria-hidden="true" data-icon="inline-start" />
+              Edit
+            </Button>
 
-              {canDelete && onDelete ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="shrink-0"
+                    aria-label="More customer actions"
+                  />
+                }
+              >
+                <MoreHorizontalIcon aria-hidden="true" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuGroup>
+                  {isArchived ? (
+                    <DropdownMenuItem onClick={openRestoreDialog}>
+                      <RotateCcwIcon aria-hidden="true" />
+                      Restore customer
+                    </DropdownMenuItem>
+                  ) : (
                     <DropdownMenuItem
-                      variant="destructive"
                       onClick={() => {
-                        setDeleteError(undefined);
-                        setDeleteOpen(true);
+                        setArchiveError(undefined);
+                        setArchiveOpen(true);
                       }}
                     >
-                      <Trash2Icon aria-hidden="true" />
-                      Delete
+                      <ArchiveIcon aria-hidden="true" />
+                      Archive
                     </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </header>
+                  )}
+                </DropdownMenuGroup>
 
-      <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-6 md:col-span-2">
-          <Card>
+                {canDelete && onDelete ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => {
+                          setDeleteError(undefined);
+                          setDeleteOpen(true);
+                        }}
+                      >
+                        <Trash2Icon aria-hidden="true" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        }
+      />
+
+      <DetailGrid>
+        <DetailAside>
+          <Card size="sm">
             <CardHeader>
               <CardTitle>Details</CardTitle>
             </CardHeader>
             <CardContent>
               <DescriptionList
-                columns={2}
+                columns={1}
+                className="sm:grid-cols-2 lg:grid-cols-1"
                 items={[
                   {
                     id: "id",
@@ -343,10 +366,7 @@ export function CustomerDetailView({
                   {
                     id: "balance",
                     label: "Balance",
-                    value: formatMoney({
-                      minor: customer.balanceMinor,
-                      currency: customer.currency,
-                    }),
+                    value: formattedBalance,
                     numeric: true,
                   },
                   {
@@ -364,7 +384,45 @@ export function CustomerDetailView({
             </CardContent>
           </Card>
 
-          <Card>
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle>Notes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm wrap-break-word whitespace-pre-wrap text-muted-foreground">
+                {customer.notes?.trim() ? customer.notes : "No notes."}
+              </p>
+            </CardContent>
+          </Card>
+        </DetailAside>
+
+        <DetailMain>
+          <KpiGrid variant="strip" columns={3}>
+            <KpiCard
+              label="Balance"
+              value={formattedBalance}
+              tone={customer.balanceMinor < 0 ? "danger" : "default"}
+              hint={customer.currency}
+            />
+            <KpiCard
+              label="Customer since"
+              value={formatDate(customer.createdAt)}
+              hint={`Updated ${formatDate(customer.updatedAt)}`}
+            />
+            <KpiCard
+              label="Activity"
+              value={eventsLoading ? "—" : events.length}
+              hint={
+                eventsLoading
+                  ? "Loading events"
+                  : events.length === 1
+                    ? "Recorded event"
+                    : "Recorded events"
+              }
+            />
+          </KpiGrid>
+
+          <Card size="sm">
             <CardHeader>
               <CardTitle>Activity</CardTitle>
             </CardHeader>
@@ -379,19 +437,8 @@ export function CustomerDetailView({
               />
             </CardContent>
           </Card>
-        </div>
-
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle>Notes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm wrap-break-word whitespace-pre-wrap text-muted-foreground">
-              {customer.notes?.trim() ? customer.notes : "No notes."}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+        </DetailMain>
+      </DetailGrid>
 
       <CustomerArchiveDialog
         open={archiveOpen}
@@ -445,6 +492,6 @@ export function CustomerDetailView({
           }}
         />
       ) : null}
-    </div>
+    </DetailScreen>
   );
 }
