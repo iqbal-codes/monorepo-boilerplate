@@ -5,16 +5,17 @@
 
 export interface ParsedPrSummary {
   summary: string;
+  evidence: string;
   mergeDanger: string;
 }
 
 /**
- * Extracts `## Summary` and `## Merge Danger` from `$ARTIFACTS_DIR/pr-summary.md`
- * written by the implementer following the `/pr` structure.
+ * Extracts `## Summary`, optional `## Evidence`, and `## Merge Danger` from
+ * `$ARTIFACTS_DIR/pr-summary.md` written by the implementer following the `/pr` structure.
  */
 export function parsePrSummarySections(markdown: string): ParsedPrSummary {
   const clean = markdown.trim();
-  if (!clean) return { summary: '', mergeDanger: '' };
+  if (!clean) return { summary: '', evidence: '', mergeDanger: '' };
 
   const extractSection = (headingRe: RegExp): string => {
     const lines = clean.split(/\r?\n/);
@@ -35,8 +36,9 @@ export function parsePrSummarySections(markdown: string): ParsedPrSummary {
   };
 
   const summary = extractSection(/^##\s+Summary\b/i);
+  const evidence = extractSection(/^##\s+Evidence\b/i);
   const mergeDanger = extractSection(/^##\s+Merge\s+Danger\b/i);
-  return { summary, mergeDanger };
+  return { summary, evidence, mergeDanger };
 }
 
 /**
@@ -173,6 +175,32 @@ export function extractVerificationEvidenceLine(mechMarkdown: string): string {
 export interface EvidenceImage {
   name: string;
   url: string;
+  /** Optional human-readable label from an evidence manifest. */
+  label?: string;
+  /** Optional explicit Before/After pair key from an evidence manifest. */
+  pairKey?: string;
+}
+
+export interface EvidenceManifestEntry {
+  label?: string;
+  pairKey?: string;
+}
+
+export interface EvidenceComparisonRow {
+  view: string;
+  before: EvidenceImage;
+  after: EvidenceImage;
+}
+
+export interface EvidenceSingleRow {
+  view: string;
+  image: EvidenceImage;
+}
+
+export interface PartitionedEvidence {
+  comparisons: EvidenceComparisonRow[];
+  afterOnly: EvidenceSingleRow[];
+  beforeOnly: EvidenceSingleRow[];
 }
 
 export interface EvidenceRow {
@@ -185,6 +213,7 @@ type ViewportKind = 'desktop' | 'mobile' | 'tablet' | 'none';
 
 interface ParsedEvidenceName {
   rawSlug: string;
+  pairKey: string;
   viewport: ViewportKind;
   widthHint: string;
   stateTokens: string[];
@@ -208,8 +237,113 @@ const VIEWPORT_TOKEN_MAP = new Map<string, ViewportKind>([
   ['md', 'tablet'],
 ]);
 
-function parseEvidenceName(fileName: string): ParsedEvidenceName {
-  const rawSlug = fileName
+/**
+ * Tokens that represent distinct interactive/UI states rather than a generic route name.
+ * Prevents pairing a generic baseline (e.g. `before-fields-desktop.png`) with an unrelated
+ * state capture (e.g. `impl-desktop-error.png`) or vice versa.
+ */
+const DISTINCT_STATE_TOKENS = new Set([
+  'error',
+  'errors',
+  'invalid',
+  'empty',
+  'loading',
+  'skeleton',
+  'disabled',
+  'readonly',
+  'dialog',
+  'modal',
+  'drawer',
+  'sheet',
+  'popover',
+  'menu',
+  'dropdown',
+  'tooltip',
+  'toast',
+  'banner',
+  'wizard',
+  'confirm',
+  'confirmation',
+  'archived',
+  'restore',
+  'delete',
+  'slash',
+  'bubble',
+  'link',
+  'dark',
+  'light',
+  'focus',
+  'hover',
+  'open',
+  'closed',
+  'tab',
+  'tabs',
+]);
+
+function normalizeKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Parses an optional evidence manifest JSON (either an array of `{ file, label?, pairKey? }`
+ * or an object map `{ "<filename>": "<label>" | { label?, pairKey? } }`).
+ * Never throws on malformed input so PR publishing remains resilient.
+ */
+export function parseEvidenceManifest(rawJson: string): Map<string, EvidenceManifestEntry> {
+  const entries = new Map<string, EvidenceManifestEntry>();
+  const trimmed = rawJson.trim();
+  if (!trimmed) return entries;
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object') continue;
+        const record = item as Record<string, unknown>;
+        const file = typeof record.file === 'string' ? record.file.trim() : '';
+        if (!file) continue;
+        const label = typeof record.label === 'string' ? record.label.trim() : undefined;
+        const pairKey = typeof record.pairKey === 'string' ? record.pairKey.trim() : undefined;
+        entries.set(file.toLowerCase(), {
+          ...(label ? { label } : {}),
+          ...(pairKey ? { pairKey } : {}),
+        });
+      }
+      return entries;
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      for (const [file, val] of Object.entries(parsed as Record<string, unknown>)) {
+        const cleanFile = file.trim().toLowerCase();
+        if (!cleanFile) continue;
+        if (typeof val === 'string' && val.trim()) {
+          entries.set(cleanFile, { label: val.trim() });
+        } else if (val && typeof val === 'object') {
+          const record = val as Record<string, unknown>;
+          const label = typeof record.label === 'string' ? record.label.trim() : undefined;
+          const pairKey = typeof record.pairKey === 'string' ? record.pairKey.trim() : undefined;
+          if (label || pairKey) {
+            entries.set(cleanFile, {
+              ...(label ? { label } : {}),
+              ...(pairKey ? { pairKey } : {}),
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    return entries;
+  }
+
+  return entries;
+}
+
+function parseEvidenceName(img: EvidenceImage): ParsedEvidenceName {
+  const rawSlug = img.name
     .replace(/\.[a-z0-9]+$/i, '')
     .replace(/^(before|impl|after)[-_]+/i, '')
     .toLowerCase();
@@ -230,68 +364,103 @@ function parseEvidenceName(fileName: string): ParsedEvidenceName {
     stateTokens.push(tok);
   }
 
-  return { rawSlug, viewport, widthHint, stateTokens };
+  return {
+    rawSlug,
+    pairKey: img.pairKey ? normalizeKey(img.pairKey) : '',
+    viewport,
+    widthHint,
+    stateTokens,
+  };
 }
 
 function scoreEvidencePair(b: ParsedEvidenceName, a: ParsedEvidenceName): number {
+  // 1. Explicit manifest pairKey match always wins
+  if (b.pairKey && a.pairKey) {
+    return b.pairKey === a.pairKey ? 2000 : -1;
+  }
+
+  // 2. Exact slug match (works with or without viewport tokens, e.g. before-header.png <-> after-header.png)
   if (b.rawSlug && b.rawSlug === a.rawSlug) return 1000;
 
+  // Never pair conflicting viewports
   if (b.viewport !== 'none' && a.viewport !== 'none' && b.viewport !== a.viewport) {
     return -1;
   }
+
+  // If only one side declares a viewport, require an exact state-token match
   if (b.viewport !== a.viewport && (b.viewport === 'none' || a.viewport === 'none')) {
+    if (b.stateTokens.length === 0 || a.stateTokens.length === 0) return -1;
+    const sameStates =
+      b.stateTokens.length === a.stateTokens.length &&
+      b.stateTokens.every((t) => a.stateTokens.includes(t));
+    return sameStates ? 300 : -1;
+  }
+
+  // Both sides have state tokens: require strong state overlap (never pair `fields-wizard` with `rich-text`)
+  if (b.stateTokens.length > 0 && a.stateTokens.length > 0) {
     const overlap = b.stateTokens.filter((t) => a.stateTokens.includes(t));
     if (overlap.length === 0) return -1;
+    const minLen = Math.min(b.stateTokens.length, a.stateTokens.length);
+    const maxLen = Math.max(b.stateTokens.length, a.stateTokens.length);
+    // All tokens of the shorter set must match, and difference can be at most 1 non-distinct token
+    if (overlap.length < minLen || maxLen - overlap.length > 1) return -1;
+    const unmatched = [...b.stateTokens, ...a.stateTokens].filter((t) => !overlap.includes(t));
+    if (unmatched.some((t) => DISTINCT_STATE_TOKENS.has(t))) return -1;
+    const vpBonus = b.viewport !== 'none' && b.viewport === a.viewport ? 100 : 0;
+    return 400 + vpBonus + overlap.length * 30 - (maxLen - overlap.length) * 15;
   }
 
-  let score = 0;
+  // Only allow pairing a route-tagged baseline (e.g. `before-customers-desktop.png`) with a generic
+  // viewport-only capture (`impl-desktop.png`) when viewport matches and the single token is a route/surface
+  // name rather than a distinct interactive sub-state (like `wizard`, `error`, `drawer`, `dialog`).
   if (b.viewport !== 'none' && b.viewport === a.viewport) {
-    score += 100;
-    if (a.stateTokens.length === 0) score += 20;
-    if (a.stateTokens.includes('default') || a.stateTokens.includes('idle')) score += 15;
+    const tagged = b.stateTokens.length > 0 ? b.stateTokens : a.stateTokens;
+    if (tagged.length === 0) return 500;
+    if (tagged.length === 1 && !DISTINCT_STATE_TOKENS.has(tagged[0]!)) {
+      return 120;
+    }
   }
 
-  const overlap = b.stateTokens.filter((t) => a.stateTokens.includes(t)).length;
-  score += overlap * 30;
-
-  if (score === 0) return -1;
-  score -= Math.abs(b.stateTokens.length - a.stateTokens.length) * 5;
-  return score;
+  return -1;
 }
 
 function titleToken(tok: string): string {
   if (/^\d+px$/i.test(tok)) return tok.toLowerCase();
+  if (/^(ui|ux|api|id|url|html|json|csv|xlsx|kpi|otp|cta)$/i.test(tok)) return tok.toUpperCase();
   return tok.charAt(0).toUpperCase() + tok.slice(1);
 }
 
 function formatEvidenceView(before?: EvidenceImage, after?: EvidenceImage): string {
-  const primary = parseEvidenceName((after ?? before)!.name);
-  const secondary = before && after ? parseEvidenceName(before.name) : undefined;
+  const explicitLabel = after?.label?.trim() || before?.label?.trim();
+  if (explicitLabel) return explicitLabel;
+
+  const primary = parseEvidenceName((after ?? before)!);
+  const secondary = before && after ? parseEvidenceName(before) : undefined;
   const viewport = primary.viewport !== 'none' ? primary.viewport : secondary?.viewport ?? 'none';
   const widthHint = primary.widthHint || secondary?.widthHint || '';
   const stateTokens = primary.stateTokens.length > 0 ? primary.stateTokens : secondary?.stateTokens ?? [];
 
-  const parts: string[] = [];
-  if (viewport !== 'none') {
-    const vpLabel = titleToken(viewport);
-    parts.push(widthHint ? `${vpLabel} (${widthHint})` : vpLabel);
-  }
-  if (stateTokens.length > 0) {
-    parts.push(stateTokens.map(titleToken).join(' '));
-  }
-  return parts.join(' · ') || 'Screenshot';
+  const stateLabel = stateTokens.map(titleToken).join(' ');
+  const vpLabel = viewport !== 'none'
+    ? (widthHint ? `${titleToken(viewport)} (${widthHint})` : titleToken(viewport))
+    : '';
+
+  if (stateLabel && vpLabel) return `${stateLabel} · ${vpLabel}`;
+  return stateLabel || vpLabel || 'Screenshot';
 }
 
 /**
- * Pairs Before and After screenshots by viewport/state semantics rather than alphabetical index,
- * preventing mismatched pairs (e.g. mobile Before next to desktop modal After).
+ * Separates visual evidence into:
+ * - `comparisons`: genuine Before/After pairs matching the same changed surface
+ * - `afterOnly`: new surfaces, interactive states, or deliverables with no Before counterpart
+ * - `beforeOnly`: unmatched Before baselines (e.g. extra captures from untouched views)
  */
-export function pairEvidenceImages(
+export function partitionEvidenceImages(
   beforeImages: EvidenceImage[],
   afterImages: EvidenceImage[]
-): EvidenceRow[] {
-  const beforeMeta = beforeImages.map((img) => parseEvidenceName(img.name));
-  const afterMeta = afterImages.map((img) => parseEvidenceName(img.name));
+): PartitionedEvidence {
+  const beforeMeta = beforeImages.map((img) => parseEvidenceName(img));
+  const afterMeta = afterImages.map((img) => parseEvidenceName(img));
 
   const candidates: Array<{ bIdx: number; aIdx: number; score: number }> = [];
   for (let bIdx = 0; bIdx < beforeMeta.length; bIdx++) {
@@ -318,23 +487,151 @@ export function pairEvidenceImages(
 
   paired.sort((x, y) => x.bIdx - y.bIdx || x.aIdx - y.aIdx);
 
-  const rows: EvidenceRow[] = paired.map(({ bIdx, aIdx }) => {
+  const comparisons: EvidenceComparisonRow[] = paired.map(({ bIdx, aIdx }) => {
     const before = beforeImages[bIdx]!;
     const after = afterImages[aIdx]!;
     return { view: formatEvidenceView(before, after), before, after };
   });
 
+  const beforeOnly: EvidenceSingleRow[] = [];
   for (let bIdx = 0; bIdx < beforeImages.length; bIdx++) {
     if (usedBefore.has(bIdx)) continue;
     const before = beforeImages[bIdx]!;
-    rows.push({ view: formatEvidenceView(before, undefined), before });
+    beforeOnly.push({ view: formatEvidenceView(before, undefined), image: before });
   }
 
+  const afterOnly: EvidenceSingleRow[] = [];
   for (let aIdx = 0; aIdx < afterImages.length; aIdx++) {
     if (usedAfter.has(aIdx)) continue;
     const after = afterImages[aIdx]!;
-    rows.push({ view: formatEvidenceView(undefined, after), after });
+    afterOnly.push({ view: formatEvidenceView(undefined, after), image: after });
   }
 
-  return rows;
+  return { comparisons, afterOnly, beforeOnly };
+}
+
+/**
+ * Legacy flattened view over `partitionEvidenceImages`.
+ */
+export function pairEvidenceImages(
+  beforeImages: EvidenceImage[],
+  afterImages: EvidenceImage[]
+): EvidenceRow[] {
+  const { comparisons, beforeOnly, afterOnly } = partitionEvidenceImages(beforeImages, afterImages);
+  return [
+    ...comparisons.map((c) => ({ view: c.view, before: c.before, after: c.after })),
+    ...beforeOnly.map((b) => ({ view: b.view, before: b.image })),
+    ...afterOnly.map((a) => ({ view: a.view, after: a.image })),
+  ];
+}
+
+function escapeTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+function renderImageCell(img: EvidenceImage): string {
+  return `![${img.name}](${img.url})<br/><sub>${img.name}</sub>`;
+}
+
+export interface RenderEvidenceOptions {
+  before: EvidenceImage[];
+  after: EvidenceImage[];
+  afterLabel: string;
+  /** Concise `/pr`-style execution/behavioral evidence (BE, API, DB, tests, CLI, perf). */
+  executionEvidence?: string;
+  beforeSummary?: string;
+  fallbackAfterLine?: string;
+}
+
+/**
+ * Renders `## Evidence` cleanly based on what actually changed:
+ * - Visual changes: true Before/After pairs render side by side with zero `—` cells,
+ *   new surfaces/states render in a focused After table, and unmatched Before captures collapse.
+ * - Non-UI / BE / full-stack changes: includes concise `/pr`-style execution/behavioral evidence
+ *   (Before -> After behavior, API/DB diffs, exact test/check results) as primary evidence when
+ *   there are no screenshots, or paired under `### Execution & Behavioral Evidence` alongside visuals.
+ */
+export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[] {
+  const {
+    before,
+    after,
+    afterLabel,
+    executionEvidence = '',
+    beforeSummary = '',
+    fallbackAfterLine = '',
+  } = options;
+  const cleanExecution = executionEvidence.trim();
+  const lines: string[] = ['## Evidence'];
+
+  if (before.length === 0 && after.length === 0) {
+    if (cleanExecution) {
+      lines.push('', cleanExecution, '');
+      return lines;
+    }
+    if (beforeSummary) lines.push(`- **Before:** ${beforeSummary}`);
+    if (fallbackAfterLine) lines.push(`- **After:** ${fallbackAfterLine}`);
+    lines.push('');
+    return lines;
+  }
+
+  const { comparisons, afterOnly, beforeOnly } = partitionEvidenceImages(before, after);
+
+  if (comparisons.length === 0 && before.length === 0 && beforeSummary) {
+    lines.push(`- **Before:** _${beforeSummary}_`, '');
+  }
+
+  if (comparisons.length > 0) {
+    if (afterOnly.length > 0 || cleanExecution) {
+      lines.push('### Before / After');
+    }
+    lines.push(`| Surface | Before | ${afterLabel} |`, '| :--- | :---: | :---: |');
+    for (const row of comparisons) {
+      lines.push(
+        `| **${escapeTableCell(row.view)}** | ${renderImageCell(row.before)} | ${renderImageCell(row.after)} |`
+      );
+    }
+    lines.push('');
+  }
+
+  if (afterOnly.length > 0) {
+    if (comparisons.length > 0 || cleanExecution) {
+      lines.push(
+        comparisons.length > 0
+          ? `### Additional States — ${afterLabel}`
+          : `### Visual Evidence — ${afterLabel}`
+      );
+    }
+    lines.push(`| State | ${afterLabel} |`, '| :--- | :---: |');
+    for (const row of afterOnly) {
+      lines.push(`| **${escapeTableCell(row.view)}** | ${renderImageCell(row.image)} |`);
+    }
+    lines.push('');
+  }
+
+  if (beforeOnly.length > 0) {
+    if (comparisons.length > 0 || afterOnly.length > 0) {
+      lines.push(
+        `<details><summary>Unmatched Before Captures (${beforeOnly.length})</summary>`,
+        '',
+        '| Surface | Before |',
+        '| :--- | :---: |'
+      );
+      for (const row of beforeOnly) {
+        lines.push(`| **${escapeTableCell(row.view)}** | ${renderImageCell(row.image)} |`);
+      }
+      lines.push('', '</details>', '');
+    } else {
+      lines.push('| Surface | Before |', '| :--- | :---: |');
+      for (const row of beforeOnly) {
+        lines.push(`| **${escapeTableCell(row.view)}** | ${renderImageCell(row.image)} |`);
+      }
+      lines.push('');
+    }
+  }
+
+  if (cleanExecution) {
+    lines.push('### Execution & Behavioral Evidence', '', cleanExecution, '');
+  }
+
+  return lines;
 }

@@ -29,17 +29,27 @@ Deliver the accepted slice contract in `$INPUTS.contract_path` cleanly via TDD i
    - Prepare the worktree with the repository’s documented dependency and test-environment setup. Keep tracked changes within the slice boundaries.
    - Run the resolved verification command `$INPUTS.verification_command`.
    - Ensure every check passes cleanly and all changes are saved on disk (the publisher will commit and open the Draft PR).
-   - **Self-captured smoke & visual evidence (when `$INPUTS.has_ui` is `true` and `$INPUTS.preview_cmd` is non-empty):**
+   - **Self-captured smoke & change-driven visual evidence (when `$INPUTS.has_ui` is `true` and `$INPUTS.preview_cmd` is non-empty):**
      - Boot `$INPUTS.preview_cmd`, parse `URL=...` and `PID=...` (always `kill "$PID"` in a trap or cleanup block before finishing).
      - Run a concise smoke check on the changed route(s) and key states using `agent-browser` (or the repository's documented preview command) to confirm the UI renders with zero unexpected console/request errors, broken images, or obvious overflow. Leave exhaustive multi-state, theme-matrix, focus-contrast, and Playwright sweeps to `ux-verify`.
-     - Save 1–3 smoke screenshots to `$ARTIFACTS_DIR/evidence/impl-<state>.png` (e.g. `impl-desktop.png`, `impl-mobile-320.png`), **open and visually inspect those PNGs with your file-reading tool**, and fix any layout/clipping/contrast defects before handing off.
+     - **Select screenshots strictly from what this slice changed or added** (no fixed `desktop` + `mobile` template and no artificial 1–3 cap; keep captures concise, non-redundant, and proportional to scope — e.g. 1–2 focused captures for a small tweak, or 1 per key deliverable / interactive state for a rich multi-state component, typically up to ~6):
+       - If `$ARTIFACTS_DIR/evidence/before.md` lists `before-<slug>.png` baselines for modified existing UI, capture matching `impl-<slug>.png` shots at the **same route, viewport, and framing** so the PR's Before/After table is apples-to-apples.
+       - For newly added surfaces and interactive states (e.g. populated view, open menu/popover/dialog, validation error, empty/disabled state, output tabs), save descriptive `$ARTIFACTS_DIR/evidence/impl-<state-slug>.png` files (prefer focused element/section crops or scrolled framing when the change lives inside a long page). Capture mobile/320px only when responsive layout or wrapping is affected by this change or required by the contract.
+       - Optionally write `$ARTIFACTS_DIR/evidence/impl-manifest.json` (`[{ "file": "impl-...", "label": "...", "pairKey": "..." }]`) for crisp PR labels.
+     - **Open and visually inspect every captured PNG with your file-reading tool**, and fix any layout/clipping/contrast defects before handing off.
 5. **Implementation Notes & Compact PR Summary (`/pr` style):**
    - Write full technical notes to `$ARTIFACTS_DIR/implementation.md` (for QA reviewers: `## Overview`, `## Key Changes & Behavior`, `## Verification Results`, `## Risks & Trade-offs`).
    - For scaffolds, record setup commands, versions and working directories actually used, deviations with reasons, and results of the handoff integration checks. Include the concise setup evidence in the PR summary.
-   - Also write a compact, human-scannable PR digest to `$ARTIFACTS_DIR/pr-summary.md` (use the smallest clear visual):
+   - Also write a compact, human-scannable PR digest to `$ARTIFACTS_DIR/pr-summary.md` (following `/pr` structure — use the smallest clear visual and concrete Before/After proof for what changed):
      ```markdown
      ## Summary
      <Choose the smallest clear visual: `diff` sketch of component/file/control-flow changes, shallow file tree, state pseudocode, or Mermaid `sequenceDiagram`; keep prose brief>
+
+     ## Evidence
+     <Concrete execution/behavioral proof tailored to what changed — especially for BE, API, DB, CLI, library, or non-UI parts of full-stack slices:
+     - **Before:** failing test, broken behavior, or previous API/DB/bundle contract
+     - **After:** passing test/command output (exact commands & counts actually run), API/payload/schema diff, or concise failing->passing test pseudocode
+     (Do NOT hand-write screenshot URLs here — `publish-pr.ts` embeds `$ARTIFACTS_DIR/evidence/*.png` automatically alongside this section.)>
 
      ## Merge Danger
      **Door:** <One-way | Two-way> — <brief rollback note>

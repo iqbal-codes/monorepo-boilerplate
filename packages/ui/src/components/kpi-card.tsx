@@ -288,17 +288,26 @@ type KpiGridProps = {
   children: React.ReactNode;
   /** `"cards"` renders separated tiles; `"strip"` joins them inside one divided bar. */
   variant?: "cards" | "strip";
+  /** Maximum column count on wide screens. Defaults to `4`. */
+  columns?: 2 | 3 | 4;
   className?: string;
 };
 
-/** Responsive KPI row: one column on phones, up to four on wide screens. */
-export function KpiGrid({ children, variant = "cards", className }: KpiGridProps) {
+const KPI_GRID_COLUMNS: Record<2 | 3 | 4, string> = {
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
+};
+
+/** Responsive KPI row: one column on phones, up to `columns` on wide screens. */
+export function KpiGrid({ children, variant = "cards", columns = 4, className }: KpiGridProps) {
   return (
     <div
       data-slot="kpi-grid"
       data-variant={variant}
       className={cn(
-        "group/kpi-grid grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
+        "group/kpi-grid grid",
+        KPI_GRID_COLUMNS[columns],
         variant === "cards"
           ? "gap-3"
           : "gap-px border border-border/80 bg-border/70 shadow-[0_1px_2px_0_oklch(0_0_0/0.04)]",

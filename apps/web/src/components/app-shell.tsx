@@ -100,7 +100,7 @@ export function AppShell({
           <AppTopbar onOpenCommandCenter={openCommandCenter} />
           <div
             data-slot="app-content"
-            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 md:gap-6 md:p-6"
+            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-3 pt-3 pb-20 md:gap-6 md:p-6"
           >
             {children}
           </div>
