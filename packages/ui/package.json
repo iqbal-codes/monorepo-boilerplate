@@ -12,6 +12,8 @@
     "./components/assistant/*": "./src/components/assistant/*.tsx",
     "./components/kanban": "./src/components/kanban/index.ts",
     "./components/kanban/*": "./src/components/kanban/*.tsx",
+    "./components/rich-text": "./src/components/rich-text/index.ts",
+    "./components/rich-text/*": "./src/components/rich-text/*.tsx",
     "./components/*": "./src/components/*.tsx",
     "./hooks/*": "./src/hooks/*.ts",
     "./postcss.config": "./postcss.config.mjs"
@@ -32,6 +34,12 @@
     "@shadcn/react": "^0.3.1",
     "@tanstack/react-form": "^1.33.5",
     "@tanstack/react-table": "9.3.1",
+    "@tiptap/core": "3.35.1",
+    "@tiptap/extensions": "3.35.1",
+    "@tiptap/pm": "3.35.1",
+    "@tiptap/react": "3.35.1",
+    "@tiptap/starter-kit": "3.35.1",
+    "@tiptap/suggestion": "3.35.1",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cn": "^0.5.2",
@@ -59,6 +67,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "happy-dom": "^21.0.4",
+    "mdast-util-from-markdown": "^2.1.0",
     "tailwindcss": "catalog:",
     "typescript": "catalog:"
   }

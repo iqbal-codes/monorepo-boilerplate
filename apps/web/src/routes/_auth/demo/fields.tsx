@@ -29,6 +29,8 @@ import z from "zod";
 import { assetUrl } from "@/lib/asset-url";
 import { uploadFile } from "@/lib/upload";
 
+import { RichTextAndGuardShowcase } from "./-rich-text-and-guard-showcase";
+
 export const Route = createFileRoute("/_auth/demo/fields")({
   component: FieldsDemo,
   staticData: { pageTitle: "Fields" },
@@ -83,6 +85,15 @@ const TAG_OPTIONS: ReadonlyArray<FieldOption> = [
   { value: "security", label: "Security" },
 ];
 
+const KEYWORD_SUGGESTIONS: ReadonlyArray<string> = [
+  "TypeScript",
+  "TanStack Form",
+  "Base UI",
+  "Tiptap",
+  "ProseMirror",
+  "Accessibility",
+];
+
 const allFieldsSchema = z.object({
   name: z.string().trim().min(1, "Name is required."),
   email: z.email("Enter a valid email address."),
@@ -105,6 +116,7 @@ const allFieldsSchema = z.object({
   channels: z.array(z.string()).min(1, "Pick at least one channel."),
   cadence: z.string().optional(),
   tags: z.array(z.string()),
+  keywords: z.array(z.string()),
   marketingOptIn: z.boolean(),
   autoRenew: z.boolean(),
   startDate: z.string(),
@@ -181,6 +193,7 @@ const ALL_FIELDS_DEFAULTS: AllFieldsValues = {
   channels: ["email"],
   cadence: "weekly",
   tags: ["vip"],
+  keywords: ["TypeScript", "Base UI"],
   marketingOptIn: false,
   autoRenew: true,
   startDate: "2026-11-24",
@@ -419,6 +432,18 @@ function AllFieldBlocksTab() {
                   )}
                 </form.AppField>
               </div>
+
+              <form.AppField name="keywords">
+                {(field) => (
+                  <field.TagField
+                    label="Topic tags"
+                    suggestions={KEYWORD_SUGGESTIONS}
+                    placeholder="Add topic…"
+                    maxTags={6}
+                    description="Press Enter or comma to add tags."
+                  />
+                )}
+              </form.AppField>
 
               <Separator />
 
@@ -694,7 +719,7 @@ function FieldsDemo() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Fields"
-        description="Every Field Block, FieldArray, and Form Wizard wired to TanStack Form with Zod validation. Deletable demo."
+        description="Every Field Block, TagField, UnsavedChangesGuard, subpath-isolated RichTextField, and Form Wizard wired to TanStack Form with Zod validation. Deletable demo."
       />
 
       <Tabs defaultValue="catalog" className="gap-6">
@@ -703,7 +728,9 @@ function FieldsDemo() {
           <TabsTrigger value="wizard">Form Wizard</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="catalog">
+        <TabsContent value="catalog" className="flex flex-col gap-6">
+          <RichTextAndGuardShowcase />
+          <Separator />
           <AllFieldBlocksTab />
         </TabsContent>
 
