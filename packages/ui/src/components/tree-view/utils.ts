@@ -58,6 +58,31 @@ export function flattenVisibleTree<TMeta>(
   return result;
 }
 
+/** Index a visible (or windowed) preorder sequence without changing sibling order. */
+export function groupTreeRows<T>(rows: readonly T[], getParentId: (row: T) => string | null) {
+  const groups = new Map<string | null, T[]>();
+  for (const row of rows) {
+    const parentId = getParentId(row);
+    const siblings = groups.get(parentId);
+    if (siblings) siblings.push(row);
+    else groups.set(parentId, [row]);
+  }
+  return groups;
+}
+
+export function collectVisibleParentIds<TMeta>(nodes: readonly TreeNode<TMeta>[]): string[] {
+  const ids: string[] = [];
+  function visit(list: readonly TreeNode<TMeta>[]) {
+    for (const { id, children } of list) {
+      if (!children?.length) continue;
+      ids.push(id);
+      visit(children);
+    }
+  }
+  visit(nodes);
+  return ids;
+}
+
 export function filterTreeNodes<TMeta>(
   nodes: readonly TreeNode<TMeta>[],
   query: string,

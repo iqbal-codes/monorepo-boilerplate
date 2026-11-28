@@ -7,6 +7,8 @@ type PageHeaderProps = {
   /** Keep the subtitle visible on narrow/mobile viewports (e.g. when it shows identifying data like an email). */
   keepDescriptionOnMobile?: boolean;
   actions?: React.ReactNode;
+  /** Keep preview or action controls on a separate row below `sm`. */
+  stackActionsOnMobile?: boolean;
   /** Breadcrumb trail rendered above the title. */
   breadcrumbs?: React.ReactNode;
   className?: string;
@@ -18,6 +20,7 @@ export function PageHeader({
   description,
   keepDescriptionOnMobile = false,
   actions,
+  stackActionsOnMobile = false,
   breadcrumbs,
   className,
 }: PageHeaderProps) {
@@ -25,7 +28,12 @@ export function PageHeader({
     <div data-slot="page-header" className={cn("flex min-w-0 flex-col gap-2 sm:gap-3", className)}>
       {breadcrumbs}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:items-start">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-col gap-1",
+            stackActionsOnMobile && "basis-full sm:basis-0",
+          )}
+        >
           <h1 className="text-xl font-semibold tracking-tight text-balance sm:text-2xl">{title}</h1>
           {description ? (
             <p

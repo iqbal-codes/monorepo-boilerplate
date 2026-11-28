@@ -16,10 +16,11 @@ import { TreeRow } from "./tree-row";
 import { TreeVirtualBody, type TreeVirtualBodyHandle } from "./tree-virtual-body";
 import type { FlattenedTreeItem, TreeNode, TreeViewProps } from "./types";
 import {
-  collectExpandableIds,
+  collectVisibleParentIds,
   filterTreeNodes,
   flattenVisibleTree,
   getResolvedChildren,
+  groupTreeRows,
   toIdSet,
 } from "./utils";
 
@@ -61,6 +62,8 @@ export function TreeView<TMeta = unknown>({
     Map<string, readonly TreeNode<TMeta>[]>
   >(() => new Map());
   const [internalLoadingIds, setInternalLoadingIds] = React.useState<Set<string>>(() => new Set());
+  const [loadErrors, setLoadErrors] = React.useState<ReadonlyMap<string, string>>(() => new Map());
+  const pendingLoads = React.useRef(new Set<string>());
 
   const itemRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
   const pendingFocusIdRef = React.useRef<string | null>(null);
@@ -71,6 +74,14 @@ export function TreeView<TMeta = unknown>({
       controlledExpandedIds !== undefined ? toIdSet(controlledExpandedIds) : uncontrolledExpanded,
     [controlledExpandedIds, uncontrolledExpanded],
   );
+
+  const expansionRef = React.useRef({ expandedIds, controlledExpandedIds, onExpandedIdsChange });
+  React.useLayoutEffect(() => {
+    expansionRef.current = { expandedIds, controlledExpandedIds, onExpandedIdsChange };
+    return () => {
+      expansionRef.current = { expandedIds, controlledExpandedIds, onExpandedIdsChange: undefined };
+    };
+  }, [expandedIds, controlledExpandedIds, onExpandedIdsChange]);
 
   const selectedIds = React.useMemo(
     () =>
@@ -98,13 +109,14 @@ export function TreeView<TMeta = unknown>({
   );
 
   const effectiveExpandedIds = React.useMemo(() => {
-    if (!trimmedQuery) return expandedIds;
+    if (!trimmedQuery && loadErrors.size === 0) return expandedIds;
     const merged = new Set(expandedIds);
-    for (const id of collectExpandableIds(displayNodes, loadedChildren)) {
-      merged.add(id);
+    if (trimmedQuery) {
+      for (const id of collectVisibleParentIds(displayNodes)) merged.add(id);
     }
+    for (const id of loadErrors.keys()) merged.delete(id);
     return merged;
-  }, [displayNodes, expandedIds, loadedChildren, trimmedQuery]);
+  }, [displayNodes, expandedIds, loadErrors, trimmedQuery]);
 
   const visibleItems = React.useMemo(
     () => flattenVisibleTree(displayNodes, effectiveExpandedIds, loadedChildren),
@@ -143,10 +155,12 @@ export function TreeView<TMeta = unknown>({
   }, []);
 
   function commitExpandedIds(next: Set<string>) {
-    if (controlledExpandedIds === undefined) {
+    const expansion = expansionRef.current;
+    if (expansion.controlledExpandedIds === undefined) {
       setUncontrolledExpanded(next);
     }
-    onExpandedIdsChange?.(next);
+    expansion.expandedIds = next;
+    expansion.onExpandedIdsChange?.(next);
   }
 
   function commitSelectedIds(next: Set<string>) {
@@ -180,25 +194,26 @@ export function TreeView<TMeta = unknown>({
     const { node, isBranch } = item;
     if (!isBranch || node.disabled) return;
 
-    const next = new Set(expandedIds);
-    if (nextExpanded) {
-      next.add(node.id);
-    } else {
-      next.delete(node.id);
-    }
-    commitExpandedIds(next);
-
-    const existingChildren = getResolvedChildren(node, loadedChildren);
     const needsLazyLoad =
       nextExpanded &&
       Boolean(node.hasChildren) &&
-      (!existingChildren || existingChildren.length === 0) &&
-      onLoadChildren !== undefined &&
-      !internalLoadingIds.has(node.id);
+      getResolvedChildren(node, loadedChildren) === undefined &&
+      onLoadChildren !== undefined;
 
-    if (!needsLazyLoad) return;
+    const next = new Set(expansionRef.current.expandedIds);
+    if (nextExpanded) next.add(node.id);
+    else next.delete(node.id);
+    commitExpandedIds(next);
 
+    if (!needsLazyLoad || pendingLoads.current.has(node.id) || loadingIds.has(node.id)) return;
+    pendingLoads.current.add(node.id);
     setInternalLoadingIds((prev) => new Set(prev).add(node.id));
+    setLoadErrors((prev) => {
+      if (!prev.has(node.id)) return prev;
+      const nextErrors = new Map(prev);
+      nextErrors.delete(node.id);
+      return nextErrors;
+    });
     try {
       const result = await onLoadChildren(node);
       if (Array.isArray(result)) {
@@ -208,7 +223,13 @@ export function TreeView<TMeta = unknown>({
           return nextMap;
         });
       }
+    } catch {
+      setLoadErrors((prev) => new Map(prev).set(node.id, node.label));
+      // Merge against the latest expansion, not the snapshot before awaiting.
+      const latest = new Set(expansionRef.current.expandedIds);
+      if (latest.delete(node.id)) commitExpandedIds(latest);
     } finally {
+      pendingLoads.current.delete(node.id);
       setInternalLoadingIds((prev) => {
         const nextSet = new Set(prev);
         nextSet.delete(node.id);
@@ -279,8 +300,7 @@ export function TreeView<TMeta = unknown>({
         if (!item.isExpanded) {
           void setNodeExpanded(item, true);
         } else {
-          const children = getResolvedChildren(item.node, loadedChildren);
-          if (children && children.length > 0 && currentIndex + 1 < visibleItems.length) {
+          if (visibleItems[currentIndex + 1]?.parentId === item.node.id) {
             focusIndex(currentIndex + 1);
           }
         }
@@ -392,59 +412,71 @@ export function TreeView<TMeta = unknown>({
     );
   }
 
-  if (virtualized) {
-    const virtualOptions = typeof virtualized === "object" ? virtualized : {};
-    return (
-      <TreeVirtualBody
-        ref={virtualHandleRef}
-        items={visibleItems}
-        options={virtualOptions}
-        ariaLabel={ariaLabel}
-        selectionMode={selectionMode}
-        selectedIds={selectedIds}
-        loadingIds={loadingIds}
-        activeNodeId={activeNodeId}
-        setItemRef={setItemRef}
-        onToggleExpand={handleToggleExpand}
-        onSelectOrActivate={handleSelectOrActivate}
-        onKeyDown={handleKeyDown}
-        onFocus={setFocusedId}
-        renderNodeContent={renderNodeContent}
-        className={className}
-      />
-    );
+  const rowsByParent = !virtualized ? groupTreeRows(visibleItems, (item) => item.parentId) : null;
+  function renderRows(parentId: string | null): React.ReactNode {
+    return rowsByParent?.get(parentId)?.map((item) => {
+      const nodeId = item.node.id;
+      return (
+        <TreeRow
+          key={nodeId}
+          item={item}
+          selectionMode={selectionMode}
+          isSelected={selectedIds.has(nodeId)}
+          isLoading={loadingIds.has(nodeId)}
+          isFocused={nodeId === activeNodeId}
+          setItemRef={setItemRef}
+          onToggleExpand={handleToggleExpand}
+          onSelectOrActivate={handleSelectOrActivate}
+          onKeyDown={handleKeyDown}
+          onFocus={setFocusedId}
+          renderNodeContent={renderNodeContent}
+          className="border-b border-border/50"
+        >
+          {renderRows(nodeId)}
+        </TreeRow>
+      );
+    });
   }
 
   return (
-    <div
-      role="tree"
-      aria-label={ariaLabel}
-      aria-multiselectable={selectionMode === "multiple" ? "true" : undefined}
-      data-slot="tree-view"
-      className={cn(
-        "flex w-full min-w-0 flex-col divide-y divide-border/50 border border-border bg-card text-card-foreground",
-        className,
+    <>
+      {virtualized ? (
+        <TreeVirtualBody
+          ref={virtualHandleRef}
+          items={visibleItems}
+          options={typeof virtualized === "object" ? virtualized : {}}
+          ariaLabel={ariaLabel}
+          selectionMode={selectionMode}
+          selectedIds={selectedIds}
+          loadingIds={loadingIds}
+          activeNodeId={activeNodeId}
+          setItemRef={setItemRef}
+          onToggleExpand={handleToggleExpand}
+          onSelectOrActivate={handleSelectOrActivate}
+          onKeyDown={handleKeyDown}
+          onFocus={setFocusedId}
+          renderNodeContent={renderNodeContent}
+          className={className}
+        />
+      ) : (
+        <div
+          role="tree"
+          aria-label={ariaLabel}
+          aria-multiselectable={selectionMode === "multiple" ? "true" : undefined}
+          data-slot="tree-view"
+          className={cn(
+            "flex w-full min-w-0 flex-col border border-border bg-card text-card-foreground",
+            className,
+          )}
+        >
+          {renderRows(null)}
+        </div>
       )}
-    >
-      {visibleItems.map((item) => {
-        const nodeId = item.node.id;
-        return (
-          <TreeRow
-            key={nodeId}
-            item={item}
-            selectionMode={selectionMode}
-            isSelected={selectedIds.has(nodeId)}
-            isLoading={loadingIds.has(nodeId)}
-            isFocused={nodeId === activeNodeId}
-            setItemRef={setItemRef}
-            onToggleExpand={handleToggleExpand}
-            onSelectOrActivate={handleSelectOrActivate}
-            onKeyDown={handleKeyDown}
-            onFocus={setFocusedId}
-            renderNodeContent={renderNodeContent}
-          />
-        );
-      })}
-    </div>
+      <div role="status" className={loadErrors.size > 0 ? "text-sm text-destructive" : "sr-only"}>
+        {[...loadErrors].map(([id, label]) => (
+          <p key={id}>Could not load children for {label}. Expand the branch to retry.</p>
+        ))}
+      </div>
+    </>
   );
 }

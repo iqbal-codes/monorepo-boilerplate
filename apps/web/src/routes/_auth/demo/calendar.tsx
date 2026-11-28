@@ -1,33 +1,14 @@
-import { useId, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  CalendarIcon,
-  ClockIcon,
-  MapPinIcon,
-  PlusIcon,
-  RotateCcwIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { RotateCcwIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@monorepo-boilerplate/ui/components/badge";
 import { Button } from "@monorepo-boilerplate/ui/components/button";
 import {
   CalendarView,
-  formatEventTimeRange,
   type CalendarEvent,
-  type CalendarEventTone,
-  type CalendarSlotClickContext,
   type CalendarViewMode,
 } from "@monorepo-boilerplate/ui/components/calendar-view";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@monorepo-boilerplate/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,18 +18,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@monorepo-boilerplate/ui/components/dropdown-menu";
-import { Field, FieldGroup, FieldLabel } from "@monorepo-boilerplate/ui/components/field";
-import { Input } from "@monorepo-boilerplate/ui/components/input";
 import { PageHeader } from "@monorepo-boilerplate/ui/components/page-header";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@monorepo-boilerplate/ui/components/select";
 import { ToggleGroup, ToggleGroupItem } from "@monorepo-boilerplate/ui/components/toggle-group";
+import { formatDate, formatDateTime } from "@monorepo-boilerplate/ui/lib/format";
 
 export const Route = createFileRoute("/_auth/demo/calendar")({
   component: CalendarDemo,
@@ -56,14 +28,6 @@ export const Route = createFileRoute("/_auth/demo/calendar")({
 });
 
 type PreviewMode = "ready" | "loading" | "empty";
-
-const TONE_OPTIONS: ReadonlyArray<{ label: string; value: CalendarEventTone }> = [
-  { label: "Info", value: "info" },
-  { label: "Success", value: "success" },
-  { label: "Warning", value: "warning" },
-  { label: "Danger", value: "danger" },
-  { label: "Default", value: "default" },
-];
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -166,62 +130,20 @@ function buildInitialEvents(anchor: Date): CalendarEvent[] {
 /**
  * DELETABLE DEMO. Exhibits the subpath-isolated CalendarView block across Month,
  * Week, Day, and Agenda views, with `+N more` overflow popovers, event popovers,
- * slot creation, loading overlay, and empty-range state.
+ * slot callback feedback, loading overlay, and empty-range state.
  */
 function CalendarDemo() {
   const initialAnchor = useMemo(() => new Date(), []);
   const [date, setDate] = useState<Date>(() => new Date(initialAnchor.getTime()));
   const [view, setView] = useState<CalendarViewMode>("month");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("ready");
-  const [events, setEvents] = useState<CalendarEvent[]>(() => buildInitialEvents(initialAnchor));
-
-  const [pendingSlot, setPendingSlot] = useState<CalendarSlotClickContext | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftTone, setDraftTone] = useState<CalendarEventTone>("info");
-  const titleInputId = useId();
-  const toneSelectId = useId();
-
+  const events = useMemo(() => buildInitialEvents(initialAnchor), [initialAnchor]);
   const displayedEvents = previewMode === "empty" ? [] : events;
-
-  function handleSlotClick(slot: CalendarSlotClickContext) {
-    setPendingSlot(slot);
-    setDraftTitle("");
-    setDraftTone("info");
-  }
-
-  function handleCreateEvent(event: FormEvent) {
-    event.preventDefault();
-    if (!pendingSlot) return;
-    const trimmed = draftTitle.trim();
-    if (!trimmed) return;
-
-    const created: CalendarEvent = {
-      id: `cal-custom-${Date.now()}`,
-      title: trimmed,
-      start: pendingSlot.start.toISOString(),
-      end: pendingSlot.end.toISOString(),
-      allDay: pendingSlot.allDay,
-      tone: draftTone,
-      category: "Custom",
-      description: `Added from ${pendingSlot.view} slot.`,
-    };
-    setEvents((prev) => [...prev, created]);
-    setPendingSlot(null);
-    setPreviewMode("ready");
-    toast.success(`Scheduled "${trimmed}".`);
-  }
-
-  function handleDeleteEvent(eventId: string, title: string, close: () => void) {
-    setEvents((prev) => prev.filter((item) => item.id !== eventId));
-    close();
-    toast(`Removed "${title}".`);
-  }
 
   function handleReset() {
     setDate(new Date(initialAnchor.getTime()));
     setView("month");
     setPreviewMode("ready");
-    setEvents(buildInitialEvents(initialAnchor));
     toast("Calendar demo reset.");
   }
 
@@ -229,6 +151,7 @@ function CalendarDemo() {
     <div className="flex min-w-0 flex-1 flex-col gap-6">
       <PageHeader
         title="Calendar"
+        stackActionsOnMobile
         description="Controlled, subpath-isolated CalendarView block with Month, Week, Day, and Agenda layouts, overflow popovers, and mobile Agenda fallback. Deletable demo."
         actions={
           <>
@@ -242,9 +165,24 @@ function CalendarDemo() {
                   if (mode) setPreviewMode(mode);
                 }}
               >
-                <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
-                <ToggleGroupItem value="loading">Loading</ToggleGroupItem>
-                <ToggleGroupItem value="empty">Empty</ToggleGroupItem>
+                <ToggleGroupItem
+                  className="focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  value="ready"
+                >
+                  Ready
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  className="focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  value="loading"
+                >
+                  Loading
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  className="focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  value="empty"
+                >
+                  Empty
+                </ToggleGroupItem>
               </ToggleGroup>
             </div>
             <DropdownMenu>
@@ -273,21 +211,6 @@ function CalendarDemo() {
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() =>
-                handleSlotClick({
-                  start: new Date(date.getFullYear(), date.getMonth(), date.getDate(), 10, 0, 0),
-                  end: new Date(date.getFullYear(), date.getMonth(), date.getDate(), 11, 0, 0),
-                  allDay: false,
-                  view,
-                })
-              }
-            >
-              <PlusIcon data-icon="inline-start" aria-hidden="true" />
-              New event
-            </Button>
             <Button type="button" variant="outline" size="sm" onClick={handleReset}>
               <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
               Reset
@@ -305,117 +228,12 @@ function CalendarDemo() {
         onViewChange={setView}
         isLoading={previewMode === "loading"}
         maxEventsPerDay={2}
-        onSlotClick={handleSlotClick}
-        renderEventPopover={(event, close) => (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground">{event.title}</p>
-                <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <CalendarIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                  <span className="tabular-nums">{formatEventTimeRange(event)}</span>
-                </p>
-              </div>
-              {event.category ? (
-                <Badge variant="outline" className="shrink-0">
-                  {event.category}
-                </Badge>
-              ) : null}
-            </div>
-
-            {event.location ? (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MapPinIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{event.location}</span>
-              </div>
-            ) : null}
-
-            {event.description ? (
-              <p className="text-xs leading-relaxed text-foreground">{event.description}</p>
-            ) : null}
-
-            <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                <ClockIcon className="size-3" aria-hidden="true" />
-                Click outside or Esc to close
-              </span>
-              <Button
-                type="button"
-                variant="destructive"
-                size="xs"
-                onClick={() => handleDeleteEvent(event.id, event.title, close)}
-              >
-                <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-                Remove
-              </Button>
-            </div>
-          </div>
-        )}
-      />
-
-      <Dialog
-        open={pendingSlot !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingSlot(null);
+        onEventClick={(event) => toast(`Selected event: ${event.title}`)}
+        onSlotClick={(slot) => {
+          const label = slot.allDay ? formatDate(slot.start) : formatDateTime(slot.start);
+          toast(`Selected ${slot.allDay ? "day" : "slot"}: ${label}`);
         }}
-      >
-        <DialogContent>
-          <form onSubmit={handleCreateEvent} className="flex flex-col gap-4">
-            <DialogHeader>
-              <DialogTitle>Schedule event</DialogTitle>
-              <DialogDescription>
-                {pendingSlot
-                  ? `Adding event to ${pendingSlot.start.toLocaleDateString()} (${pendingSlot.allDay ? "All day" : pendingSlot.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}).`
-                  : "Create a calendar event."}
-              </DialogDescription>
-            </DialogHeader>
-
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor={titleInputId}>Event title</FieldLabel>
-                <Input
-                  id={titleInputId}
-                  value={draftTitle}
-                  onChange={(e) => setDraftTitle(e.target.value)}
-                  placeholder="e.g. Architecture sync"
-                  required
-                  autoFocus
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={toneSelectId}>Tone</FieldLabel>
-                <Select
-                  items={TONE_OPTIONS}
-                  value={draftTone}
-                  onValueChange={(value) => {
-                    if (value) setDraftTone(value as CalendarEventTone);
-                  }}
-                >
-                  <SelectTrigger id={toneSelectId} className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {TONE_OPTIONS.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </FieldGroup>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setPendingSlot(null)}>
-                Cancel
-              </Button>
-              <Button type="submit">Add event</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      />
     </div>
   );
 }

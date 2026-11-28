@@ -2,21 +2,87 @@
 
 import * as React from "react";
 import { cn } from "cn";
-import {
-  differenceInMinutes,
-  endOfDay,
-  format,
-  isSameDay,
-  setHours,
-  setMinutes,
-  startOfDay,
-} from "date-fns";
+import { format, isSameDay, setHours, startOfDay } from "date-fns";
 
 import { CalendarEventTrigger } from "./event-pill";
 import type { CalendarEvent, CalendarSlotClickContext, CalendarViewMode } from "./types";
 import { getEventsForDay, getWeekDays, resolveEventBounds } from "./utils";
 
 const HOUR_ROW_HEIGHT = 48;
+
+const MIN_EVENT_MINUTES = 30;
+
+type TimedSegment<TMeta> = {
+  event: CalendarEvent<TMeta>;
+  start: number;
+  end: number;
+  lane: number;
+  laneCount: number;
+};
+
+function layoutTimedEvents<TMeta>(
+  events: readonly CalendarEvent<TMeta>[],
+  day: Date,
+  startHour: number,
+  endHour: number,
+): TimedSegment<TMeta>[] {
+  const windowStart = setHours(day, startHour).getTime();
+  const windowEnd = setHours(day, endHour).getTime();
+  const totalMinutes = (endHour - startHour) * 60;
+  // The grid is labelled in local wall-clock hours, not elapsed time since midnight.
+  const minutesFromStart = (value: Date) =>
+    (value.getHours() - startHour) * 60 +
+    value.getMinutes() +
+    value.getSeconds() / 60 +
+    value.getMilliseconds() / 60_000;
+
+  const segments = events
+    .flatMap((event): TimedSegment<TMeta>[] => {
+      const { start, end } = resolveEventBounds(event);
+      const point = start.getTime() === end.getTime();
+      if (
+        start.getTime() >= windowEnd ||
+        (point ? end.getTime() < windowStart : end.getTime() <= windowStart)
+      ) {
+        return [];
+      }
+      const clippedStart = start.getTime() <= windowStart ? 0 : minutesFromStart(start);
+      const clippedEnd = end.getTime() >= windowEnd ? totalMinutes : minutesFromStart(end);
+      return [
+        {
+          event,
+          start: clippedStart,
+          end: Math.min(totalMinutes, Math.max(clippedEnd, clippedStart + MIN_EVENT_MINUTES)),
+          lane: 0,
+          laneCount: 1,
+        },
+      ];
+    })
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+
+  // Use the rendered extent for collisions, including the minimum visual height.
+  // A disjoint group starts over so its events can use the full column width.
+  let group: TimedSegment<TMeta>[] = [];
+  let laneEnds: number[] = [];
+  let groupEnd = 0;
+  function finishGroup() {
+    for (const segment of group) segment.laneCount = laneEnds.length;
+  }
+  for (const segment of segments) {
+    if (segment.start >= groupEnd) {
+      finishGroup();
+      group = [];
+      laneEnds = [];
+    }
+    const availableLane = laneEnds.findIndex((end) => end <= segment.start);
+    segment.lane = availableLane === -1 ? laneEnds.length : availableLane;
+    laneEnds[segment.lane] = segment.end;
+    group.push(segment);
+    groupEnd = Math.max(groupEnd, segment.end);
+  }
+  finishGroup();
+  return segments;
+}
 
 export function CalendarTimeGridView<TMeta>({
   mode,
@@ -48,7 +114,7 @@ export function CalendarTimeGridView<TMeta>({
     [date, mode, weekStartsOn],
   );
 
-  const safeStartHour = Math.max(0, Math.min(22, startHour));
+  const safeStartHour = Math.max(0, Math.min(23, startHour));
   const safeEndHour = Math.max(safeStartHour + 1, Math.min(24, endHour));
   const hours = React.useMemo(
     () => Array.from({ length: safeEndHour - safeStartHour }, (_, index) => safeStartHour + index),
@@ -70,9 +136,13 @@ export function CalendarTimeGridView<TMeta>({
             timedEvents.push(event);
           }
         }
-        return { day, allDayEvents, timedEvents };
+        return {
+          day,
+          allDayEvents,
+          timedEvents: layoutTimedEvents(timedEvents, day, safeStartHour, safeEndHour),
+        };
       }),
-    [days, events],
+    [days, events, safeEndHour, safeStartHour],
   );
 
   const hasAllDay = dayColumns.some((col) => col.allDayEvents.length > 0);
@@ -158,84 +228,61 @@ export function CalendarTimeGridView<TMeta>({
           </div>
 
           {/* Day columns */}
-          {dayColumns.map(({ day, timedEvents }) => {
-            const windowStart = setMinutes(setHours(startOfDay(day), safeStartHour), 0);
-            const windowEnd =
-              safeEndHour === 24
-                ? endOfDay(day)
-                : setMinutes(setHours(startOfDay(day), safeEndHour), 0);
+          {dayColumns.map(({ day, timedEvents }) => (
+            <div
+              key={`col-${day.toISOString()}`}
+              style={{ height: `${gridHeight}px` }}
+              className="relative min-w-0 border-r border-border last:border-r-0"
+            >
+              {/* Clickable hour slots */}
+              {hours.map((hour) => {
+                const slotStart = setHours(day, hour);
+                const slotEnd = setHours(day, hour + 1);
+                return (
+                  <button
+                    key={`slot-${day.toISOString()}-${hour}`}
+                    type="button"
+                    data-slot="calendar-time-slot"
+                    aria-label={`Select ${format(slotStart, "MMM d, yyyy HH:mm")}`}
+                    style={{ height: `${HOUR_ROW_HEIGHT}px` }}
+                    onClick={() =>
+                      onSlotClick?.({
+                        start: slotStart,
+                        end: slotEnd,
+                        allDay: false,
+                        view: mode,
+                      })
+                    }
+                    className="block w-full border-b border-border/60 text-start transition-colors last:border-b-0 hover:bg-muted/40 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+                  />
+                );
+              })}
 
-            return (
-              <div
-                key={`col-${day.toISOString()}`}
-                style={{ height: `${gridHeight}px` }}
-                className="relative min-w-0 border-r border-border last:border-r-0"
-              >
-                {/* Clickable hour slots */}
-                {hours.map((hour) => {
-                  const slotStart = setMinutes(setHours(startOfDay(day), hour), 0);
-                  const slotEnd = setMinutes(setHours(startOfDay(day), hour + 1), 0);
-                  return (
-                    <button
-                      key={`slot-${day.toISOString()}-${hour}`}
-                      type="button"
-                      data-slot="calendar-time-slot"
-                      aria-label={`Create event on ${format(slotStart, "MMM d, yyyy HH:mm")}`}
-                      style={{ height: `${HOUR_ROW_HEIGHT}px` }}
-                      onClick={() =>
-                        onSlotClick?.({
-                          start: slotStart,
-                          end: slotEnd,
-                          allDay: false,
-                          view: mode,
-                        })
-                      }
-                      className="block w-full border-b border-border/60 text-start transition-colors last:border-b-0 hover:bg-muted/40 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-                    />
-                  );
-                })}
-
-                {/* Positioned timed events */}
-                {timedEvents.map((event) => {
-                  const bounds = resolveEventBounds(event);
-                  const clampedStart =
-                    bounds.start.getTime() < windowStart.getTime() ? windowStart : bounds.start;
-                  const clampedEnd =
-                    bounds.end.getTime() > windowEnd.getTime() ? windowEnd : bounds.end;
-                  const startMinutes = Math.max(0, differenceInMinutes(clampedStart, windowStart));
-                  const durationMinutes = Math.max(
-                    30,
-                    differenceInMinutes(clampedEnd, clampedStart),
-                  );
-                  const topPercent = (startMinutes / totalMinutes) * 100;
-                  const heightPercent = Math.min(
-                    100 - topPercent,
-                    (durationMinutes / totalMinutes) * 100,
-                  );
-
-                  return (
-                    <div
-                      key={`timed-${day.toISOString()}-${event.id}`}
-                      style={{
-                        top: `${topPercent}%`,
-                        height: `${heightPercent}%`,
-                      }}
-                      className="pointer-events-none absolute inset-x-1 z-10 py-0.5"
-                    >
-                      <CalendarEventTrigger
-                        event={event}
-                        compact
-                        enablePopover={enableEventPopover}
-                        onEventClick={onEventClick}
-                        renderEventPopover={renderEventPopover}
-                        className="pointer-events-auto h-full items-start py-1 shadow-xs"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+              {/* Positioned timed events */}
+              {timedEvents.map(({ event, start, end, lane, laneCount }) => (
+                <div
+                  key={`timed-${day.toISOString()}-${event.id}`}
+                  style={{
+                    top: `${(start / totalMinutes) * 100}%`,
+                    height: `${((end - start) / totalMinutes) * 100}%`,
+                    insetInlineStart: `${(lane / laneCount) * 100}%`,
+                    inlineSize: `${100 / laneCount}%`,
+                  }}
+                  className="pointer-events-none absolute z-10 px-0.5 focus-within:z-20"
+                >
+                  <CalendarEventTrigger
+                    event={event}
+                    compact
+                    showTime={laneCount === 1}
+                    enablePopover={enableEventPopover}
+                    onEventClick={onEventClick}
+                    renderEventPopover={renderEventPopover}
+                    className="pointer-events-auto h-full min-h-0 overflow-hidden px-0.5 py-0 shadow-xs"
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
     </div>

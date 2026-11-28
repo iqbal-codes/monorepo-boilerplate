@@ -15,6 +15,16 @@ mock.module(Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", baseUiRoot), ()
 
 const win = new Window({ url: "http://localhost/" });
 win.HTMLElement.prototype.scrollIntoView ??= () => {};
+// TanStack measures clientHeight after mount; Happy DOM does not perform layout.
+const clientHeight = Object.getOwnPropertyDescriptor(win.HTMLElement.prototype, "clientHeight");
+Object.defineProperty(win.HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    return this.dataset.virtualized
+      ? Number.parseFloat(this.style.height)
+      : (clientHeight?.get?.call(this) ?? 0);
+  },
+});
 
 const DOM_KEYS = [
   "window",
@@ -375,6 +385,120 @@ describe("TreeView WAI-ARIA, keyboard nav, selection, lazy-load & virtualization
       await view.cleanup();
     }
   });
+
+  test.each(["keyboard", "pointer"])("a filtered lazy match can expand via %s", async (method) => {
+    const load = mock(() => [{ id: "server-index", label: "src/index.ts" }]);
+    const nodes: TreeNode[] = [
+      {
+        id: "apps",
+        label: "Apps",
+        children: [{ id: "server", label: "server", hasChildren: true }],
+      },
+    ];
+    const view = await renderInDom(
+      <TreeView nodes={nodes} searchQuery="server" onLoadChildren={load} />,
+    );
+    try {
+      const server = view.host.querySelector<HTMLElement>('[data-node-id="server"]')!;
+      expect(view.host.querySelector('[data-node-id="apps"]')?.getAttribute("aria-expanded")).toBe(
+        "true",
+      );
+      expect(server.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => {
+        if (method === "keyboard") {
+          server.focus();
+          server.dispatchEvent(
+            new win.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+          );
+        } else {
+          server.querySelector<HTMLElement>('[data-slot="tree-node-toggle"]')!.click();
+        }
+      });
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(server.getAttribute("aria-expanded")).toBe("true");
+      expect(server.querySelector('[data-node-id="server-index"]')).not.toBeNull();
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("a deferred rejection is announced and collapses only the failed branch before retry", async () => {
+    const first = Promise.withResolvers<TreeNode[]>();
+    const second = Promise.withResolvers<TreeNode[]>();
+    const load = mock(() => first.promise);
+
+    function Harness() {
+      const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(new Set(["workspace"]));
+      return (
+        <TreeView
+          nodes={SAMPLE_NODES}
+          expandedIds={expanded}
+          onExpandedIdsChange={setExpanded}
+          onLoadChildren={load}
+        />
+      );
+    }
+
+    const view = await renderInDom(<Harness />);
+    try {
+      const pkg = view.host.querySelector<HTMLElement>('[data-node-id="packages"]')!;
+      const apps = view.host.querySelector<HTMLElement>('[data-node-id="apps"]')!;
+      const toggle = (item: HTMLElement) =>
+        item.querySelector<HTMLElement>('[data-slot="tree-node-toggle"]')!.click();
+      await act(async () => toggle(pkg));
+      expect(pkg.getAttribute("aria-busy")).toBe("true");
+      await act(async () => toggle(apps));
+      expect(apps.getAttribute("aria-expanded")).toBe("true");
+
+      await act(async () => first.reject(new Error("Request failed")));
+      expect(pkg.getAttribute("aria-busy")).toBeNull();
+      expect(pkg.getAttribute("aria-expanded")).toBe("false");
+      expect(apps.getAttribute("aria-expanded")).toBe("true");
+      expect(view.host.querySelector('[role="status"]')?.textContent).toContain(
+        "Could not load children for Packages",
+      );
+
+      load.mockImplementation(() => second.promise);
+      await act(async () => {
+        pkg.focus();
+        pkg.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      });
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(pkg.getAttribute("aria-busy")).toBe("true");
+      await act(async () => second.resolve([{ id: "retry-child", label: "Loaded on retry" }]));
+      expect(pkg.getAttribute("aria-expanded")).toBe("true");
+      expect(pkg.getAttribute("aria-busy")).toBeNull();
+      expect(pkg.querySelector('[data-node-id="retry-child"]')).not.toBeNull();
+      expect(view.host.querySelector('[role="status"]')?.textContent).not.toContain(
+        "Could not load",
+      );
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test.each([false, true])(
+    "expanded children belong to their parent's group (virtualized: %s)",
+    async (virtualized) => {
+      const view = await renderInDom(
+        <TreeView
+          nodes={SAMPLE_NODES}
+          defaultExpandedIds={["workspace", "apps"]}
+          virtualized={virtualized}
+        />,
+      );
+      try {
+        const workspace = view.host.querySelector('[data-node-id="workspace"]')!;
+        const apps = workspace.querySelector(':scope > [role="group"] > [data-node-id="apps"]')!;
+        expect(apps.querySelector(':scope > [role="group"] > [data-node-id="web"]')).not.toBeNull();
+        expect(
+          workspace.querySelector(':scope > [role="group"] > [data-node-id="packages"]'),
+        ).not.toBeNull();
+      } finally {
+        await view.cleanup();
+      }
+    },
+  );
 
   test("virtualizes 1,000+ nodes instead of mounting every treeitem in the DOM", () => {
     const nodes1200: TreeNode[] = Array.from({ length: 40 }, (_, groupIdx) => ({

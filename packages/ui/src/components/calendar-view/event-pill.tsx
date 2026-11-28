@@ -63,6 +63,8 @@ export function CalendarEventTrigger<TMeta>({
   style?: React.CSSProperties;
 }) {
   const [open, setOpen] = React.useState(false);
+  // A disabled popover unmounts its portal; do not reopen it when re-enabled.
+  if (!enablePopover && open) setOpen(false);
   const tone = event.tone ?? "default";
   const { start, allDay } = resolveEventBounds(event);
   const timeText = allDay ? "All day" : format(start, "HH:mm");
@@ -77,7 +79,6 @@ export function CalendarEventTrigger<TMeta>({
       onClick={(e) => {
         e.stopPropagation();
         onEventClick?.(event);
-        if (!enablePopover) return;
       }}
       className={cn(
         "group/event flex w-full min-w-0 items-center gap-1.5 border px-1.5 text-start text-xs leading-tight transition-colors focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-ring",

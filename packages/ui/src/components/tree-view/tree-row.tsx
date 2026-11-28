@@ -33,6 +33,7 @@ export function TreeRow<TMeta>({
   renderNodeContent,
   style,
   className,
+  children,
 }: {
   item: FlattenedTreeItem<TMeta>;
   selectionMode: TreeSelectionMode;
@@ -47,9 +48,11 @@ export function TreeRow<TMeta>({
   renderNodeContent?: (context: TreeNodeRenderContext<TMeta>) => React.ReactNode;
   style?: React.CSSProperties;
   className?: string;
+  children?: React.ReactNode;
 }) {
   const { node, depth, isBranch, isExpanded, siblingIndex, siblingCount } = item;
   const isDisabled = Boolean(node.disabled);
+  const rowId = React.useId();
 
   const defaultIcon =
     node.icon ??
@@ -81,85 +84,100 @@ export function TreeRow<TMeta>({
       aria-disabled={isDisabled ? "true" : undefined}
       aria-busy={isLoading ? "true" : undefined}
       tabIndex={isFocused ? 0 : -1}
-      style={{
-        paddingInlineStart: `${depth * 18 + 8}px`,
-        ...style,
+      aria-labelledby={rowId}
+      style={style}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) onFocus(node.id);
       }}
-      onFocus={() => onFocus(node.id)}
-      onKeyDown={(event) => onKeyDown(event, item)}
-      onClick={() => {
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget) onKeyDown(event, item);
+      }}
+      onClick={(event) => {
+        if (
+          !(event.target instanceof Element) ||
+          event.target.closest('[role="treeitem"]') !== event.currentTarget
+        )
+          return;
         onFocus(node.id);
-        if (isDisabled) return;
-        onSelectOrActivate(item);
+        if (!isDisabled) onSelectOrActivate(item);
       }}
-      className={cn(
-        "group/tree-row flex min-h-9 w-full min-w-0 cursor-pointer items-center gap-1.5 pe-3 text-sm select-none transition-colors outline-none hover:bg-muted/60 focus-visible:bg-muted/70 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
-        isSelected && "bg-muted text-foreground",
-        isDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
-        className,
-      )}
+      className="min-w-0 outline-none [&:focus-visible>[data-slot=tree-row]]:bg-muted/70 [&:focus-visible>[data-slot=tree-row]]:outline-2 [&:focus-visible>[data-slot=tree-row]]:outline-solid [&:focus-visible>[data-slot=tree-row]]:outline-offset-[-2px] [&:focus-visible>[data-slot=tree-row]]:outline-ring"
     >
-      {isBranch ? (
-        <span
-          data-slot="tree-node-toggle"
-          aria-hidden="true"
-          onClick={(event) => {
-            event.stopPropagation();
-            onFocus(node.id);
-            if (!isDisabled) {
-              onToggleExpand(item);
-            }
-          }}
-          className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-        >
-          {isLoading ? (
-            <Spinner className="size-3.5" aria-hidden="true" />
-          ) : isExpanded ? (
-            <ChevronDownIcon className="size-3.5" />
-          ) : (
-            <ChevronRightIcon className="size-3.5 rtl:rotate-180" />
-          )}
-        </span>
-      ) : (
-        <span aria-hidden="true" className="inline-flex size-6 shrink-0" />
-      )}
+      <div
+        id={rowId}
+        data-slot="tree-row"
+        style={{ paddingInlineStart: `${depth * 18 + 8}px` }}
+        className={cn(
+          "flex min-h-9 w-full min-w-0 cursor-pointer items-center gap-1.5 pe-3 text-sm select-none transition-colors hover:bg-muted/60",
+          style && "h-full",
+          isSelected && "bg-muted text-foreground",
+          isDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
+          className,
+        )}
+      >
+        {isBranch ? (
+          <span
+            data-slot="tree-node-toggle"
+            aria-hidden="true"
+            onClick={(event) => {
+              event.stopPropagation();
+              onFocus(node.id);
+              if (!isDisabled) {
+                onToggleExpand(item);
+              }
+            }}
+            className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+          >
+            {isLoading ? (
+              <Spinner className="size-3.5" aria-hidden="true" />
+            ) : isExpanded ? (
+              <ChevronDownIcon className="size-3.5" />
+            ) : (
+              <ChevronRightIcon className="size-3.5 rtl:rotate-180" />
+            )}
+          </span>
+        ) : (
+          <span aria-hidden="true" className="inline-flex size-6 shrink-0" />
+        )}
 
-      {selectionMode === "multiple" && (
-        <span
-          aria-hidden="true"
-          data-slot="tree-node-checkbox"
-          data-checked={isSelected ? "true" : undefined}
-          className={cn(
-            "inline-flex size-4 shrink-0 items-center justify-center border border-input bg-background transition-colors",
-            isSelected && "border-primary bg-primary text-primary-foreground",
-          )}
-        >
-          {isSelected && <CheckIcon className="size-3" />}
-        </span>
-      )}
+        {selectionMode === "multiple" && (
+          <span
+            aria-hidden="true"
+            data-slot="tree-node-checkbox"
+            data-checked={isSelected ? "true" : undefined}
+            className={cn(
+              "inline-flex size-4 shrink-0 items-center justify-center border border-input bg-background transition-colors",
+              isSelected && "border-primary bg-primary text-primary-foreground",
+            )}
+          >
+            {isSelected && <CheckIcon className="size-3" />}
+          </span>
+        )}
 
-      {renderNodeContent ? (
-        renderNodeContent({
-          node,
-          depth,
-          isBranch,
-          isExpanded,
-          isSelected,
-          isLoading,
-          isFocused,
-        })
-      ) : (
-        <>
-          {defaultIcon}
-          <span className="min-w-0 flex-1 truncate font-medium">{node.label}</span>
-          {node.description ? (
-            <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">
-              {node.description}
-            </span>
-          ) : null}
-          {node.badge}
-        </>
-      )}
+        {renderNodeContent ? (
+          renderNodeContent({
+            node,
+            depth,
+            isBranch,
+            isExpanded,
+            isSelected,
+            isLoading,
+            isFocused,
+          })
+        ) : (
+          <>
+            {defaultIcon}
+            <span className="min-w-0 flex-1 truncate font-medium">{node.label}</span>
+            {node.description ? (
+              <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">
+                {node.description}
+              </span>
+            ) : null}
+            {node.badge}
+          </>
+        )}
+      </div>
+      {children && <div role="group">{children}</div>}
     </div>
   );
 }

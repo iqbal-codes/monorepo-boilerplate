@@ -416,6 +416,130 @@ describe("CalendarView layouts, states, and callbacks (TC-01, TC-03)", () => {
     }
   });
 
+  test("defaults to the reference day (or the clock) without a date prop", () => {
+    const today = new Date(2031, 2, 17);
+    const reference = renderToStaticMarkup(<CalendarView events={[]} today={today} />);
+    expect(reference).toContain("March 2031");
+    expect(reference).toContain('data-date="2031-03-17" data-today="true"');
+
+    const now = new Date();
+    const current = renderToStaticMarkup(<CalendarView events={[]} />);
+    expect(current).toContain(
+      new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(now),
+    );
+  });
+
+  test.each(["week", "day"] as const)(
+    "%s clips to the visible hours and gives overlapping bookings separate lanes",
+    async (mode) => {
+      const event = (id: string, start: string, end: string): CalendarEvent => ({
+        id,
+        title: id,
+        start: `2026-11-10T${start}:00`,
+        end: `2026-11-10T${end}:00`,
+      });
+      const events = Object.freeze([
+        event("overnight", "02:00", "03:00"),
+        event("ends-at-open", "06:00", "07:00"),
+        event("clipped", "06:30", "08:00"),
+        event("first", "08:00", "10:00"),
+        event("second", "08:30", "09:00"),
+        event("third", "09:00", "11:00"),
+        event("later", "11:00", "12:00"),
+        event("point", "12:30", "12:30"),
+        event("clipped-at-close", "19:00", "21:00"),
+        event("starts-at-close", "20:00", "21:00"),
+      ]);
+      const view = await renderInDom(
+        <CalendarView events={events} date={new Date(2026, 10, 10)} view={mode} />,
+      );
+      try {
+        const placement = (id: string) =>
+          view.host.querySelector(`[data-event-id="${id}"]`)?.parentElement?.style;
+        expect(placement("overnight")).toBeUndefined();
+        expect(placement("ends-at-open")).toBeUndefined();
+        expect(placement("starts-at-close")).toBeUndefined();
+        expect(placement("clipped")?.top).toBe("0%");
+        expect(Number.parseFloat(placement("clipped")!.height)).toBeCloseTo(100 / 13);
+        expect(Number.parseFloat(placement("clipped-at-close")!.height)).toBeCloseTo(100 / 13);
+        expect(Number.parseFloat(placement("first")!.top)).toBeCloseTo(100 / 13);
+        expect(placement("first")?.inlineSize).toBe("50%");
+        expect(placement("second")?.insetInlineStart).not.toBe(
+          placement("first")?.insetInlineStart,
+        );
+        expect(placement("third")?.insetInlineStart).toBe(placement("second")?.insetInlineStart);
+        expect(placement("later")?.inlineSize).toBe("100%");
+        expect(Number.parseFloat(placement("point")!.height)).toBeGreaterThan(0);
+      } finally {
+        await view.cleanup();
+      }
+    },
+  );
+
+  test("month uses weekday column headers and one table row per week", async () => {
+    const view = await renderInDom(
+      <CalendarView events={SAMPLE_EVENTS} date={new Date(2026, 10, 10)} weekStartsOn={1} />,
+    );
+    try {
+      const table = view.host.querySelector<HTMLTableElement>('table[data-slot="calendar-month"]')!;
+      expect(table.querySelectorAll('thead > tr > th[scope="col"]')).toHaveLength(7);
+      expect(table.querySelector("thead th")?.textContent).toBe("Mon");
+      const weeks = [...table.querySelectorAll("tbody > tr")];
+      expect(weeks.length).toBeGreaterThanOrEqual(4);
+      expect(weeks.every((week) => week.cells.length === 7)).toBe(true);
+      expect(table.querySelector('td[data-date="2026-11-10"]')?.closest("tr")).not.toBeNull();
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("loading makes covered slots inert and dismisses already-open portalled popovers", async () => {
+    const onSlotClick = mock(() => {});
+    const onEventClick = mock(() => {});
+    const calendar = (isLoading: boolean) => (
+      <CalendarView
+        events={SAMPLE_EVENTS}
+        date={new Date(2026, 10, 10)}
+        isLoading={isLoading}
+        onSlotClick={onSlotClick}
+        onEventClick={onEventClick}
+      />
+    );
+    const view = await renderInDom(calendar(false));
+    try {
+      const coveredSlot = () =>
+        view.host.querySelector<HTMLButtonElement>('[data-slot="calendar-day-slot"]')!;
+      const eventTrigger = () =>
+        view.host.querySelector<HTMLButtonElement>('[data-event-id="evt-1"]')!;
+      await act(async () => eventTrigger().click());
+      expect(onEventClick).toHaveBeenCalledTimes(1);
+      expect(document.body.querySelector('[data-slot="calendar-event-popover"]')).not.toBeNull();
+
+      await view.rerender(calendar(true));
+      const inert = coveredSlot().closest("[inert]");
+      expect(inert).not.toBeNull();
+      expect(eventTrigger().closest("[inert]")).toBe(inert);
+      expect(
+        view.host.querySelector('[data-slot="calendar-loading-overlay"]')?.closest("[inert]"),
+      ).toBeNull();
+      expect(
+        view.host.querySelector('[data-slot="calendar-nav-today"]')?.closest("[inert]"),
+      ).toBeNull();
+      expect(document.body.querySelector('[data-slot="calendar-event-popover"]')).toBeNull();
+      // Happy DOM doesn't enforce inert on synthetic events; callbacks are also suspended.
+      await act(async () => coveredSlot().click());
+      expect(onSlotClick).not.toHaveBeenCalled();
+
+      await view.rerender(calendar(false));
+      expect(coveredSlot().closest("[inert]")).toBeNull();
+      expect(document.body.querySelector('[data-slot="calendar-event-popover"]')).toBeNull();
+      await act(async () => coveredSlot().click());
+      expect(onSlotClick).toHaveBeenCalledTimes(1);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
   test("falls back to narrow Agenda layout below md (< 768px)", async () => {
     setViewportWidth(320);
 

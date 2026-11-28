@@ -1,10 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import {
+  defaultRangeExtractor,
+  useVirtualizer,
+  type Range,
+  type VirtualItem,
+} from "@tanstack/react-virtual";
 import { cn } from "cn";
 
 import { TreeRow } from "./tree-row";
+import { groupTreeRows } from "./utils";
 import type {
   FlattenedTreeItem,
   TreeNodeRenderContext,
@@ -63,16 +69,23 @@ export const TreeVirtualBody = React.forwardRef(function TreeVirtualBody<TMeta>(
     [activeNodeId, items],
   );
 
+  const indexesById = React.useMemo(
+    () => new Map(items.map(({ node }, index) => [node.id, index])),
+    [items],
+  );
   const rangeExtractor = React.useCallback(
     (range: Range) => {
-      const indexes = defaultRangeExtractor(range);
-      if (activeIndex >= 0 && !indexes.includes(activeIndex)) {
-        indexes.push(activeIndex);
-        indexes.sort((a, b) => a - b);
+      const indexes = new Set(defaultRangeExtractor(range));
+      if (activeIndex >= 0) indexes.add(activeIndex);
+      // Only retain ancestors of mounted or focused rows, not their siblings.
+      for (const index of indexes) {
+        const parentId = items[index]!.parentId;
+        const parentIndex = parentId !== null ? indexesById.get(parentId) : undefined;
+        if (parentIndex !== undefined) indexes.add(parentIndex);
       }
-      return indexes;
+      return [...indexes].sort((a, b) => a - b);
     },
-    [activeIndex],
+    [activeIndex, indexesById, items],
   );
 
   const virtualizer = useVirtualizer({
@@ -97,7 +110,42 @@ export const TreeVirtualBody = React.forwardRef(function TreeVirtualBody<TMeta>(
     [items.length, virtualizer],
   );
 
-  const virtualItems = virtualizer.getVirtualItems();
+  const rowsByParent = groupTreeRows(
+    virtualizer.getVirtualItems(),
+    ({ index }) => items[index]!.parentId,
+  );
+
+  function renderRows(parentId: string | null, parentRow?: VirtualItem): React.ReactNode {
+    return rowsByParent.get(parentId)?.map((virtualItem) => {
+      const item = items[virtualItem.index]!;
+      const nodeId = item.node.id;
+      return (
+        <TreeRow
+          key={virtualItem.key}
+          item={item}
+          selectionMode={selectionMode}
+          isSelected={selectedIds.has(nodeId)}
+          isLoading={loadingIds.has(nodeId)}
+          isFocused={nodeId === activeNodeId}
+          setItemRef={setItemRef}
+          onToggleExpand={onToggleExpand}
+          onSelectOrActivate={onSelectOrActivate}
+          onKeyDown={onKeyDown}
+          onFocus={onFocus}
+          renderNodeContent={renderNodeContent}
+          style={{
+            position: "absolute",
+            top: virtualItem.start - (parentRow?.start ?? 0),
+            insetInline: 0,
+            height: `${virtualItem.size}px`,
+          }}
+          className="border-b border-border/50"
+        >
+          {renderRows(nodeId, virtualItem)}
+        </TreeRow>
+      );
+    });
+  }
 
   return (
     <div
@@ -121,35 +169,7 @@ export const TreeVirtualBody = React.forwardRef(function TreeVirtualBody<TMeta>(
           position: "relative",
         }}
       >
-        {virtualItems.map((virtualItem) => {
-          const item = items[virtualItem.index]!;
-          const nodeId = item.node.id;
-          return (
-            <TreeRow
-              key={virtualItem.key}
-              item={item}
-              selectionMode={selectionMode}
-              isSelected={selectedIds.has(nodeId)}
-              isLoading={loadingIds.has(nodeId)}
-              isFocused={nodeId === activeNodeId}
-              setItemRef={setItemRef}
-              onToggleExpand={onToggleExpand}
-              onSelectOrActivate={onSelectOrActivate}
-              onKeyDown={onKeyDown}
-              onFocus={onFocus}
-              renderNodeContent={renderNodeContent}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: `${virtualItem.size}px`,
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
-              className="border-b border-border/50"
-            />
-          );
-        })}
+        {renderRows(null)}
       </div>
     </div>
   );

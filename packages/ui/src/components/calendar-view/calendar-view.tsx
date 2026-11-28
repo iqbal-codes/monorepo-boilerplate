@@ -58,13 +58,16 @@ export function CalendarView<TMeta = unknown>({
   className,
 }: CalendarViewProps<TMeta>) {
   const isMobile = useIsMobile();
-  const initialDate = React.useMemo(() => defaultDate ?? new Date(2026, 10, 1), [defaultDate]);
-  const [uncontrolledDate, setUncontrolledDate] = React.useState<Date>(initialDate);
+  const [uncontrolledDate, setUncontrolledDate] = React.useState(
+    () => defaultDate ?? todayProp ?? new Date(),
+  );
   const [uncontrolledView, setUncontrolledView] = React.useState<CalendarViewMode>(defaultView);
 
   const activeDate = controlledDate ?? uncontrolledDate;
   const activeView = controlledView ?? uncontrolledView;
-  const today = React.useMemo(() => todayProp ?? new Date(), [todayProp]);
+  const today = todayProp ?? new Date();
+  const handleEventClick = isLoading ? undefined : onEventClick;
+  const handleSlotClick = isLoading ? undefined : onSlotClick;
 
   const effectiveView: CalendarViewMode =
     responsiveAgenda && isMobile && activeView !== "agenda" ? "agenda" : activeView;
@@ -174,7 +177,7 @@ export function CalendarView<TMeta = unknown>({
                   value={option.value}
                   data-slot="calendar-view-switch"
                   data-view-option={option.value}
-                  className="px-2.5 sm:px-3"
+                  className="px-2.5 focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-3"
                 >
                   {option.label}
                 </ToggleGroupItem>
@@ -192,54 +195,57 @@ export function CalendarView<TMeta = unknown>({
           className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:px-4"
         >
           <CalendarOffIcon className="size-3.5 shrink-0" aria-hidden="true" />
-          <span>No events scheduled in this range. Click any slot to add one.</span>
+          <span>No events scheduled in this range.</span>
         </div>
       )}
 
       {/* Calendar body */}
       <div className="relative min-w-0">
-        {effectiveView === "month" && (
-          <CalendarMonthView
-            date={activeDate}
-            today={today}
-            events={events}
-            weekStartsOn={weekStartsOn}
-            maxEventsPerDay={maxEventsPerDay}
-            enableEventPopover={enableEventPopover}
-            onEventClick={onEventClick}
-            onSlotClick={onSlotClick}
-            renderEventPopover={renderEventPopover}
-          />
-        )}
+        <div inert={isLoading}>
+          {effectiveView === "month" && (
+            <CalendarMonthView
+              date={activeDate}
+              today={today}
+              events={events}
+              weekStartsOn={weekStartsOn}
+              maxEventsPerDay={maxEventsPerDay}
+              isLoading={isLoading}
+              enableEventPopover={!isLoading && enableEventPopover}
+              onEventClick={handleEventClick}
+              onSlotClick={handleSlotClick}
+              renderEventPopover={renderEventPopover}
+            />
+          )}
 
-        {(effectiveView === "week" || effectiveView === "day") && (
-          <CalendarTimeGridView
-            mode={effectiveView}
-            date={activeDate}
-            today={today}
-            events={events}
-            weekStartsOn={weekStartsOn}
-            startHour={startHour}
-            endHour={endHour}
-            enableEventPopover={enableEventPopover}
-            onEventClick={onEventClick}
-            onSlotClick={onSlotClick}
-            renderEventPopover={renderEventPopover}
-          />
-        )}
+          {(effectiveView === "week" || effectiveView === "day") && (
+            <CalendarTimeGridView
+              mode={effectiveView}
+              date={activeDate}
+              today={today}
+              events={events}
+              weekStartsOn={weekStartsOn}
+              startHour={startHour}
+              endHour={endHour}
+              enableEventPopover={!isLoading && enableEventPopover}
+              onEventClick={handleEventClick}
+              onSlotClick={handleSlotClick}
+              renderEventPopover={renderEventPopover}
+            />
+          )}
 
-        {effectiveView === "agenda" && (
-          <CalendarAgendaView
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-            today={today}
-            events={events}
-            emptyState={emptyState}
-            enableEventPopover={enableEventPopover}
-            onEventClick={onEventClick}
-            renderEventPopover={renderEventPopover}
-          />
-        )}
+          {effectiveView === "agenda" && (
+            <CalendarAgendaView
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              today={today}
+              events={events}
+              emptyState={emptyState}
+              enableEventPopover={!isLoading && enableEventPopover}
+              onEventClick={handleEventClick}
+              renderEventPopover={renderEventPopover}
+            />
+          )}
+        </div>
 
         {/* Loading skeleton overlay */}
         {isLoading && (
