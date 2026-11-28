@@ -72,29 +72,29 @@ export function AppTopbar({
       data-slot="app-topbar"
       className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b bg-background transition-[width,height] ease-linear md:h-16 group-has-data-[collapsible=icon]/sidebar-wrapper:md:h-12"
     >
-      <div className="flex min-w-0 items-center gap-2 px-4">
-        <SidebarTrigger />
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-3 sm:px-4">
+        <SidebarTrigger className="shrink-0" />
         <Separator
           orientation="vertical"
-          className="mx-1 data-vertical:h-4 data-vertical:self-auto"
+          className="mx-1 shrink-0 data-vertical:h-4 data-vertical:self-auto"
         />
-        <Breadcrumb>
-          <BreadcrumbList>
+        <Breadcrumb className="min-w-0">
+          <BreadcrumbList className="min-w-0 flex-nowrap">
             {showSection && section ? (
               <>
-                <BreadcrumbItem className="hidden md:block">
+                <BreadcrumbItem className="hidden shrink-0 md:inline-flex">
                   <BreadcrumbLink render={<Link to={section.to} />}>{section.title}</BreadcrumbLink>
                 </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbSeparator className="hidden shrink-0 md:list-item" />
               </>
             ) : null}
-            <BreadcrumbItem>
-              <BreadcrumbPage>{pageLabel}</BreadcrumbPage>
+            <BreadcrumbItem className="min-w-0">
+              <BreadcrumbPage className="truncate">{pageLabel}</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
       </div>
-      <div className="ml-auto flex items-center gap-1 px-4">
+      <div className="ms-auto flex shrink-0 items-center gap-1 px-3 sm:px-4">
         <Button
           variant="ghost"
           size="icon-sm"
