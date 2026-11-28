@@ -38,11 +38,13 @@
  * flicker this contract exists to prevent.
  */
 import * as React from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "cn";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
   ArrowUpIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
@@ -53,18 +55,23 @@ import {
   columnPinningFeature,
   columnVisibilityFeature,
   createColumnHelper,
+  createExpandedRowModel,
   createFilteredRowModel,
   createPaginatedRowModel,
   createSortedRowModel,
   filterFn_includesString,
+  rowExpandingFeature,
   rowPaginationFeature,
   rowSortingFeature,
+  sortFns,
   tableFeatures,
   useTable,
   type ColumnDef,
   type ColumnPinningState,
   type ColumnVisibilityState,
+  type ExpandedState,
   type PaginationState,
+  type Row,
   type RowData,
   type SortingState,
 } from "@tanstack/react-table";
@@ -103,13 +110,16 @@ import {
 export const dataTableFeatures = tableFeatures({
   rowSortingFeature,
   rowPaginationFeature,
+  rowExpandingFeature,
   columnFilteringFeature,
   columnVisibilityFeature,
   columnPinningFeature,
   sortedRowModel: createSortedRowModel(),
   filteredRowModel: createFilteredRowModel(),
   paginatedRowModel: createPaginatedRowModel(),
+  expandedRowModel: createExpandedRowModel(),
   filterFns: { includesString: filterFn_includesString },
+  sortFns,
 });
 
 export type DataTableFeatures = typeof dataTableFeatures;
@@ -138,11 +148,23 @@ export type {
   ColumnPinningState,
   ColumnVisibilityState,
   ColumnVisibilityState as VisibilityState,
+  ExpandedState,
   PaginationState,
   SortingState,
 };
 
 export type DataTableDensity = "comfortable" | "compact";
+
+export type DataTableVirtualizationOptions = {
+  /** Enable virtualized row rendering via `@tanstack/react-virtual`. */
+  enabled?: boolean;
+  /** Estimated row height in pixels. Defaults to `44` (comfortable) or `36` (compact). */
+  estimateRowHeight?: number;
+  /** Maximum height of the virtualized scroll viewport. Defaults to `480`. */
+  height?: number | string;
+  /** Number of overscan rows rendered outside the visible viewport. Defaults to `8`. */
+  overscan?: number;
+};
 
 export type DataTableProps<TData extends RowData> = {
   data: readonly TData[];
@@ -153,12 +175,26 @@ export type DataTableProps<TData extends RowData> = {
   sorting?: SortingState;
   columnVisibility?: ColumnVisibilityState;
   columnPinning?: ColumnPinningState;
+  expanded?: ExpandedState;
   onPaginationChange?: (pagination: PaginationState) => void;
   /** Changes are limited to selectable rows in the rendered page. */
   selection?: DataTableSelection<TData>;
   onSortingChange?: (sorting: SortingState) => void;
   onColumnVisibilityChange?: (visibility: ColumnVisibilityState) => void;
   onColumnPinningChange?: (pinning: ColumnPinningState) => void;
+  onExpandedChange?: (expanded: ExpandedState) => void;
+  /** Renders an inline detail panel beneath an expanded row. */
+  renderSubRow?: (row: TData) => React.ReactNode;
+  /** Override whether a row can be expanded. Defaults to `true` when `renderSubRow` is set. */
+  getRowCanExpand?: (row: TData) => boolean;
+  /** Hierarchical sub-rows accessor for tree-style expansion. */
+  getSubRows?: (originalRow: TData, index: number) => TData[] | undefined;
+  /** Stable row ID extractor used for selection/expansion keys. */
+  getRowId?: (originalRow: TData, index: number, parent?: Row<DataTableFeatures, TData>) => string;
+  /** Accessible label for the row expand/collapse toggle button. */
+  getExpandLabel?: (row: TData, isExpanded: boolean) => string;
+  /** Enables opt-in `@tanstack/react-virtual` rendering for large datasets. */
+  virtualized?: boolean | DataTableVirtualizationOptions;
   /** Sorting, filtering, and paging are performed by the API. */
   manualPagination?: boolean;
   manualSorting?: boolean;
@@ -193,10 +229,18 @@ export function DataTable<TData extends RowData>({
   sorting,
   columnVisibility,
   columnPinning,
+  expanded,
   onPaginationChange,
   onSortingChange,
   onColumnVisibilityChange,
   onColumnPinningChange,
+  onExpandedChange,
+  renderSubRow,
+  getRowCanExpand,
+  getSubRows,
+  getRowId,
+  getExpandLabel,
+  virtualized = false,
   selection,
   manualPagination = false,
   manualSorting = false,
@@ -211,18 +255,40 @@ export function DataTable<TData extends RowData>({
   density = "comfortable",
   regionLabel = "Data table",
 }: DataTableProps<TData>) {
+  const tableId = React.useId();
+  const isExpandedControlled = expanded !== undefined;
+  const [uncontrolledExpanded, setUncontrolledExpanded] = React.useState<ExpandedState>({});
+  const activeExpanded = isExpandedControlled ? expanded : uncontrolledExpanded;
+  const hasExpanderColumn = Boolean(renderSubRow || getSubRows);
+  const hasExpanding = Boolean(hasExpanderColumn || isExpandedControlled || onExpandedChange);
+
+  const isVirtualized =
+    typeof virtualized === "boolean"
+      ? virtualized
+      : Boolean(virtualized && virtualized.enabled !== false);
+  const bypassPagination = isVirtualized && pagination === undefined;
+
   const table = useTable({
     features: dataTableFeatures,
     columns,
     data,
+    getRowId,
+    getSubRows,
+    getRowCanExpand: getRowCanExpand
+      ? (row) => getRowCanExpand(row.original)
+      : renderSubRow
+        ? () => true
+        : undefined,
+    autoResetExpanded: isExpandedControlled ? false : undefined,
     rowCount: manualPagination ? (rowCount ?? data.length) : undefined,
-    manualPagination,
+    manualPagination: manualPagination || bypassPagination,
     manualSorting,
     state: {
       ...(pagination ? { pagination } : {}),
       ...(sorting ? { sorting } : {}),
       ...(columnVisibility ? { columnVisibility } : {}),
       ...(columnPinning ? { columnPinning } : {}),
+      ...(hasExpanding ? { expanded: activeExpanded } : {}),
     },
     onPaginationChange: (updater) => {
       if (!onPaginationChange) return;
@@ -245,6 +311,13 @@ export function DataTable<TData extends RowData>({
         typeof updater === "function" ? updater(columnPinning ?? { start: [], end: [] }) : updater;
       onColumnPinningChange(next);
     },
+    onExpandedChange: (updater) => {
+      const next = typeof updater === "function" ? updater(activeExpanded) : updater;
+      if (!isExpandedControlled) {
+        setUncontrolledExpanded(next);
+      }
+      onExpandedChange?.(next);
+    },
   });
 
   const tableHostRef = React.useRef<HTMLDivElement>(null);
@@ -256,6 +329,7 @@ export function DataTable<TData extends RowData>({
   // Reattach when React changes the header nodes (visibility/grouping/pinning).
   const headerSignature = JSON.stringify([
     Boolean(selection),
+    hasExpanderColumn,
     headerGroups.map(({ headers }) => headers.map(({ id }) => id)),
   ]);
 
@@ -288,7 +362,11 @@ export function DataTable<TData extends RowData>({
   const pinOffsets = React.useMemo(() => {
     const start: Record<string, number> = {};
     const end: Record<string, number> = {};
-    let leftCursor = selection && startPinnedIds.length > 0 ? (columnWidths.__selection ?? 40) : 0;
+    let leftCursor =
+      startPinnedIds.length > 0
+        ? (selection ? (columnWidths.__selection ?? 40) : 0) +
+          (hasExpanderColumn ? (columnWidths.__expander ?? 40) : 0)
+        : 0;
     for (const id of startPinnedIds) {
       start[id] = leftCursor;
       leftCursor += columnWidths[id] ?? 0;
@@ -300,7 +378,7 @@ export function DataTable<TData extends RowData>({
       rightCursor += columnWidths[id] ?? 0;
     }
     return { start, end };
-  }, [columnWidths, endPinnedIds, selection, startPinnedIds]);
+  }, [columnWidths, endPinnedIds, hasExpanderColumn, selection, startPinnedIds]);
 
   const pageCount = table.getPageCount();
   const currentIndex = pagination?.pageIndex ?? 0;
@@ -315,11 +393,44 @@ export function DataTable<TData extends RowData>({
   // a refetch keeps them mounted; see the Loading section above.
   const showSkeleton = isLoading && rows.length === 0;
   const isBusy = showSkeleton || isFetching;
-  // Reserve the height of the page the skeleton stands in for, not a fixed cap.
-  const skeletonRowCount = Math.max(1, currentSize);
+  // Reserve the height of the page the skeleton stands in for, capped in virtualized mode.
+  const skeletonRowCount = isVirtualized
+    ? Math.min(Math.max(1, currentSize || 8), 10)
+    : Math.max(1, currentSize);
   const rowsInert = isBusy || disableRows;
   const canActivateRow = Boolean(onRowClick) && !rowsInert;
-  const columnCount = table.getVisibleLeafColumns().length + Number(Boolean(selection));
+  const columnCount =
+    table.getVisibleLeafColumns().length + Number(Boolean(selection)) + Number(hasExpanderColumn);
+
+  const vOptions = typeof virtualized === "object" ? virtualized : {};
+  const estimateRowHeight = vOptions.estimateRowHeight ?? (density === "compact" ? 36 : 44);
+  const virtualHeight = vOptions.height ?? 480;
+  const virtualOverscan = vOptions.overscan ?? 8;
+  const virtualNumericHeight =
+    typeof virtualHeight === "number" && Number.isFinite(virtualHeight) && virtualHeight > 0
+      ? virtualHeight
+      : 480;
+  const virtualHeightStyle =
+    typeof virtualHeight === "number" ? `${virtualHeight}px` : virtualHeight;
+
+  const desktopScrollRef = React.useRef<HTMLDivElement>(null);
+  const mobileScrollRef = React.useRef<HTMLDivElement>(null);
+
+  const desktopVirtualizer = useVirtualizer({
+    count: isVirtualized ? rows.length : 0,
+    getScrollElement: () => desktopScrollRef.current,
+    estimateSize: () => estimateRowHeight,
+    overscan: virtualOverscan,
+    initialRect: { width: 800, height: virtualNumericHeight },
+  });
+
+  const mobileVirtualizer = useVirtualizer({
+    count: isVirtualized ? rows.length : 0,
+    getScrollElement: () => mobileScrollRef.current,
+    estimateSize: () => estimateRowHeight + 36,
+    overscan: virtualOverscan,
+    initialRect: { width: 320, height: virtualNumericHeight },
+  });
   const pageIds = selection
     ? rows
         .filter((row) => selection.canSelect?.(row.original) !== false)
@@ -362,10 +473,381 @@ export function DataTable<TData extends RowData>({
     };
   }
 
+  function renderExpandToggle(row: Row<DataTableFeatures, TData>, subRowId: string) {
+    if (!row.getCanExpand()) return null;
+    const isExpanded = row.getIsExpanded();
+    const label = getExpandLabel
+      ? getExpandLabel(row.original, isExpanded)
+      : isExpanded
+        ? "Collapse row"
+        : "Expand row";
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        data-slot="data-table-expand-toggle"
+        aria-expanded={isExpanded}
+        aria-controls={isExpanded ? subRowId : undefined}
+        aria-label={label}
+        disabled={rowsInert}
+        onClick={(event) => {
+          event.stopPropagation();
+          row.getToggleExpandedHandler()();
+        }}
+      >
+        {isExpanded ? (
+          <ChevronDownIcon aria-hidden="true" />
+        ) : (
+          <ChevronRightIcon aria-hidden="true" />
+        )}
+      </Button>
+    );
+  }
+
+  function renderMobileCard(row: Row<DataTableFeatures, TData>) {
+    const cells = row.getVisibleCells();
+    const actionCell = cells.find((cell) => cell.column.id === "actions");
+    const dataCells = cells.filter((cell) => cell.column.id !== "actions");
+    const [primaryCell, ...secondaryCells] = dataCells;
+    const rowId = selection?.getId(row.original);
+    const isSelectable = selection ? selection.canSelect?.(row.original) !== false : false;
+    const subRowId = `${tableId}-mobile-subrow-${row.id}`;
+    const isExpanded = row.getIsExpanded();
+
+    return (
+      <div
+        key={`mobile-${row.id}`}
+        inert={rowsInert || undefined}
+        onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
+        className={cn(
+          "flex items-start gap-3 transition-colors",
+          density === "compact" ? "p-2.5" : "p-3",
+          canActivateRow && "cursor-pointer hover:bg-muted/50",
+          rowClassName?.(row.original),
+        )}
+      >
+        {selection && (
+          <div className="pt-0.5" onClick={(event) => event.stopPropagation()}>
+            {isSelectable && rowId !== undefined ? (
+              <Checkbox
+                aria-label={selection.getLabel(row.original)}
+                checked={selection.ids.has(rowId)}
+                disabled={selection.disabled || rowsInert}
+                onCheckedChange={(checked) => changeSelection([rowId], checked)}
+              />
+            ) : null}
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {primaryCell || actionCell || hasExpanderColumn ? (
+            <div className="flex min-w-0 items-start justify-between gap-2">
+              {primaryCell ? (
+                <div className="min-w-0 flex-1">
+                  <table.FlexRender cell={primaryCell} />
+                </div>
+              ) : (
+                <span />
+              )}
+              <div
+                className="flex shrink-0 items-center gap-1"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {hasExpanderColumn ? renderExpandToggle(row, subRowId) : null}
+                {actionCell ? <table.FlexRender cell={actionCell} /> : null}
+              </div>
+            </div>
+          ) : null}
+          {secondaryCells.length > 0 ? (
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+              {secondaryCells.map((cell) => (
+                <div key={cell.id} className="flex min-w-0 flex-col gap-0.5">
+                  <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                    {stringifyHeader(cell.column.columnDef.header, cell.column.id)}
+                  </dt>
+                  <dd className="min-w-0 truncate">
+                    <table.FlexRender cell={cell} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {renderSubRow && isExpanded ? (
+            <div
+              id={subRowId}
+              data-slot="data-table-subrow"
+              className="mt-1 border-t border-border pt-2"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {renderSubRow(row.original)}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderDesktopRow(row: Row<DataTableFeatures, TData>, virtualIndex?: number) {
+    const subRowId = `${tableId}-subrow-${row.id}`;
+    const isExpanded = row.getIsExpanded();
+
+    return (
+      <React.Fragment key={row.id}>
+        <TableRow
+          data-index={virtualIndex}
+          inert={rowsInert || undefined}
+          onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
+          className={cn(
+            "group/row",
+            canActivateRow && "cursor-pointer",
+            rowClassName?.(row.original),
+          )}
+        >
+          {selection && (
+            <TableCell
+              style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
+              className={cn(
+                "w-10 ps-3",
+                density === "compact" && "py-1.5",
+                startPinnedIds.length > 0 &&
+                  "sticky z-10 bg-background group-hover/row:bg-muted/50",
+              )}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {selection.canSelect?.(row.original) !== false && (
+                <Checkbox
+                  aria-label={selection.getLabel(row.original)}
+                  checked={selection.ids.has(selection.getId(row.original))}
+                  disabled={selection.disabled || rowsInert}
+                  onCheckedChange={(checked) =>
+                    changeSelection([selection.getId(row.original)], checked)
+                  }
+                />
+              )}
+            </TableCell>
+          )}
+          {hasExpanderColumn && (
+            <TableCell
+              style={
+                startPinnedIds.length > 0
+                  ? { insetInlineStart: selection ? (columnWidths.__selection ?? 40) : 0 }
+                  : undefined
+              }
+              className={cn(
+                "w-10",
+                !selection && "ps-3",
+                density === "compact" && "py-1.5",
+                startPinnedIds.length > 0 &&
+                  "sticky z-10 bg-background group-hover/row:bg-muted/50",
+              )}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {renderExpandToggle(row, subRowId)}
+            </TableCell>
+          )}
+          {row.getVisibleCells().map((cell) => {
+            const pinned = cell.column.getIsPinned();
+            const pinProps = pinnedCellProps(cell.column.id, pinned);
+            return (
+              <TableCell
+                key={cell.id}
+                data-pinned={pinProps["data-pinned"]}
+                style={pinProps.style}
+                className={cn(density === "compact" && "py-1.5", pinProps.className)}
+              >
+                <table.FlexRender cell={cell} />
+              </TableCell>
+            );
+          })}
+        </TableRow>
+        {renderSubRow && isExpanded ? (
+          <TableRow
+            id={subRowId}
+            data-slot="data-table-subrow"
+            className="bg-muted/25 hover:bg-muted/25"
+          >
+            <TableCell colSpan={columnCount} className="p-4 whitespace-normal">
+              {renderSubRow(row.original)}
+            </TableCell>
+          </TableRow>
+        ) : null}
+      </React.Fragment>
+    );
+  }
+
+  const desktopVirtualItems = isVirtualized ? desktopVirtualizer.getVirtualItems() : [];
+  const desktopPaddingTop = desktopVirtualItems.length > 0 ? desktopVirtualItems[0]!.start : 0;
+  const desktopPaddingBottom =
+    desktopVirtualItems.length > 0
+      ? Math.max(0, desktopVirtualizer.getTotalSize() - desktopVirtualItems.at(-1)!.end)
+      : 0;
+
+  const mobileVirtualItems = isVirtualized ? mobileVirtualizer.getVirtualItems() : [];
+  const mobilePaddingTop = mobileVirtualItems.length > 0 ? mobileVirtualItems[0]!.start : 0;
+  const mobilePaddingBottom =
+    mobileVirtualItems.length > 0
+      ? Math.max(0, mobileVirtualizer.getTotalSize() - mobileVirtualItems.at(-1)!.end)
+      : 0;
+
+  const tableHeaderNode = (
+    <TableHeader
+      className={
+        isVirtualized
+          ? "sticky top-0 z-20 bg-background shadow-[inset_0_-1px_0_var(--color-border)]"
+          : undefined
+      }
+    >
+      {headerGroups.map((headerGroup, index, groups) => (
+        <TableRow key={headerGroup.id} className="hover:bg-transparent">
+          {selection && index === 0 && (
+            <TableHead
+              scope="col"
+              rowSpan={groups.length}
+              data-pin-measure-id="__selection"
+              style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
+              className={cn(
+                "w-10 ps-3",
+                density === "compact" && "h-9 py-1.5",
+                startPinnedIds.length > 0 && "sticky z-20 bg-background",
+              )}
+            >
+              <Checkbox
+                aria-label={selection.pageLabel}
+                checked={allSelected}
+                indeterminate={selectedCount > 0 && !allSelected}
+                disabled={selection.disabled || rowsInert || pageIds.length === 0}
+                className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
+                onCheckedChange={(checked) => changeSelection(pageIds, checked)}
+              />
+            </TableHead>
+          )}
+          {hasExpanderColumn && index === 0 && (
+            <TableHead
+              scope="col"
+              rowSpan={groups.length}
+              data-pin-measure-id="__expander"
+              style={
+                startPinnedIds.length > 0
+                  ? { insetInlineStart: selection ? (columnWidths.__selection ?? 40) : 0 }
+                  : undefined
+              }
+              className={cn(
+                "w-10",
+                !selection && "ps-3",
+                density === "compact" && "h-9 py-1.5",
+                startPinnedIds.length > 0 && "sticky z-20 bg-background",
+              )}
+            >
+              <span className="sr-only">Expand</span>
+            </TableHead>
+          )}
+          {headerGroup.headers.map((header) => {
+            const canSort = header.column.getCanSort();
+            const sorted = header.column.getIsSorted();
+            const pinned = header.column.getIsPinned();
+            const pinProps = pinnedCellProps(header.column.id, pinned);
+            return (
+              <TableHead
+                key={header.id}
+                colSpan={header.colSpan}
+                data-pin-measure-id={
+                  header.column.columns.length === 0 && !header.isPlaceholder
+                    ? header.column.id
+                    : undefined
+                }
+                data-pinned={pinProps["data-pinned"]}
+                style={pinProps.style}
+                className={cn(
+                  density === "compact" && "h-9 py-1.5",
+                  pinProps.className,
+                  pinned && "z-20",
+                )}
+              >
+                {header.isPlaceholder ? null : canSort ? (
+                  <button
+                    type="button"
+                    onClick={header.column.getToggleSortingHandler()}
+                    className="-mx-1 inline-flex min-h-8 items-center gap-1 rounded px-1 py-1 text-xs font-medium tracking-wider uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    aria-label={`Sort by ${stringifyHeader(header.column.columnDef.header, header.id)}`}
+                  >
+                    <table.FlexRender header={header} />
+                    {sorted === "asc" ? (
+                      <ArrowUpIcon className="size-3" />
+                    ) : sorted === "desc" ? (
+                      <ArrowDownIcon className="size-3" />
+                    ) : (
+                      <ChevronsUpDownIcon className="size-3 opacity-50" />
+                    )}
+                  </button>
+                ) : (
+                  <table.FlexRender header={header} />
+                )}
+              </TableHead>
+            );
+          })}
+        </TableRow>
+      ))}
+    </TableHeader>
+  );
+
+  const tableBodyNode = (
+    <TableBody>
+      {showSkeleton ? (
+        Array.from({ length: skeletonRowCount }, (_, index) => (
+          <TableRow key={`skeleton-${index}`} className="hover:bg-transparent">
+            {Array.from({ length: columnCount }, (_, cellIndex) => (
+              <TableCell key={`skeleton-${index}-${cellIndex}`}>
+                <Skeleton className="h-4 w-full max-w-40" />
+              </TableCell>
+            ))}
+          </TableRow>
+        ))
+      ) : rows.length === 0 ? (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={columnCount} className="p-0">
+            {emptyState ?? (
+              <Empty className="border-0 py-12">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <LoaderIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>No results</EmptyTitle>
+                  <EmptyDescription>
+                    Nothing matches the current filters. Adjust them and try again.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </TableCell>
+        </TableRow>
+      ) : isVirtualized ? (
+        <>
+          {desktopPaddingTop > 0 ? (
+            <tr aria-hidden="true" style={{ height: `${desktopPaddingTop}px` }}>
+              <td colSpan={columnCount} style={{ padding: 0, border: 0 }} />
+            </tr>
+          ) : null}
+          {desktopVirtualItems.map((virtualItem) => {
+            const row = rows[virtualItem.index]!;
+            return renderDesktopRow(row, virtualItem.index);
+          })}
+          {desktopPaddingBottom > 0 ? (
+            <tr aria-hidden="true" style={{ height: `${desktopPaddingBottom}px` }}>
+              <td colSpan={columnCount} style={{ padding: 0, border: 0 }} />
+            </tr>
+          ) : null}
+        </>
+      ) : (
+        rows.map((row) => renderDesktopRow(row))
+      )}
+    </TableBody>
+  );
+
   return (
     <div
       data-slot="data-table"
       data-density={density}
+      data-virtualized={isVirtualized ? "true" : undefined}
       aria-busy={isBusy || undefined}
       className={cn("@container relative flex flex-col gap-3", className)}
     >
@@ -473,305 +955,127 @@ export function DataTable<TData extends RowData>({
               </Empty>
             )}
           </div>
+        ) : isVirtualized ? (
+          <div
+            ref={mobileScrollRef}
+            style={{ maxHeight: virtualHeightStyle }}
+            className="flex flex-col divide-y overflow-y-auto overscroll-contain rounded-lg border"
+          >
+            {mobilePaddingTop > 0 ? (
+              <div aria-hidden="true" style={{ height: `${mobilePaddingTop}px`, flexShrink: 0 }} />
+            ) : null}
+            {mobileVirtualItems.map((virtualItem) => renderMobileCard(rows[virtualItem.index]!))}
+            {mobilePaddingBottom > 0 ? (
+              <div
+                aria-hidden="true"
+                style={{ height: `${mobilePaddingBottom}px`, flexShrink: 0 }}
+              />
+            ) : null}
+          </div>
         ) : (
           <div className="flex flex-col divide-y rounded-lg border">
-            {rows.map((row) => {
-              const cells = row.getVisibleCells();
-              const actionCell = cells.find((cell) => cell.column.id === "actions");
-              const dataCells = cells.filter((cell) => cell.column.id !== "actions");
-              const [primaryCell, ...secondaryCells] = dataCells;
-              const rowId = selection?.getId(row.original);
-              const isSelectable = selection
-                ? selection.canSelect?.(row.original) !== false
-                : false;
-
-              return (
-                <div
-                  key={`mobile-${row.id}`}
-                  inert={rowsInert || undefined}
-                  onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
-                  className={cn(
-                    "flex items-start gap-3 transition-colors",
-                    density === "compact" ? "p-2.5" : "p-3",
-                    canActivateRow && "cursor-pointer hover:bg-muted/50",
-                    rowClassName?.(row.original),
-                  )}
-                >
-                  {selection && (
-                    <div className="pt-0.5" onClick={(event) => event.stopPropagation()}>
-                      {isSelectable && rowId !== undefined ? (
-                        <Checkbox
-                          aria-label={selection.getLabel(row.original)}
-                          checked={selection.ids.has(rowId)}
-                          disabled={selection.disabled || rowsInert}
-                          onCheckedChange={(checked) => changeSelection([rowId], checked)}
-                        />
-                      ) : null}
-                    </div>
-                  )}
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    {primaryCell || actionCell ? (
-                      <div className="flex min-w-0 items-start justify-between gap-2">
-                        {primaryCell ? (
-                          <div className="min-w-0 flex-1">
-                            <table.FlexRender cell={primaryCell} />
-                          </div>
-                        ) : (
-                          <span />
-                        )}
-                        {actionCell ? (
-                          <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                            <table.FlexRender cell={actionCell} />
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {secondaryCells.length > 0 ? (
-                      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                        {secondaryCells.map((cell) => (
-                          <div key={cell.id} className="flex min-w-0 flex-col gap-0.5">
-                            <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                              {stringifyHeader(cell.column.columnDef.header, cell.column.id)}
-                            </dt>
-                            <dd className="min-w-0 truncate">
-                              <table.FlexRender cell={cell} />
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
+            {rows.map((row) => renderMobileCard(row))}
           </div>
         )}
       </div>
 
       {/* Wide-container table */}
       <div ref={tableHostRef} className="hidden overflow-hidden rounded-lg border @lg:block">
-        <Table regionLabel={regionLabel}>
-          <TableHeader>
-            {headerGroups.map((headerGroup, index, groups) => (
-              <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                {selection && index === 0 && (
-                  <TableHead
-                    scope="col"
-                    rowSpan={groups.length}
-                    data-pin-measure-id="__selection"
-                    style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
-                    className={cn(
-                      "w-10 ps-3",
-                      density === "compact" && "h-9 py-1.5",
-                      startPinnedIds.length > 0 && "sticky z-20 bg-background",
-                    )}
-                  >
-                    <Checkbox
-                      aria-label={selection.pageLabel}
-                      checked={allSelected}
-                      indeterminate={selectedCount > 0 && !allSelected}
-                      disabled={selection.disabled || rowsInert || pageIds.length === 0}
-                      className="data-indeterminate:before:h-px data-indeterminate:before:w-2.5 data-indeterminate:before:bg-current data-indeterminate:[&>span]:hidden"
-                      onCheckedChange={(checked) => changeSelection(pageIds, checked)}
-                    />
-                  </TableHead>
-                )}
-                {headerGroup.headers.map((header) => {
-                  const canSort = header.column.getCanSort();
-                  const sorted = header.column.getIsSorted();
-                  const pinned = header.column.getIsPinned();
-                  const pinProps = pinnedCellProps(header.column.id, pinned);
-                  return (
-                    <TableHead
-                      key={header.id}
-                      colSpan={header.colSpan}
-                      data-pin-measure-id={
-                        header.column.columns.length === 0 && !header.isPlaceholder
-                          ? header.column.id
-                          : undefined
-                      }
-                      data-pinned={pinProps["data-pinned"]}
-                      style={pinProps.style}
-                      className={cn(
-                        density === "compact" && "h-9 py-1.5",
-                        pinProps.className,
-                        pinned && "z-20",
-                      )}
-                    >
-                      {header.isPlaceholder ? null : canSort ? (
-                        <button
-                          type="button"
-                          onClick={header.column.getToggleSortingHandler()}
-                          className="-mx-1 inline-flex min-h-8 items-center gap-1 rounded px-1 py-1 text-xs font-medium tracking-wider uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                          aria-label={`Sort by ${stringifyHeader(header.column.columnDef.header, header.id)}`}
-                        >
-                          <table.FlexRender header={header} />
-                          {sorted === "asc" ? (
-                            <ArrowUpIcon className="size-3" />
-                          ) : sorted === "desc" ? (
-                            <ArrowDownIcon className="size-3" />
-                          ) : (
-                            <ChevronsUpDownIcon className="size-3 opacity-50" />
-                          )}
-                        </button>
-                      ) : (
-                        <table.FlexRender header={header} />
-                      )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {showSkeleton ? (
-              Array.from({ length: skeletonRowCount }, (_, index) => (
-                <TableRow key={`skeleton-${index}`} className="hover:bg-transparent">
-                  {Array.from({ length: columnCount }, (_, cellIndex) => (
-                    <TableCell key={`skeleton-${index}-${cellIndex}`}>
-                      <Skeleton className="h-4 w-full max-w-40" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columnCount} className="p-0">
-                  {emptyState ?? (
-                    <Empty className="border-0 py-12">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <LoaderIcon />
-                        </EmptyMedia>
-                        <EmptyTitle>No results</EmptyTitle>
-                        <EmptyDescription>
-                          Nothing matches the current filters. Adjust them and try again.
-                        </EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  inert={rowsInert || undefined}
-                  onClick={canActivateRow ? () => onRowClick?.(row.original) : undefined}
-                  className={cn(
-                    "group/row",
-                    canActivateRow && "cursor-pointer",
-                    rowClassName?.(row.original),
-                  )}
-                >
-                  {selection && (
-                    <TableCell
-                      style={startPinnedIds.length > 0 ? { insetInlineStart: 0 } : undefined}
-                      className={cn(
-                        "w-10 ps-3",
-                        density === "compact" && "py-1.5",
-                        startPinnedIds.length > 0 &&
-                          "sticky z-10 bg-background group-hover/row:bg-muted/50",
-                      )}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {selection.canSelect?.(row.original) !== false && (
-                        <Checkbox
-                          aria-label={selection.getLabel(row.original)}
-                          checked={selection.ids.has(selection.getId(row.original))}
-                          disabled={selection.disabled || rowsInert}
-                          onCheckedChange={(checked) =>
-                            changeSelection([selection.getId(row.original)], checked)
-                          }
-                        />
-                      )}
-                    </TableCell>
-                  )}
-                  {row.getVisibleCells().map((cell) => {
-                    const pinned = cell.column.getIsPinned();
-                    const pinProps = pinnedCellProps(cell.column.id, pinned);
-                    return (
-                      <TableCell
-                        key={cell.id}
-                        data-pinned={pinProps["data-pinned"]}
-                        style={pinProps.style}
-                        className={cn(density === "compact" && "py-1.5", pinProps.className)}
-                      >
-                        <table.FlexRender cell={cell} />
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+        {isVirtualized ? (
+          <div
+            ref={desktopScrollRef}
+            data-slot="table-container"
+            tabIndex={0}
+            role="region"
+            aria-label={regionLabel}
+            style={{ maxHeight: virtualHeightStyle }}
+            className="relative w-full overflow-auto overscroll-contain focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+          >
+            <table data-slot="table" className="w-full caption-bottom text-sm">
+              {tableHeaderNode}
+              {tableBodyNode}
+            </table>
+          </div>
+        ) : (
+          <Table regionLabel={regionLabel}>
+            {tableHeaderNode}
+            {tableBodyNode}
+          </Table>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm">
-        <p aria-live="polite" className="tabular-nums">
-          {total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}
-        </p>
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <span className="hidden sm:inline">Rows per page</span>
-          <Select
-            value={String(currentSize)}
-            onValueChange={(value) => {
-              const pageSize = Number(value);
-              onPaginationChange?.({ pageIndex: 0, pageSize });
-            }}
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-16 border border-input px-2.5"
-              aria-label="Rows per page"
+      {!bypassPagination ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground sm:gap-3 sm:text-sm">
+          <p aria-live="polite" className="tabular-nums">
+            {total === 0 ? "No rows" : `${firstRow}–${lastRow} of ${total}`}
+          </p>
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <span className="hidden sm:inline">Rows per page</span>
+            <Select
+              value={String(currentSize)}
+              onValueChange={(value) => {
+                const pageSize = Number(value);
+                onPaginationChange?.({ pageIndex: 0, pageSize });
+              }}
             >
-              <SelectValue>{(value) => String(value)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {pageSizeOptions.map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-2 sm:px-3"
-            aria-label="Previous page"
-            onClick={() =>
-              onPaginationChange?.({ pageIndex: currentIndex - 1, pageSize: currentSize })
-            }
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeftIcon className="sm:hidden" aria-hidden />
-            <span className="hidden sm:inline">Previous</span>
-          </Button>
-          <span className="px-1 tabular-nums">
-            <span className="sm:hidden">
-              {pageCount === 0 ? 0 : currentIndex + 1}/{pageCount}
+              <SelectTrigger
+                size="sm"
+                className="w-16 border border-input px-2.5"
+                aria-label="Rows per page"
+              >
+                <SelectValue>{(value) => String(value)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {pageSizeOptions.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="px-2 sm:px-3"
+              aria-label="Previous page"
+              onClick={() =>
+                onPaginationChange?.({ pageIndex: currentIndex - 1, pageSize: currentSize })
+              }
+              disabled={!table.getCanPreviousPage()}
+            >
+              <ChevronLeftIcon className="sm:hidden" aria-hidden />
+              <span className="hidden sm:inline">Previous</span>
+            </Button>
+            <span className="px-1 tabular-nums">
+              <span className="sm:hidden">
+                {pageCount === 0 ? 0 : currentIndex + 1}/{pageCount}
+              </span>
+              <span className="hidden sm:inline">
+                Page {pageCount === 0 ? 0 : currentIndex + 1} of {pageCount}
+              </span>
             </span>
-            <span className="hidden sm:inline">
-              Page {pageCount === 0 ? 0 : currentIndex + 1} of {pageCount}
-            </span>
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-2 sm:px-3"
-            aria-label="Next page"
-            onClick={() =>
-              onPaginationChange?.({ pageIndex: currentIndex + 1, pageSize: currentSize })
-            }
-            disabled={!table.getCanNextPage()}
-          >
-            <ChevronRightIcon className="sm:hidden" aria-hidden />
-            <span className="hidden sm:inline">Next</span>
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="px-2 sm:px-3"
+              aria-label="Next page"
+              onClick={() =>
+                onPaginationChange?.({ pageIndex: currentIndex + 1, pageSize: currentSize })
+              }
+              disabled={!table.getCanNextPage()}
+            >
+              <ChevronRightIcon className="sm:hidden" aria-hidden />
+              <span className="hidden sm:inline">Next</span>
+            </Button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between px-1 text-xs text-muted-foreground sm:text-sm">
+          <p aria-live="polite" className="tabular-nums">
+            {total === 0 ? "No rows" : `${total} virtualized rows`}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
