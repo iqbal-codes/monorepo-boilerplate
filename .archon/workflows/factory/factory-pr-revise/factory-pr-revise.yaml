@@ -117,13 +117,11 @@ nodes:
 
   - id: revise
     command: revise
-    model: large
+    model: medium
     skills:
       - { name: agent-browser, optional: true }
-      - { name: shadcn, optional: true }
+      - { name: ui, optional: true }
       - { name: modern-web-guidance, optional: true }
-      - { name: better-interface, optional: true }
-      - { name: assistant-ui, optional: true }
     depends_on: [fetch-pr-feedback]
     when: "$fetch-pr-feedback.output.ready == true"
     with:
@@ -227,14 +225,12 @@ nodes:
       nodes:
         - id: fix
           command: fix
-          model: large
+          model: medium
           context: fresh
           skills:
             - { name: agent-browser, optional: true }
-            - { name: shadcn, optional: true }
+            - { name: ui, optional: true }
             - { name: modern-web-guidance, optional: true }
-            - { name: better-interface, optional: true }
-            - { name: assistant-ui, optional: true }
           when: "$LOOP_PREV.qa.output.done == false"
           with:
             contract_path: "$fetch-pr-feedback.output.contract_path"
@@ -396,14 +392,12 @@ nodes:
       nodes:
         - id: extra-fix
           command: fix
-          model: large
+          model: medium
           context: fresh
           skills:
             - { name: agent-browser, optional: true }
-            - { name: shadcn, optional: true }
+            - { name: ui, optional: true }
             - { name: modern-web-guidance, optional: true }
-            - { name: better-interface, optional: true }
-            - { name: assistant-ui, optional: true }
           with:
             contract_path: "$fetch-pr-feedback.output.contract_path"
             verification_command: "$fetch-pr-feedback.output.verification_command"

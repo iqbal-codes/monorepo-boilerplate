@@ -322,6 +322,52 @@ describe('round-verdict sequential UX and consolidated review verdict', () => {
     }
   });
 
+  test('ignores TC-R1-* additions in standard mode so ledger stays locked to contract TCs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-standard-lock-'));
+    try {
+      mkdirSync(join(dir, 'review'), { recursive: true });
+      writeFileSync(
+        join(dir, 'qa-testcases.md'),
+        [
+          '# QA Test-Case Ledger — Search',
+          '',
+          '- **Risk Tier:** `standard`',
+          '- **Freeze State:** `LOCKED_CONTRACT_ONLY (standard tier — contract TCs only; do not add TC-R1-*)`',
+          '',
+          '## Contract Test Cases (Baseline)',
+          '| ID | Case / Expected Outcome | Status | Notes |',
+          '| :--- | :--- | :--- | :--- |',
+          '| `TC-01` | Search filters list | `PENDING` | — |',
+          '',
+        ].join('\n')
+      );
+      writeFileSync(
+        join(dir, 'review', 'code.md'),
+        [
+          '[✅ LGTM]',
+          '## Test Case Results',
+          '- TC-01: PASS — search verified',
+          '- TC-R1-CODE-01: FAIL — extra reviewer-invented case should be ignored in standard mode',
+        ].join('\n')
+      );
+
+      const { output } = runVerdict(dir, {
+        INPUTS_REVIEW_MODE: 'standard',
+        INPUTS_RUN_UX: 'false',
+        INPUTS_EFFECTIVE_HAS_UI: 'false',
+        INPUTS_CODE_LGTM: 'true',
+      });
+
+      expect(output.done).toBe(true);
+      expect(output.ready).toBe(true);
+      const after = readFileSync(join(dir, 'qa-testcases.md'), 'utf8');
+      expect(after).toContain('| `TC-01` | Search filters list | `PASS` |');
+      expect(after).not.toContain('TC-R1-CODE-01');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('includes PASSed TC-R1-* invariants under Prior Verified Clean and honors fallback_previous_round', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-verdict-invariants-'));
     try {

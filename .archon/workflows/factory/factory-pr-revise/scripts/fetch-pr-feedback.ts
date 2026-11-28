@@ -299,7 +299,17 @@ const forbiddenPaths = resolveForbiddenPaths(policyBase, parsed.forbiddenPaths);
 
 const contractPath = join(artifactsDir, 'contract.md');
 writeFileSync(contractPath, contractMarkdown, 'utf8');
-writeFileSync(join(artifactsDir, 'qa-testcases.md'), buildQaTestCasesMarkdown(parsed), 'utf8');
+writeFileSync(
+  join(artifactsDir, 'qa-testcases.md'),
+  buildQaTestCasesMarkdown(parsed, [
+    {
+      id: 'TC-REV-01',
+      description:
+        '[Revision] All maintainer feedback items in pr-feedback.md are implemented and verified (maintainer feedback overrides original contract details where they differ)',
+    },
+  ]),
+  'utf8'
+);
 
 const feedbackLines: string[] = [
   `# Human Maintainer Feedback for PR #${pr.number}`,

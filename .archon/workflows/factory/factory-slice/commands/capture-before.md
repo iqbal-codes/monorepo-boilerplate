@@ -12,12 +12,10 @@ Capture **Before** screenshots of existing UI surfaces on `$INPUTS.base_sha` **o
 1. Read `$INPUTS.contract_path` and determine whether this slice **modifies existing UI surfaces** or is **purely additive** (adds a new route, new modal/drawer/dialog, or a new standalone component/showcase section on an existing page without altering the existing UI).
    - **Additive-only fast skip:** If no existing rendered UI surface is being redesigned or altered, do **not** start the preview server and do **not** capture unrelated baseline pages/tabs. Write a concise note to `$ARTIFACTS_DIR/evidence/before.md` stating why no Before screenshot applies, and return `captured: false`, `screenshots: []`, `summary: "Additive UI change — no existing UI surface modified."`.
 2. When existing UI surfaces *will* change, start the isolated preview server by running `$INPUTS.preview_cmd`. Read `URL=...` and `PID=...` from its output. Always kill `PID` in a cleanup trap or before exiting so no background server leaks.
-3. Use the repository’s browser tooling or an available browser tool to visit **only** the specific existing routes, sections, and viewports that this slice will modify:
-   - Choose shots strictly from **what is changing** (no fixed count and no mandatory `desktop` + `mobile` template — capture mobile/narrow viewports only when responsive layout/wrapping is affected, and never pad with untouched tabs or sibling cards).
-   - Prefer focused section/element captures or explicit scroll framing when the change targets one part of a long page.
-   - Name each file by the exact surface/state being changed (`before-<surface-slug>.png`, e.g. `before-customer-header.png`, `before-customer-detail-mobile-320.png`, `before-toolbar-filters.png`) and save to `$ARTIFACTS_DIR/evidence/`.
+3. Visit **only** the existing routes, sections, and viewports that this slice will modify:
+   - Capture focused shots of what is changing (include narrow mobile only when responsive layout changes), saved to `$ARTIFACTS_DIR/evidence/before-<slug>.png`.
 4. Stop the preview server (`kill "$PID"` and verify it exited).
-5. Write `$ARTIFACTS_DIR/evidence/before.md` listing each captured filename, exact route, viewport, scroll/element framing, and what changed surface it represents so `implement` and `ux-verify` can reproduce the **exact same slug and framing** for apples-to-apples Before/After comparisons. Optionally write `$ARTIFACTS_DIR/evidence/before-manifest.json` (`[{ "file": "before-...", "label": "...", "pairKey": "..." }]`) for clean PR labels.
+5. Write `$ARTIFACTS_DIR/evidence/before.md` listing each filename, route, viewport, and framing so `implement` and `ux-verify` can match the exact `<slug>` for Before/After comparison (optionally write `before-manifest.json`).
 
 ## Stop Rule
 

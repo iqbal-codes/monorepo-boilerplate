@@ -135,6 +135,36 @@ describe('Slice contract and boundary guards', () => {
     expect(ledger).toContain('`OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`');
   });
 
+  test('parses heading-style Test Case Checklist, bold TC items, heading Out of Scope, and merges extra revision TCs', () => {
+    const md = [
+      '# Filter modal polish',
+      '- **Verification Command:** `bun test`',
+      '## Test Case Checklist',
+      '- **TC-01:** `[UI]` Open filter modal -> Clear filters button is inside modal',
+      '2. **TC-02** — `[Code]` Reset clears active filters -> query params reset',
+      '## Out of Scope',
+      '- **Pagination:** untouched by this slice',
+    ].join('\n');
+
+    const parsed = parseSliceContract(md);
+    expect(parsed.testCases).toEqual([
+      { id: 'TC-01', description: '`[UI]` Open filter modal -> Clear filters button is inside modal' },
+      { id: 'TC-02', description: '`[Code]` Reset clears active filters -> query params reset' },
+    ]);
+    expect(parsed.outOfScope).toEqual(['**Pagination:** untouched by this slice']);
+
+    const ledger = buildQaTestCasesMarkdown(parsed, [
+      { id: 'TC-REV-01', description: '[Revision] Align searchbar and filter controls' },
+      { id: 'TC-01', description: 'duplicate id ignored' },
+    ]);
+    expect(ledger).toContain('| `TC-01` |');
+    expect(ledger).toContain('| `TC-02` |');
+    expect(ledger).toContain('| `TC-REV-01` | [Revision] Align searchbar and filter controls | `PENDING` | — |');
+    expect(ledger).not.toContain('duplicate id ignored');
+    expect(ledger).toContain('`LOCKED_CONTRACT_ONLY (standard tier — contract TCs only; do not add TC-R1-*)`');
+    expect(ledger).not.toContain('## Round 1 Exploratory Cases');
+  });
+
   test('detects missing brace-expanded local docs/... references while skipping existing ones', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-doc-refs-'));
     try {

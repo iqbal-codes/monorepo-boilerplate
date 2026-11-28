@@ -29,6 +29,7 @@ const attentionNote =
 const body = [
   '<!-- archon-factory-escalation-prompt -->',
   `### ⏸️ QA Escalation (\`${reason}\`)`,
+  '',
   summary,
   ...(reason === 'implement_blocked' ? ['', `> ${attentionNote}`] : []),
   '',

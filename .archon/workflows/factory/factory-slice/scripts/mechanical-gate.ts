@@ -219,7 +219,12 @@ if (prevSha) {
     reportLines.push(`## Delta Since Last Round (\`${prevSha.slice(0, 7)}..HEAD\`)`, '```text', deltaStat, '```', '');
   }
 }
-reportLines.push('## Static Hygiene Signals (0 LLM tokens)', ...collectStaticHygieneSignals(changedFiles, baseSha), '');
+reportLines.push(
+  '## Static Hygiene Signals (0 LLM tokens)',
+  '_Advisory only (non-blocking unless an explicit contract rule is violated)._',
+  ...collectStaticHygieneSignals(changedFiles, baseSha),
+  ''
+);
 reportLines.push('## Verification Output (tail)', '```text', checksOutput, '```', '');
 
 writeFileSync(join(artifactsDir, 'mechanical-gate.md'), reportLines.join('\n'), 'utf8');

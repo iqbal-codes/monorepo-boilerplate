@@ -69,11 +69,9 @@ const roundsReady = text(process.env.INPUTS_ROUNDS_READY) === 'true';
 const roundsReason = text(process.env.INPUTS_ROUNDS_REASON);
 const roundsSummary = text(process.env.INPUTS_ROUNDS_SUMMARY);
 const implSummary = text(process.env.INPUTS_IMPL_SUMMARY);
-const roundNum =
-  Number.parseInt(
-    text(process.env.INPUTS_ROUND) || text(process.env.INPUTS_FALLBACK_ROUND) || '1',
-    10
-  ) || 1;
+const roundRaw = text(process.env.INPUTS_ROUND) || text(process.env.INPUTS_FALLBACK_ROUND);
+const parsedRound = roundRaw !== '' ? Number.parseInt(roundRaw, 10) : Number.NaN;
+const roundNum = Number.isFinite(parsedRound) && parsedRound >= 0 ? parsedRound : 1;
 const diffStatInput = text(process.env.INPUTS_DIFF_STAT);
 const mergeMode = text(process.env.INPUTS_MERGE_MODE) || 'ask';
 const claim = parseDeliveryClaim(process.env.INPUTS_ALLOWED_FOLDERS, process.env.INPUTS_EXCLUSIVE);
@@ -125,11 +123,11 @@ function readCompactPrSections(): {
 
 function formatDiffSection(diffStat: string): string {
   const lines = diffStat.split(/\r?\n/).filter(Boolean);
-  const block = ['```text', diffStat, '```'].join('\n');
-  if (lines.length > 15) {
-    return `<details><summary>Changed Files (${lines[lines.length - 1]?.trim() || `${lines.length} lines`})</summary>\n\n${block}\n\n</details>`;
-  }
-  return block;
+  const label =
+    lines.length > 1
+      ? `Changed Files (${lines[lines.length - 1]?.trim()})`
+      : 'Changed Files';
+  return `<details><summary>${label}</summary>\n\n\`\`\`text\n${diffStat}\n\`\`\`\n\n</details>`;
 }
 
 function uploadEvidenceImages(shortSha: string): UploadedEvidence {
@@ -289,7 +287,9 @@ function ensurePrCreated(
 const labelTag = sliceId || (issueNumber > 0 ? `#${issueNumber}` : title);
 const commitMsg =
   mode === 'sync'
-    ? `fix(${labelTag}): address QA Round ${roundNum} findings`
+    ? roundNum === 0
+      ? `fix(${labelTag}): address PR review feedback`
+      : `fix(${labelTag}): address QA Round ${roundNum} findings`
     : sliceId
       ? `${sliceId}: ${title}${issueNumber > 0 ? ` (#${issueNumber})` : ''}`
       : `${title}${issueNumber > 0 ? ` (#${issueNumber})` : ''}`;
@@ -327,7 +327,9 @@ if (mode === 'draft' || mode === 'sync') {
   const stageBadge =
     mode === 'draft'
       ? `Draft · \`factory:review\` · \`${baseBranch}\` -> \`${shortSha}\``
-      : `Draft · \`factory:review\` · Round ${roundNum + 1} fix (\`${shortSha}\`)`;
+      : roundNum === 0
+        ? `Draft · \`factory:review\` · PR revision (\`${shortSha}\`)`
+        : `Draft · \`factory:review\` · Round ${roundNum + 1} fix (\`${shortSha}\`)`;
 
   const draftLines: string[] = [
     `${issueNumber > 0 ? `Closes #${issueNumber} · ` : ''}${stageBadge} · \`${sliceId || title}\` (\`${phase || 'ad-hoc'}\`, \`${riskTier}\`)`,
@@ -346,11 +348,7 @@ if (mode === 'draft' || mode === 'sync') {
     '',
     dangerBlock,
     '',
-    '<details><summary>Changed Files</summary>',
-    '',
     formatDiffSection(diffStat),
-    '',
-    '</details>',
   ];
 
   const bodyPath = join(artifactsDir, 'draft-pr-body.md');
@@ -361,11 +359,25 @@ if (mode === 'draft' || mode === 'sync') {
   prUrl = created.prUrl;
 
   if (mode === 'sync' && repo && prNumber > 0) {
+    const syncHeading =
+      roundNum === 0
+        ? `### 🔄 Implementer Update — PR Revision (\`${shortSha}\`)`
+        : `### 🔄 Implementer Update — Round ${roundNum + 1} Fix (\`${shortSha}\`)`;
     const fixCommentLines = [
       '<!-- archon-factory-revise-done -->',
-      `### 🔄 Implementer Update — Round ${roundNum + 1} Fix (\`${shortSha}\`)`,
+      syncHeading,
       '',
-      implSummary || 'Resumed implementer session and pushed QA fixes (`factory:review`).',
+      implSummary || 'Pushed updated changes (`factory:review`).',
+      ...(uploadedEvidence.impl.length > 0
+        ? [
+            '',
+            ...renderEvidenceSection(
+              uploadedEvidence,
+              resolvedBeforeSummary,
+              `Updated at \`${shortSha}\`.`
+            ),
+          ]
+        : []),
     ];
     postPrComment(repo, prNumber, fixCommentLines.join('\n'), artifactsDir);
   }
@@ -446,11 +458,7 @@ bodyLines.push(
   '',
   dangerBlock,
   '',
-  '<details><summary>Changed Files</summary>',
-  '',
-  formatDiffSection(diffStat),
-  '',
-  '</details>'
+  formatDiffSection(diffStat)
 );
 
 const prBodyPath = join(artifactsDir, 'pr-body.md');
@@ -467,28 +475,35 @@ if (!isDraft && prNumber > 0) {
 }
 
 const needsHumanMergeApproval = mergeAction === 'ask';
+const hasFinalizeVisualEvidence = uploadedEvidence.after.length > 0 || uploadedEvidence.impl.length > 0;
+const shouldPostFinalizeEvidence = hadExistingPr && (hasFinalizeVisualEvidence || Boolean(evidenceBlock));
 
-if (repo && prNumber > 0 && (needsHumanMergeApproval || (hadExistingPr && uploadedEvidence.after.length > 0))) {
+if (repo && prNumber > 0 && (needsHumanMergeApproval || shouldPostFinalizeEvidence)) {
   const finalizeCommentLines: string[] = [];
-  if (hadExistingPr && uploadedEvidence.after.length > 0) {
+  if (shouldPostFinalizeEvidence) {
     finalizeCommentLines.push(
       ...renderEvidenceSection(
         uploadedEvidence,
         resolvedBeforeSummary,
-        verifyLine ? `${verifyLine} (\`${shortSha}\`)` : `Verified at \`${shortSha}\`.`
+        verifyLine ? `${verifyLine} (\`${shortSha}\`)` : `Verified at \`${shortSha}\`.`,
+        evidenceBlock
       )
     );
   }
   if (needsHumanMergeApproval) {
+    if (finalizeCommentLines.length > 0 && finalizeCommentLines[finalizeCommentLines.length - 1] !== '') {
+      finalizeCommentLines.push('');
+    }
     finalizeCommentLines.push(
       '<!-- archon-factory-merge-prompt -->',
       `### ⏸️ Ready for Human Merge Decision (\`merge_mode=${mergeMode}\`)`,
-      verifyLine ? `- **Checks:** ${verifyLine}` : '',
+      '',
+      ...(verifyLine ? [`- **Checks:** ${verifyLine}`] : []),
       '- Approve in Archon to wait for green CI and squash-merge. If the Factory dispatcher is enabled, you can also reply **`/approve`** or **`/merge`** here.',
       '- Or review and merge the PR directly in GitHub.'
     );
   }
-  postPrComment(repo, prNumber, finalizeCommentLines.filter(Boolean).join('\n'), artifactsDir);
+  postPrComment(repo, prNumber, finalizeCommentLines.join('\n').trim(), artifactsDir);
 }
 
 const approvalMessage = needsHumanMergeApproval

@@ -64,6 +64,40 @@ describe('PR formatting & review comment extraction', () => {
     expect(extractBlockingFindings('[✅ LGTM]\n- Verified Clean')).toBe('');
   });
 
+  test('extractBlockingFindings and extractUxBlockingFindings never duplicate Test Case Results rows', () => {
+    const codeReport = [
+      '# Review',
+      '',
+      '- [P1] Clear filters button stays outside modal in `FilterBar.tsx:42`',
+      '',
+      '## Test Case Results',
+      '- TC-01: PASS — search works',
+      '- TC-02: FAIL — clear filters still outside modal',
+      '',
+      '## Verified Clean',
+      '- Sort dropdown',
+    ].join('\n');
+
+    const extractedCode = extractBlockingFindings(codeReport);
+    expect(extractedCode).toContain('FilterBar.tsx:42');
+    expect(extractedCode).not.toContain('TC-01: PASS');
+    expect(extractedCode).not.toContain('TC-02: FAIL');
+
+    const uxReport = [
+      '# UX Report',
+      '## Test Case Results',
+      '- TC-01: PASS — desktop aligned',
+      '- TC-02: FAIL — button misaligned',
+      '## Blocking Defects',
+      '- `after-toolbar.png`: Filter button sits 4px lower than search input',
+    ].join('\n');
+
+    const extractedUx = extractUxBlockingFindings(uxReport);
+    expect(extractedUx).toContain('Filter button sits 4px lower');
+    expect(extractedUx).not.toContain('TC-01: PASS');
+    expect(extractedUx).not.toContain('TC-02: FAIL');
+  });
+
   test('extractMechanicalFailureSummary captures boundary hits and verification tail', () => {
     const md = [
       '# Mechanical Gate Report',
@@ -224,11 +258,11 @@ describe('PR formatting & review comment extraction', () => {
       afterLabel: 'After (QA)',
     }).join('\n');
 
-    expect(mixedMd).toContain('### Before / After');
+    expect(mixedMd).toContain('### Before / After\n\n| Surface | Before | After (QA) |');
     expect(mixedMd).toContain('| **Customer Detail · Desktop** |');
-    expect(mixedMd).toContain('### Additional States — After (QA)');
+    expect(mixedMd).toContain('### Additional States — After (QA)\n\n| State | After (QA) |');
     expect(mixedMd).toContain('| **Delete Dialog** |');
-    expect(mixedMd).toContain('<details><summary>Unmatched Before Captures (1)</summary>');
+    expect(mixedMd).toContain('<details><summary>Unmatched Before Captures (1)</summary>\n\n| Surface | Before |');
     expect(mixedMd).not.toContain('| — |');
 
     // Non-UI / Backend PR: renders execution/behavioral evidence directly without generic boilerplate

@@ -144,7 +144,8 @@ function mergeQaTestCasesLedger() {
   const ledgerContent = readFileSync(ledgerPath, 'utf8');
   // Freeze only after a round where QA actually ran; otherwise a Round 1 mechanical-gate
   // failure would lock the ledger before Round 2 performs the first real QA pass.
-  const wasFrozen = /^- \*\*Freeze State:\*\*\s*`FROZEN\b/im.test(ledgerContent);
+  // Standard-tier ledgers start locked to contract TCs only and never accept TC-R1-* additions.
+  const wasFrozen = /^- \*\*Freeze State:\*\*\s*`(?:FROZEN|LOCKED_CONTRACT_ONLY)\b/im.test(ledgerContent);
   let lines = ledgerContent.split(/\r?\n/);
   const existingIds = new Set<string>();
 
@@ -161,7 +162,7 @@ function mergeQaTestCasesLedger() {
     return `| \`${id}\` | ${rowMatch[2]!.trim()} | \`${upd.status}\` | ${upd.note || rowMatch[4] || '—'} |`;
   });
 
-  if (reviewsRan && !wasFrozen) {
+  if (reviewsRan && !wasFrozen && reviewMode === 'strict') {
     const newExploratory = [...updates.entries()].filter(
       ([id, info]) => info.isExploratory && !existingIds.has(id)
     );
@@ -233,7 +234,9 @@ if (reviewsRan) {
   if (missingLedger) {
     openHandoffItems.push('- [P1] Required QA case ledger is missing or empty. Restore it and report the case results.');
   }
+  const existingHandoffText = openHandoffItems.join('\n');
   for (const { id, status, note } of incompleteCases) {
+    if (new RegExp(`\\b${id}\\b`, 'i').test(existingHandoffText)) continue;
     openHandoffItems.push(`- [P1] ${id}: ${status}. ${note === '—' ? 'Run the required case and report its result.' : note}`);
   }
 }
@@ -416,8 +419,13 @@ if (prUrl) {
     setFactoryState(repo, { issueNumber, prNumber }, FACTORY_LABELS.changesRequested);
   }
 
-  commentLines.splice(1, 0, '', `Reviewed commit \`${reviewedSha}\``, ...caseResults.map((item) => `- ${item}`), '');
-  postPrComment(repo, prNumber, commentLines.join('\n').slice(0, 55000), artifactsDir);
+  const headerMeta: string[] = ['', `Reviewed commit \`${reviewedSha}\``];
+  if (caseResults.length > 0) {
+    headerMeta.push('', '**Test Cases:**', ...caseResults.map((item) => `- ${item}`));
+  }
+  headerMeta.push('');
+  commentLines.splice(1, 0, ...headerMeta);
+  postPrComment(repo, prNumber, commentLines.join('\n').trim().slice(0, 55000), artifactsDir);
 }
 
 emit({

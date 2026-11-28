@@ -76,7 +76,6 @@ nodes:
     mutates_checkout: false
     skills:
       - { name: agent-browser, optional: true }
-      - { name: better-interface, optional: true }
     depends_on: [mechanical-gate]
     when: "$mechanical-gate.output.effective_run_ux == true && $mechanical-gate.output.passed == true"
     with:
@@ -93,15 +92,12 @@ nodes:
 
   # Sequential Independent QA Review (strictly fresh context & read-only).
   # Runs after ux-verify finishes (or is skipped) in collect-all mode so it reads
-  # the current-round UX report and never duplicates visual/happy-path browser sweeps.
+  # the current-round UX report and verifies contract TCs cleanly without style nitpicks.
   - id: review-code
     command: review-code
     model: large
     context: fresh
     mutates_checkout: false
-    skills:
-      - { name: better-interface, optional: true }
-      - { name: modern-web-guidance, optional: true }
     depends_on: [mechanical-gate, ux-verify]
     trigger_rule: all_done
     when: "$mechanical-gate.output.passed == true"

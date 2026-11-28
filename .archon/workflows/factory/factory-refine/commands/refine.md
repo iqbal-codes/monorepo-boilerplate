@@ -48,10 +48,9 @@ Ground the raw/vague request in `$INPUTS.request_path` against the live reposito
 - **Test Seam(s):** <highest public seam>
 - **Verification Command:** `<exact runnable repo command>`
 - [ ] *(If bug/crash report)* Regression test reproduces the reported failure/stack condition red -> green
-- [ ] <concrete verifiable acceptance criterion>
-- **Test Case Checklist (Outcome-Based):**
-  - `TC-01` `[Functional|UI|Boundary|Error]` <precondition / input> -> <expected observable outcome>
-  <!-- Translate ticket into 5-8 outcome-focused TCs for standard, 8-12 for strict (happy + negative/boundary per deliverable, plus 320px/keyboard focus if UI). Avoid naming internal functions. -->
+- **Test Case Checklist (Single Source of Truth for QA):**
+  - `TC-01` `[Code|UI]` <input / precondition> -> <observable outcome>
+  <!-- Write 2-5 observable TCs for standard, 5-8 for strict (happy + key error/boundary cases; add mobile/a11y TCs only when relevant to the request). Tag each TC `[UI]` (browser-verified) or `[Code]` (unit/integration/code-verified). Avoid duplicating Required UI States or naming internal functions. -->
 - **Out of Scope (Do Not Fail QA On):**
   - <2-3 adjacent baseline behaviors or unrelated screens QA must not block on unless broken by this change>
 ```

@@ -63,13 +63,14 @@ export function extractBlockingFindings(reviewMarkdown: string, maxChars = 14000
     }
 
     if (/^#{1,3}\s+/.test(line)) {
-      if (/verified clean|examined clean|non-blocking|notes/i.test(line)) {
+      if (/verified clean|examined clean|non-blocking|notes|test case|prior round|checklist/i.test(line)) {
         inBlocker = false;
       }
       continue;
     }
 
     if (inBlocker) {
+      if (/^\s*(?:[-*]|\d+\.)\s+(?:\*\*|`)*TC-(?:R\d+-)?[A-Z0-9-]+/i.test(line)) continue;
       kept.push(line);
     }
   }
@@ -82,10 +83,22 @@ export function extractBlockingFindings(reviewMarkdown: string, maxChars = 14000
     return `${lastNl > 0 ? clipped.slice(0, lastNl) : clipped}\n\n_(Remaining items omitted for GitHub size; see \`$ARTIFACTS_DIR/review/\`.)_`;
   }
 
-  // Fallback when reviewer omitted explicit [P0]/[P1] tags on a non-LGTM report
-  const stripped = raw
-    .replace(/^#\s+[^\n]*\n+/m, '')
-    .trim();
+  // Fallback when reviewer omitted explicit [P0]/[P1] tags on a non-LGTM report:
+  // strip Test Case Results, Prior Round Checklist, and Verified Clean to avoid duplicating ledger rows.
+  const fallbackLines: string[] = [];
+  let skippingSection = false;
+  for (const line of lines) {
+    if (/^#\s+/.test(line)) continue;
+    if (/^#{2,3}\s+/.test(line)) {
+      skippingSection = /verified clean|examined clean|non-blocking|notes|test case|prior round|checklist/i.test(line);
+      if (!skippingSection) fallbackLines.push(line);
+      continue;
+    }
+    if (skippingSection) continue;
+    if (/^\s*(?:[-*]|\d+\.)\s+(?:\*\*|`)*TC-(?:R\d+-)?[A-Z0-9-]+/i.test(line)) continue;
+    fallbackLines.push(line);
+  }
+  const stripped = fallbackLines.join('\n').trim();
   if (stripped.length <= maxChars) return stripped;
   const clipped = stripped.slice(0, maxChars);
   const lastNl = clipped.lastIndexOf('\n');
@@ -144,16 +157,21 @@ export function extractUxBlockingFindings(uxMarkdown: string): string {
   const lines = raw.split(/\r?\n/);
   const blockingLines: string[] = [];
   let inDefects = false;
+  let inSkippedSection = false;
+  const isTcLine = (l: string) => /^\s*(?:[-*]|\d+\.)\s+(?:\*\*|`)*TC-(?:R\d+-)?[A-Z0-9-]+/i.test(l);
 
   for (const line of lines) {
     if (/^#{1,3}\s+.*(defect|finding|blocking|error)/i.test(line)) {
       inDefects = true;
+      inSkippedSection = false;
       continue;
     }
     if (/^#{1,3}\s+/.test(line)) {
       inDefects = false;
+      inSkippedSection = /test case|prior round|checklist|screenshot|inventory|verified clean/i.test(line);
       continue;
     }
+    if (inSkippedSection || isTcLine(line)) continue;
     if (inDefects && !/non-blocking/i.test(line)) {
       if (line.trim()) blockingLines.push(line);
     } else if (/blocking|FAIL/i.test(line) && /^\s*[-*]/.test(line)) {
@@ -161,7 +179,9 @@ export function extractUxBlockingFindings(uxMarkdown: string): string {
     }
   }
 
-  return blockingLines.join('\n').trim() || raw.split(/\r?\n/).slice(0, 12).join('\n').trim();
+  if (blockingLines.length > 0) return blockingLines.join('\n').trim();
+  if (/^#{1,3}\s+.*test case/im.test(raw)) return '';
+  return raw.split(/\r?\n/).slice(0, 12).join('\n').trim();
 }
 
 /**
@@ -582,9 +602,9 @@ export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[]
 
   if (comparisons.length > 0) {
     if (afterOnly.length > 0 || cleanExecution) {
-      lines.push('### Before / After');
+      lines.push('', '### Before / After');
     }
-    lines.push(`| Surface | Before | ${afterLabel} |`, '| :--- | :---: | :---: |');
+    lines.push('', `| Surface | Before | ${afterLabel} |`, '| :--- | :---: | :---: |');
     for (const row of comparisons) {
       lines.push(
         `| **${escapeTableCell(row.view)}** | ${renderImageCell(row.before)} | ${renderImageCell(row.after)} |`
@@ -601,7 +621,7 @@ export function renderEvidenceMarkdown(options: RenderEvidenceOptions): string[]
           : `### Visual Evidence — ${afterLabel}`
       );
     }
-    lines.push(`| State | ${afterLabel} |`, '| :--- | :---: |');
+    lines.push('', `| State | ${afterLabel} |`, '| :--- | :---: |');
     for (const row of afterOnly) {
       lines.push(`| **${escapeTableCell(row.view)}** | ${renderImageCell(row.image)} |`);
     }

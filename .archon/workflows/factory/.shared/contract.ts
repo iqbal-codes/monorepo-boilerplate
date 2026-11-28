@@ -117,6 +117,45 @@ function extractBacktickTokens(line: string): string[] {
   return cleaned ? [cleaned] : [];
 }
 
+function extractNamedSectionLines(
+  markdown: string,
+  sectionNamePattern: RegExp,
+  options: { allowBoldItemPrefix?: RegExp } = {}
+): string[] {
+  const lines = markdown.split(/\r?\n/);
+  const out: string[] = [];
+  let inSection = false;
+  let baseIndent = -1;
+
+  for (const line of lines) {
+    if (!inSection) {
+      const isHeading = new RegExp(`^#{1,6}\\s+${sectionNamePattern.source}`, 'i').test(line);
+      const isLabeled = new RegExp(`^\\s*(?:[-*]\\s+)?\\*\\*${sectionNamePattern.source}[^:]*:\\*\\*`, 'i').test(line);
+      if (isHeading || isLabeled) {
+        inSection = true;
+        baseIndent = isHeading ? -1 : line.search(/\S/);
+      }
+      continue;
+    }
+
+    if (/^#{1,6}\s/.test(line)) break;
+    const indent = line.search(/\S/);
+    if (indent === -1) continue;
+
+    // For bullet-started sections (baseIndent >= 0), stop on a sibling labeled bullet
+    // (e.g. `- **Out of Scope:**`) at or above the header indent, without breaking on bold TC items.
+    const isSiblingLabel = /^\s*[-*]\s+\*\*[^*]+:\*\*/.test(line) || /^\s*\*\*[^*]+:\*\*/.test(line);
+    const isAllowedBoldItem = options.allowBoldItemPrefix ? options.allowBoldItemPrefix.test(line) : false;
+    if (baseIndent >= 0 && isSiblingLabel && !isAllowedBoldItem && indent <= baseIndent) {
+      break;
+    }
+
+    out.push(line);
+  }
+
+  return out;
+}
+
 function extractSectionBulletPaths(markdown: string, headingPattern: RegExp): string[] {
   const lines = markdown.split(/\r?\n/);
   const out: string[] = [];
@@ -244,13 +283,15 @@ export function parseSliceContract(
     workAreas.some(isRenderedUiFile);
 
   const testCases: Array<{ id: string; description: string }> = [];
-  const tcSectionMatch = markdown.match(
-    /\*\*Test Case Checklist[^:]*:\*\*([\s\S]*?)(?:\n#{1,6}\s|\n\s*[-*]\s+\*\*|\n\*\*|$)/i
-  );
-  if (tcSectionMatch) {
+  const tcLines = extractNamedSectionLines(markdown, /Test Case(?:s| Checklist)\b/, {
+    allowBoldItemPrefix: /^\s*(?:[-*]|\d+\.)\s+(?:\[[ xX]\]\s+)?(?:\*\*|`)?TC-[A-Z0-9-]+/i,
+  });
+  if (tcLines.length > 0) {
     let seq = 1;
-    for (const line of tcSectionMatch[1].split(/\r?\n/)) {
-      const m = line.match(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?(?:`?(TC-[A-Z0-9-]+)`?\s*[:\-–]?\s*)?(.+)$/i);
+    for (const line of tcLines) {
+      const m = line.match(
+        /^\s*(?:[-*]|\d+\.)\s+(?:\[[ xX]\]\s+)?(?:(?:\*\*|`)?(TC-[A-Z0-9-]+):?(?:\*\*|`)?\s*[:\-–—]?\s*)?(.+)$/i
+      );
       if (!m) continue;
       const desc = m[2].trim();
       if (!desc || /^<!--/.test(desc) || /^n\/a$/i.test(desc)) continue;
@@ -283,16 +324,12 @@ export function parseSliceContract(
   }
 
   const outOfScope: string[] = [];
-  const oosSectionMatch = markdown.match(
-    /\*\*Out of Scope[^:]*:\*\*([\s\S]*?)(?:\n#{1,6}\s|\n\s*[-*]\s+\*\*|\n\*\*|$)/i
-  );
-  if (oosSectionMatch) {
-    for (const line of oosSectionMatch[1].split(/\r?\n/)) {
-      const m = line.match(/^\s*[-*]\s+(.+)$/);
-      if (!m) continue;
-      const val = m[1].trim();
-      if (val && !/^<!--/.test(val) && !/^n\/a$/i.test(val)) outOfScope.push(val);
-    }
+  const oosLines = extractNamedSectionLines(markdown, /Out of Scope\b/);
+  for (const line of oosLines) {
+    const m = line.match(/^\s*[-*]\s+(.+)$/);
+    if (!m) continue;
+    const val = m[1].trim();
+    if (val && !/^<!--/.test(val) && !/^n\/a$/i.test(val)) outOfScope.push(val);
   }
 
   return {
@@ -319,22 +356,36 @@ export function parseSliceContract(
  * Generates the initial `$ARTIFACTS_DIR/qa-testcases.md` ledger used by implementers (TDD)
  * and QA reviewers (Round 1 execution + freeze, Round 2+ regression-only).
  */
-export function buildQaTestCasesMarkdown(parsed: ParsedSliceContract): string {
+export function buildQaTestCasesMarkdown(
+  parsed: ParsedSliceContract,
+  extraCases: Array<{ id: string; description: string }> = []
+): string {
   const escCell = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n+/g, ' ').trim();
-  const rows =
+  const baseCases =
     parsed.testCases.length > 0
-      ? parsed.testCases.map((tc) => `| \`${tc.id}\` | ${escCell(tc.description)} | \`PENDING\` | — |`)
-      : ['| `TC-01` | [Acceptance] Verify all contract deliverables and invariants pass | `PENDING` | — |'];
+      ? parsed.testCases
+      : [{ id: 'TC-01', description: '[Acceptance] Verify all contract deliverables and invariants pass' }];
+  const seen = new Set(baseCases.map((tc) => tc.id.toUpperCase()));
+  const mergedCases = [
+    ...baseCases,
+    ...extraCases.filter((tc) => !seen.has(tc.id.toUpperCase())),
+  ];
+  const rows = mergedCases.map((tc) => `| \`${tc.id.toUpperCase()}\` | ${escCell(tc.description)} | \`PENDING\` | — |`);
   const oosLines =
     parsed.outOfScope.length > 0
       ? parsed.outOfScope.map((item) => `- ${item}`)
       : ['- Existing baseline behavior outside this slice’s deliverables unless explicitly broken by the diff.'];
 
+  const isStrict = parsed.riskTier === 'strict';
+  const freezeLine = isStrict
+    ? '- **Freeze State:** `OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`'
+    : '- **Freeze State:** `LOCKED_CONTRACT_ONLY (standard tier — contract TCs only; do not add TC-R1-*)`';
+
   return [
     `# QA Test-Case Ledger — ${parsed.title}`,
     '',
     `- **Risk Tier:** \`${parsed.riskTier}\``,
-    '- **Freeze State:** `OPEN (Round 1 may add diff-bounded [TC-R1-*] defects; frozen after Round 1)`',
+    freezeLine,
     '- **Scope Rule:** Only `TC-*` items in this ledger are blocking QA scope. Do NOT fail on items listed under Out of Scope.',
     '',
     '## Contract Test Cases (Baseline)',
@@ -344,9 +395,13 @@ export function buildQaTestCasesMarkdown(parsed: ParsedSliceContract): string {
     '',
     '## Out of Scope (Do Not Fail On)',
     ...oosLines,
-    '',
-    '## Round 1 Exploratory Cases (Frozen After Round 1)',
-    '- _(None yet — Round 1 QA may emit `TC-R1-*` lines only for concrete defects in files/flows touched by the diff.)_',
+    ...(isStrict
+      ? [
+          '',
+          '## Round 1 Exploratory Cases (Frozen After Round 1)',
+          '- _(None yet — Round 1 QA may emit `TC-R1-*` lines only for concrete defects in files/flows touched by the diff.)_',
+        ]
+      : []),
     '',
   ].join('\n');
 }

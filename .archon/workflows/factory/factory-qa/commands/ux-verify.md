@@ -1,56 +1,47 @@
-# Black-Box UX, Layout & Visual Verification
+# Black-Box UX Verification
 
-Verify the changed UI **strictly as an end-user / operator** (reading rendered screens and screenshots without reading implementation source), and capture **After** screenshots for the PR body and reviewers. You are strictly read-only (`mutates_checkout: false`): never edit, create, or revert files inside the repository checkout.
+Verify the changed UI from the end-user's perspective against the `TC-*` cases and `Required UI States` in `$INPUTS.contract_path`, and capture change-driven **After** screenshots for the PR. Approve (`passed: true`) once all UI `TC-*` pass with no broken flows or fatal runtime errors. You are strictly read-only (`mutates_checkout: false`).
 
 ## Inputs
-- Slice contract (read `Visual & UI Contract` — `Layout Pattern`, `Anti-Patterns`, `UI Design References`, `Required UI States` — and `Scope & Deliverables`): `$INPUTS.contract_path`
-- QA test-case ledger (strictly read-only for you; `round-verdict` merges your statuses after parallel QA finishes): `$ARTIFACTS_DIR/qa-testcases.md`
-- Optional UI brief and visual references linked from the contract.
+- Slice contract: `$INPUTS.contract_path`
+- Maintainer PR revision feedback (if present — overrides original contract details where they differ): `$ARTIFACTS_DIR/pr-feedback.md`
+- QA test-case ledger (read-only; `round-verdict` merges statuses): `$ARTIFACTS_DIR/qa-testcases.md`
+- Optional linked UI brief / visual references
 - Preview runner command: `$INPUTS.preview_cmd`
 - Before evidence (if present): `$ARTIFACTS_DIR/evidence/before.md`
-- Prior round feedback & UX artifacts (if present on Round 2+): `$ARTIFACTS_DIR/round-feedback.md`, `$ARTIFACTS_DIR/evidence/ux-report.md`, and any saved verification script in `$ARTIFACTS_DIR/evidence/ux-check.mjs`
+- Prior round feedback & UX artifacts (Round 2+): `$ARTIFACTS_DIR/round-feedback.md`, `$ARTIFACTS_DIR/evidence/ux-report.md`, and `$ARTIFACTS_DIR/evidence/ux-check.mjs`
 - Output directory: `$ARTIFACTS_DIR/evidence/`
 
 ## Procedure
 
-1. Read `$INPUTS.contract_path`, `$ARTIFACTS_DIR/qa-testcases.md`, and linked UI brief/references to collect every **Required UI State**, `TC-*` test case, **Out of Scope** boundary, declared **Layout Pattern**, **Anti-Pattern**, performance budget, and viewport requirement.
-   - **Round 1:** Verify every UI-applicable `TC-*` in `qa-testcases.md`, plus one bounded exploratory check over the UI surfaces touched by this change (never fail on items listed under `Out of Scope`). Emit any newly discovered diff-bounded UX defect as `TC-R1-UX-01`, `TC-R1-UX-02`, ... under `## Test Case Results`.
-   - **Round 2+ (`Freeze State: FROZEN` in `qa-testcases.md`):** Check `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`), reuse `$ARTIFACTS_DIR/evidence/ux-check.mjs` if present, and **only** re-verify unresolved `TC-*` cases plus `TC-*` cases affected by the fix delta — do NOT invent new exploratory cases on untouched areas.
-2. Use the repository's preview command for any interactive checks (`docs/agents/browser-verification.md` if present; prefer `--ephemeral-db` when supported to avoid manual DB/sign-up setup). When starting it directly, parse `URL=...` and `PID=...` and stop that PID on exit.
-3. **Consolidated single-pass browser audit (do NOT stop after the first defect):**
-   First run any repository-provided browser verification command named in the contract or `docs/agents/browser-verification.md`, and use its case results and evidence paths to report the matching ledger `TC-*` entries.
-   For multi-state, viewport, theme, contrast, DOM, keyboard, and screenshot verification, write and run **one reusable Playwright script** (`$ARTIFACTS_DIR/evidence/ux-check.mjs`) in a single execution to cover the required flows, capture `after-*.png` screenshots, measure overflow/focus-contrast, and collect console/network errors — rather than issuing dozens of sequential `agent-browser` CLI calls. Use `agent-browser` only for targeted interactive probing where a live snapshot is needed, and on Round 2+ reuse or extend `$ARTIFACTS_DIR/evidence/ux-check.mjs` for unresolved/delta-affected cases only.
-   Complete **all** applicable checks before deciding `passed`:
-   - **Contract & Scope:** Verify every required state, visible/accessible label, action hierarchy, and error/empty/cancellation/scope flow. For a launch-only preview, open each declared route and verify its static marker, reporting visible product controls or demo flows outside the slice as blocking scope defects.
-   - **Responsive Layout & Overflow:** Exercise all viewports required by the contract or repo guidance (defaulting to representative desktop and narrow mobile sizes such as `1280×800` and `320×800` when unspecified). Verify zero unintended page-wide horizontal overflow (`scrollWidth <= innerWidth`), zero clipped or overlapping controls, and proper overlay/menu containment.
-   - **Keyboard Navigation & Focus-Visible Contrast:** Verify full keyboard reachability (`Tab`, `Enter`/`Space`, arrow keys, `Escape` focus restoration, and busy/disabled focus retention). Measure contrast of readable text and **keyboard focus indicators** against adjacent surfaces in the supported theme(s) (check both dark and light if supported): a background tint below **3:1** (WCAG 1.4.11 non-text contrast) without a clear outline/ring is a blocking defect, not "visible focus".
-   - **Runtime Health & Performance Budgets:** Inspect console and network logs, separating expected negative-test responses (e.g. deliberate `401`/`412`/`413`/aborted fault tests) from unexpected runtime or request errors. When the contract specifies a performance or off-main-thread requirement (e.g. no main-thread tasks `>= 50 ms`), capture a browser trace/timing run and attribute every over-budget task to its trigger (UI activation/re-render vs. worker work vs. unrelated harness overhead); never wave off an over-budget task without attribution.
-4. Capture **change-driven After screenshots** to `$ARTIFACTS_DIR/evidence/after-<slug>.png` that directly prove what this slice changed or added (proportional to scope: 1–2 focused shots for a localized change, up to ~6 non-redundant shots for a multi-state component or flow — never pad with untouched views, and never omit key changed interactive states like popovers, menus, dialogs, or error states just to fit a fixed quota), then stop the preview server using `PID`:
-   - **Match Before pairs when present:** if `$ARTIFACTS_DIR/evidence/before.md` lists `before-<slug>.png` baselines for modified existing UI, capture matching `after-<slug>.png` shots at the **same route, viewport, and framing** so Before/After comparisons align apples-to-apples.
-   - **Showcase new surfaces & interactive states by what changed:** name each shot by the concrete state/deliverable it proves (e.g., `after-slash-command-menu.png`, `after-validation-error.png`, `after-toolbar-320.png`). Only include mobile/320px screenshots in PR evidence when responsive layout, wrapping, or mobile behavior is changed or explicitly required by the contract (still verify responsive overflow in your script as applicable). Prefer element/section captures or scrolled framing when the changed component sits inside a long page.
-   - Optionally write `$ARTIFACTS_DIR/evidence/after-manifest.json` (`[{ "file": "after-...", "label": "...", "pairKey": "..." }]`) for clear PR captions, and remove any obsolete `after-*.png` left over from earlier rounds if its state was renamed.
-5. Open and inspect every captured screenshot. For a launch-only preview, check the static marker and scope. For product UI, evaluate layout, hierarchy, readable contrast, accessible names, keyboard paths and focus, error recovery, and fidelity to the supplied references. Treat failures that block a required user task or violate an explicit requirement as blocking.
-6. Write a concise black-box report to `$ARTIFACTS_DIR/evidence/ux-report.md` listing:
-   - `## Test Case Results` reporting EVERY UI-applicable `TC-*` from `qa-testcases.md` as `- TC-01: PASS | FAIL — <note>` (never omit an assigned case or emit `N/A`; plus `- TC-R1-UX-01: FAIL — <note>` only on Round 1 if a new diff-bounded defect was found)
-   - Prior round UX checklist (`[FIXED]` / `[STILL OPEN]`, if Round 2+)
-   - Flows exercised and states verified (PASS / FAIL)
-   - Visual hierarchy, surface contrast (including measured focus-ring contrast), and layout-metaphor assessment (citing exact screenshot filenames)
-   - Console / network errors observed (if any)
-   - Performance trace summary (when applicable)
-   - **All** concrete UX defects found across the entire sweep (blocking vs non-blocking, each citing screenshot filename or trace + observable defect + concrete fix)
-   - Screenshot inventory
+1. **Collect contract scope:** Read `$INPUTS.contract_path`, `$ARTIFACTS_DIR/pr-feedback.md` (if present), `$ARTIFACTS_DIR/qa-testcases.md`, and any linked UI brief for `Required UI States`, UI `TC-*` (and any UI `TC-REV-*`) cases, explicit viewport/theme/accessibility/performance requirements, and `Out of Scope` exclusions.
+   - **Round 1 (when `round-feedback.md` does not exist yet):** Verify every UI-applicable `TC-*` in `qa-testcases.md`. When `Freeze State` is `LOCKED_CONTRACT_ONLY` (`standard` tier), report only the contract `TC-*` IDs (do not add `TC-R1-*`). When `Freeze State` is `OPEN` (`strict` tier), emit `TC-R1-UX-01`, ... only for a concrete blocking failure observed directly in the changed UI.
+   - **Round 2+ (`round-feedback.md` exists / `Freeze State: FROZEN`):** Verify `Open Blocking Items to Verify Fixed` first (`[FIXED]` / `[STILL OPEN]`), reuse `$ARTIFACTS_DIR/evidence/ux-check.mjs` if present, and re-verify only unresolved or delta-affected `TC-*` cases.
+2. **Start preview cleanly:** Run `$INPUTS.preview_cmd` (or the command in `docs/agents/browser-verification.md` if present; prefer `--ephemeral-db` when supported). Parse `URL=...` and `PID=...`, and always stop `PID` before exiting.
+3. **Run one consolidated browser pass:**
+   - Run any repo-provided browser verification script named in the contract first and map its results to matching `TC-*` entries.
+   - Otherwise run **one reusable Playwright script** (`$ARTIFACTS_DIR/evidence/ux-check.mjs`) covering all required UI `TC-*` flows, capturing `after-*.png` screenshots, and recording unexpected console/page/network errors (distinguishing expected negative-test HTTP statuses). Use `agent-browser` only for quick interactive probes.
+   - Verify these categories **as applicable to the contract**:
+     - **Contract States & Interactions (always):** Every required UI state, visible label, interactive flow, and error/empty state works end-to-end without crashes, broken renders, or blocked controls. For launch-only previews, verify static route markers and flag unrequested product controls.
+     - **Layout & Overflow:** Check desktop viewport (e.g. `1280×800`) for clipped, overlapping, or unusable controls and unintended horizontal overflow. Check narrow mobile (`320×800`) or additional viewports **when required by the contract or when responsive/mobile layout changed**.
+     - **Accessibility, Theme & Performance (when required):** Verify keyboard reachability, dark/light theme contrast, or performance budgets **when specified in the contract or repo guidance** (always flag broken keyboard traps or completely unreadable text).
+4. **Capture change-driven After screenshots** to `$ARTIFACTS_DIR/evidence/after-<slug>.png` (proportional to scope, typically 1–4 non-redundant shots proving what changed), then stop the preview server (`PID`):
+   - When `$ARTIFACTS_DIR/evidence/before.md` lists `before-<slug>.png` baselines, match the same `<slug>`, route, viewport, and framing for apples-to-apples comparisons.
+   - Optionally write `$ARTIFACTS_DIR/evidence/after-manifest.json` (`[{ "file": "after-...", "label": "...", "pairKey": "..." }]`) and delete obsolete `after-*.png` from earlier rounds if renamed.
+5. **Inspect every captured PNG** with your file-reading tool. Ground every blocking finding in direct observation (`after-<slug>.png` or live runtime log). Treat failures that break a `TC-*`, block a user task, or violate an explicit contract requirement as **blocking**; record subjective visual polish as **non-blocking**.
+6. **Write `$ARTIFACTS_DIR/evidence/ux-report.md`** containing:
+   - `## Test Case Results`: EVERY UI-applicable `TC-*` as `- TC-01: PASS | FAIL — <note>` (never omit an assigned case or emit `N/A`; add `- TC-R1-UX-01: FAIL — <note>` only on Round 1 when `Freeze State: OPEN` in `strict` mode for concrete blockers)
+   - `## Prior Round Checklist` (`[FIXED]` / `[STILL OPEN]`, Round 2+ only)
+   - States verified, console/network errors (if any), blocking vs. non-blocking findings, and screenshot inventory.
 
-## Evidence Bar
-
-- Collect every observable blocking defect across all categories above in one round before returning — never short-circuit after finding a single issue.
-- Ground every defect in what you directly observed in live interaction, browser trace, or inside the `after-*.png` image (`after-default.png`: ...). Never invent hypothetical flaws, and never bikeshed subjective taste (e.g. swapping two equally clear brand colors) unless hierarchy, contrast, or domain usability fails.
-- If the preview server fails to boot due to a bug in this change, return `passed: false` with the exact startup error.
-- If an external host limitation prevents the check, including unavailable browser tooling, record the affected cases as unverified in `ux-report.md` and `summary`. Set `passed: false` when a required case is unverified.
+## External Failures
+- If the preview server fails to boot due to this change, return `passed: false` with the exact startup error.
+- If missing host browser tooling prevents verifying a required case, record it as unverified in `ux-report.md` and return `passed: false`.
 
 ## Output
 
 Return the required JSON:
-- `passed`: `true` if zero blocking UX/visual/domain-metaphor defects were observed; `false` otherwise.
-- `screenshots`: list of `after-*.png` filenames written under `$ARTIFACTS_DIR/evidence/`.
-- `findings`: list of concise blocking finding lines covering every blocking defect found in this pass (empty array when `passed: true`).
-- `summary`: one-sentence summary of what was verified in the browser.
+- `passed`: `true` when zero blocking defects remain and all required UI cases pass; `false` otherwise.
+- `screenshots`: list of `after-*.png` filenames under `$ARTIFACTS_DIR/evidence/`.
+- `findings`: concise blocking finding lines (empty array when `passed: true`).
+- `summary`: one-sentence summary of what was verified.
