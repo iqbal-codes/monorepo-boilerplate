@@ -31,7 +31,7 @@ $INPUTS.operator_guidance
 3. **Verify locally before handing back to `factory:review`:**
    - Run `$INPUTS.verification_command` and confirm exit code `0`.
    - **Conditional browser check:** run `$INPUTS.preview_cmd` + the repository’s browser tooling **only when** `$INPUTS.has_ui` is `true`, `$INPUTS.preview_cmd` is non-empty, AND this round fixed a failing UX/visual/layout/route defect. When prior UX already passed and this round only changed non-visual logic, tests, or scripts covered by automated unit/integration tests, skip preview startup and screenshot loops. When you do run a preview, always stop it using `PID`, refresh the relevant change-driven `$ARTIFACTS_DIR/evidence/impl-<state>.png` (matching any `before-<slug>.png` pair framing when applicable), and visually inspect every refreshed PNG.
-   - Update `$ARTIFACTS_DIR/implementation.md` (keeping full fix & declined-item context for QA) AND refresh `$ARTIFACTS_DIR/pr-summary.md` (`## Summary` visual/diff-sketch + `## Merge Danger` One-way/Two-way door & Blast Radius) so the PR description reflects the final shape.
+   - Update `$ARTIFACTS_DIR/implementation.md` (keeping full fix & declined-item context for QA) AND refresh `$ARTIFACTS_DIR/pr-summary.md` (`## Summary` visual/diff-sketch, `## Evidence` concrete Before/After execution/test proof without hand-written screenshot URLs, and `## Merge Danger` One-way/Two-way door & Blast Radius) so the PR description reflects the final shape.
    - Ensure changes are saved on disk (the publisher script will commit and push cleanly to the PR).
 
 ## Output

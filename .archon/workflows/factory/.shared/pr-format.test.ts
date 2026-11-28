@@ -12,7 +12,7 @@ import {
 } from './pr-format.ts';
 
 describe('PR formatting & review comment extraction', () => {
-  test('parsePrSummarySections reads Summary and Merge Danger cleanly', () => {
+  test('parsePrSummarySections reads Summary, Evidence, and Merge Danger cleanly', () => {
     const md = [
       '## Summary',
       '',
@@ -20,6 +20,11 @@ describe('PR formatting & review comment extraction', () => {
       ' <MenuGrid>',
       '+  <QuickAddBadge />',
       '```',
+      '',
+      '## Evidence',
+      '',
+      '- **Before:** `POST /customers` allowed unnormalized phone strings.',
+      '- **After:** rejects invalid E.164 with `400 BAD_REQUEST`; `bun test packages/api` -> 18 pass.',
       '',
       '## Merge Danger',
       '',
@@ -29,6 +34,7 @@ describe('PR formatting & review comment extraction', () => {
 
     const parsed = parsePrSummarySections(md);
     expect(parsed.summary).toContain('+  <QuickAddBadge />');
+    expect(parsed.evidence).toContain('rejects invalid E.164');
     expect(parsed.mergeDanger).toContain('**Door:** Two-way');
     expect(parsed.mergeDanger).toContain('**Blast Radius:** UI');
   });
@@ -224,5 +230,34 @@ describe('PR formatting & review comment extraction', () => {
     expect(mixedMd).toContain('| **Delete Dialog** |');
     expect(mixedMd).toContain('<details><summary>Unmatched Before Captures (1)</summary>');
     expect(mixedMd).not.toContain('| — |');
+
+    // Non-UI / Backend PR: renders execution/behavioral evidence directly without generic boilerplate
+    const backendMd = renderEvidenceMarkdown({
+      before: [],
+      after: [],
+      afterLabel: 'After (Implementer)',
+      executionEvidence: [
+        '- **Before:** `customers.archive()` silently accepted already-archived IDs without recording an audit event.',
+        '- **After:** Returns `409 CONFLICT` on duplicate archive and appends `customer_event` (`bun test packages/api` -> 24 pass).',
+      ].join('\n'),
+      beforeSummary: 'Base master (abc1234).',
+      fallbackAfterLine: 'Commit def5678 undergoing Mechanical Gate.',
+    }).join('\n');
+
+    expect(backendMd).toContain('Returns `409 CONFLICT`');
+    expect(backendMd).not.toContain('Base master (abc1234).');
+    expect(backendMd).not.toContain('undergoing Mechanical Gate');
+
+    // Full-stack PR: combines visual evidence and execution/behavioral evidence cleanly
+    const fullStackMd = renderEvidenceMarkdown({
+      before: [],
+      after: [{ name: 'impl-rich-text-populated.png', url: 'https://example.com/rt.png' }],
+      afterLabel: 'After (Implementer)',
+      executionEvidence: '- `bun test packages/ui/tests/rich-text.test.tsx`: 15 pass (JSONContent round-trip, `toMarkdown()`, subpath isolation).',
+    }).join('\n');
+
+    expect(fullStackMd).toContain('### Visual Evidence — After (Implementer)');
+    expect(fullStackMd).toContain('### Execution & Behavioral Evidence');
+    expect(fullStackMd).toContain('15 pass (JSONContent round-trip');
   });
 });
