@@ -67,7 +67,7 @@ export function ActiveFilterChips({
             size="xs"
             data-slot="active-filter-chips-clear"
             onClick={onClearAll}
-            className="shrink-0 whitespace-nowrap text-muted-foreground hover:text-foreground"
+            className="hidden shrink-0 whitespace-nowrap text-muted-foreground hover:text-foreground sm:inline-flex"
           >
             <XIcon data-icon="inline-start" aria-hidden="true" />
             {clearAllLabel}

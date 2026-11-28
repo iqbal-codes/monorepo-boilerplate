@@ -559,6 +559,45 @@ describe("Mobile ListToolbar & DataTable enhancements", () => {
       expect(rail.className).toContain("sm:flex-wrap");
       const chip = view.host.querySelector("[data-slot='active-filter-chip']")!;
       expect(chip.className).toContain("shrink-0");
+      const clearBtn = view.host.querySelector("[data-slot='active-filter-chips-clear']")!;
+      expect(clearBtn.className).toContain("hidden");
+      expect(clearBtn.className).toContain("sm:inline-flex");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test("ListToolbar filter drawer renders Clear filters in the modal footer", async () => {
+    let resetCalls = 0;
+    const view = await renderInDom(
+      <ListToolbar
+        search={{ label: "Search", value: "", onChange: () => {} }}
+        filterSheet={{
+          activeCount: 1,
+          title: "Filter customers",
+          content: <span>Status options</span>,
+          onReset: () => {
+            resetCalls += 1;
+          },
+          resetDisabled: false,
+        }}
+      />,
+    );
+    try {
+      const filterBtn = [...view.host.querySelectorAll('button[aria-haspopup="dialog"]')].find(
+        (btn) => btn.textContent?.startsWith("Filters"),
+      )!;
+      await act(async () => {
+        click(filterBtn);
+      });
+      const clearBtn = [
+        ...document.body.querySelectorAll("[data-slot='drawer-content'] button"),
+      ].find((btn) => btn.textContent?.trim() === "Clear filters")!;
+      expect(clearBtn).toBeTruthy();
+      await act(async () => {
+        click(clearBtn);
+      });
+      expect(resetCalls).toBe(1);
     } finally {
       await view.cleanup();
     }

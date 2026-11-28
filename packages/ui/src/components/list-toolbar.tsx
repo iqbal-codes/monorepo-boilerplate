@@ -50,6 +50,7 @@ export type ListToolbarFilterSheet = {
   content?: ReactNode;
   onReset?: () => void;
   resetDisabled?: boolean;
+  resetLabel?: string;
 };
 
 export type ListToolbarSortOption = {
@@ -200,11 +201,11 @@ export function ListToolbar({
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="lg"
               aria-haspopup="dialog"
               aria-expanded={filterOpen}
               aria-label={activeCount > 0 ? `Filters (${activeCount} active)` : "Filters"}
-              className={cn("px-2.5", activeCount > 0 && "border-primary/40")}
+              className={cn("px-3", activeCount > 0 && "border-primary/40")}
               onClick={() => setFilterOpen(true)}
             >
               <SlidersHorizontalIcon aria-hidden />
@@ -241,7 +242,7 @@ export function ListToolbar({
                       disabled={filterSheet.resetDisabled}
                       onClick={filterSheet.onReset}
                     >
-                      Reset
+                      {filterSheet.resetLabel ?? "Clear filters"}
                     </Button>
                   ) : null}
                   <Button type="button" className="flex-1" onClick={() => setFilterOpen(false)}>
@@ -258,7 +259,7 @@ export function ListToolbar({
             <Button
               type="button"
               variant="outline"
-              size="icon-sm"
+              size="icon-lg"
               aria-haspopup="dialog"
               aria-expanded={sortOpen}
               aria-label="Sort"
