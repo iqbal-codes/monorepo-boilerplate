@@ -62,6 +62,8 @@ describe("navMain & navShortcuts active resolution", () => {
     expect(resolveActiveRoute("/demo/fields", navShortcuts)?.name).toBe("Fields");
     expect(resolveActiveRoute("/demo/blocks", navShortcuts)?.name).toBe("Blocks");
     expect(resolveActiveRoute("/demo/kanban", navShortcuts)?.name).toBe("Kanban");
+    expect(resolveActiveRoute("/demo/calendar", navShortcuts)?.name).toBe("Calendar");
+    expect(resolveActiveRoute("/demo/tree", navShortcuts)?.name).toBe("Tree");
   });
 
   test("does not depend on removed static isActive config", () => {
